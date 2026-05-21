@@ -92,6 +92,21 @@ impl App {
             return;
         }
 
+        // Diff mode: h/l and arrow keys navigate files
+        if matches!(self.mode, Mode::Diff(_)) {
+            match code {
+                KeyCode::Char('h') | KeyCode::Left => {
+                    self.move_up();
+                    return;
+                }
+                KeyCode::Char('l') | KeyCode::Right => {
+                    self.move_down();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         let Some(action) = self.keybindings.resolve(code) else {
             return;
         };

@@ -11,10 +11,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
 
     if let Mode::Diff(state) = &app.mode {
-        let title = format!(
-            "gluck - Diff: {} vs {}",
-            state.from.short_id, state.to.short_id
-        );
+        let title = format!("DIFF: {} ↦ {}", state.from.short_id, state.to.short_id);
         layout::render_header(frame, header, &title);
 
         if state.diff_result.files.is_empty() {
@@ -53,7 +50,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     }
 
     let hints = [
-        ("[j/k]", "file"),
+        ("[j/k/←/→]", "file"),
         ("[J/K]", "scroll"),
         ("[^P/^N]", "commit"),
         ("[s]", "view"),

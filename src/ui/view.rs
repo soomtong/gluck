@@ -14,7 +14,7 @@ fn entry_depth(entry: &crate::git::tree::FileEntry) -> usize {
 
 pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
-    layout::render_header(frame, header, "gluck - View Mode");
+    layout::render_header(frame, header, "VIEW");
 
     if let Mode::View(state) = &app.mode {
         let (left, right) = layout::split_horizontal(body, 36);

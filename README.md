@@ -1,13 +1,72 @@
 # gluck
 
-> **g**it **l**og **u**nfolds **c**ode into **k**nowledge.
+[![Version](https://img.shields.io/badge/version-0.1.1-blue)](https://github.com/soomtong/gluck)
+[![Rust](https://img.shields.io/badge/rust-edition%202021-orange)](https://www.rust-lang.org)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+> **g**it **l**og, **u**nfolds **c**ode into **k**nowledge.
 >
 > 커밋 로그라는 시간의 주름을 따라 접힌 코드가 펼쳐진다 — 읽고, 비교하고, 이해하는 행위 끝에 지식이 남는다.
 >
 > 바이너리 이름 `glc`는 손가락이 기억하는 명령어: home row에서 벗어나지 않고 `g l c`.
 > **gluck**은 그 뒤에 *u*ndoing과 *k*nowing을 더한, 프로젝트의 온전한 이름이다.
 
-Git history file viewer — 터미널에서 git history의 파일을 탐색하고 읽는 도구.
+**Git history file viewer** — 터미널에서 git history의 파일을 탐색하고 읽는 TUI 도구.
+
+## 설치
+
+### Cargo
+
+```bash
+cargo install --git https://github.com/soomtong/gluck
+```
+
+### Homebrew (macOS)
+
+```bash
+brew tap soomtong/tap
+brew install glc
+```
+
+## 사용법
+
+```bash
+glc                 # 현재 디렉토리의 git history 열기
+glc /path/to/repo   # 특정 저장소 열기
+```
+
+### Pick 모드 — 커밋 탐색
+
+| 키 | 동작 |
+|----|------|
+| `j` / `k` / `↑` / `↓` | 커밋 이동 |
+| `Enter` / `l` | 선택 커밋 View 모드 |
+| `d` | 선택 커밋 Diff 모드 |
+| `p` | 작성자 필터 토글 |
+| `.` | .gitignore 파일 필터 토글 |
+| `/` | 커밋 검색 |
+| `q` | 종료 |
+
+### View 모드 — 파일 읽기
+
+| 키 | 동작 |
+|----|------|
+| `j` / `k` / `↑` / `↓` | 파일 트리 / 내용 이동 |
+| `Tab` | 파일 목록 ↔ 내용 전환 |
+| `h` / `Esc` | Pick 모드 |
+| `q` | 종료 |
+
+### Diff 모드 — 변경 비교
+
+| 키 | 동작 |
+|----|------|
+| `j` / `k` / `h` / `l` / `←` / `→` / `↑` / `↓` | 변경 파일 이동 |
+| `J` / `K` | diff 내용 스크롤 |
+| `s` | side-by-side / unified 토글 |
+| `Tab` | View 모드 |
+| `Esc` | Pick 모드 |
+| `^N` / `^P` | 다음/이전 커밋 쌍 이동 |
+| `q` | 종료 |
 
 ## 배경
 

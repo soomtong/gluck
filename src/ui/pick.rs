@@ -157,7 +157,7 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     if app.searching {
         layout::render_search_bar(frame, header, &app.search_input);
     } else {
-        layout::render_header(frame, header, "gluck - Pick Mode");
+        layout::render_header(frame, header, "PICK");
     }
 
     if let Mode::Pick(state) = &app.mode {

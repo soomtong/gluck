@@ -135,8 +135,10 @@ impl KeyBindings {
         let mut bindings = std::collections::HashMap::new();
         bindings.insert(KeyCode::Char('j'), Action::MoveDown);
         bindings.insert(KeyCode::Down, Action::MoveDown);
+        bindings.insert(KeyCode::Right, Action::MoveDown);
         bindings.insert(KeyCode::Char('k'), Action::MoveUp);
         bindings.insert(KeyCode::Up, Action::MoveUp);
+        bindings.insert(KeyCode::Left, Action::MoveUp);
         bindings.insert(KeyCode::Enter, Action::Enter);
         bindings.insert(KeyCode::Char('l'), Action::Enter);
         bindings.insert(KeyCode::Esc, Action::Back);

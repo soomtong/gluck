@@ -22,10 +22,24 @@ pub fn split_horizontal(area: Rect, left_width: u16) -> (Rect, Rect) {
     (left, right)
 }
 
-pub fn render_header(frame: &mut ratatui::Frame, area: Rect, title: &str) {
-    let header = Paragraph::new(format!(" {} ", title))
-        .style(Style::new().white().bold())
-        .block(Block::bordered().style(Style::new().dark_gray()));
+pub fn render_header(frame: &mut ratatui::Frame, area: Rect, mode: &str) {
+    let logo = Span::styled("◆ ", Style::new().magenta());
+    let name = Span::styled("glc", Style::new().white().bold());
+    let version = Span::styled(" v0.1.1", Style::new().dark_gray());
+    let sep = Span::styled(" · ", Style::new().dark_gray());
+    let mode_span = Span::styled(mode, Style::new().cyan().bold());
+    let project = Span::styled(" GLUCK", Style::new().white().not_bold());
+    let tagline = Span::styled(
+        " git log unfolds code into knowledge",
+        Style::new().dark_gray().italic(),
+    );
+
+    let line = Line::from(vec![
+        logo, name, version, sep, mode_span, project, tagline,
+    ]);
+
+    let header = Paragraph::new(line)
+        .block(Block::bordered().border_style(Style::new().dark_gray()));
     frame.render_widget(header, area);
 }
 
