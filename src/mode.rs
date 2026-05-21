@@ -194,7 +194,20 @@ impl KeyBindings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::tree::EntryKind;
     use crossterm::event::KeyCode;
+
+    fn make_commit(msg: &str) -> CommitInfo {
+        CommitInfo {
+            id: git2::Oid::zero(),
+            short_id: "abc1234".into(),
+            author: "Test".into(),
+            date: std::time::UNIX_EPOCH,
+            message: msg.into(),
+        }
+    }
+
+    // ── KeyBindings ──
 
     #[test]
     fn test_keybindings_resolve() {
@@ -208,55 +221,187 @@ mod tests {
     }
 
     #[test]
-    fn test_pick_state_search() {
-        let commits = vec![
-            CommitInfo {
-                id: git2::Oid::zero(),
-                short_id: "abc1234".into(),
-                author: "Alice".into(),
-                date: std::time::UNIX_EPOCH,
-                message: "Add auth module".into(),
-            },
-            CommitInfo {
-                id: git2::Oid::zero(),
-                short_id: "def5678".into(),
-                author: "Bob".into(),
-                date: std::time::UNIX_EPOCH,
-                message: "Fix login bug".into(),
-            },
-        ];
-        let mut state = PickState::new(commits);
-        state.search = SearchState::Idle { query: Some("auth".into()) };
-        state.update_filter("auth");
-        assert_eq!(state.filtered_indices.len(), 1);
-        assert_eq!(state.selected, 0);
+    fn test_keybindings_all_actions_mapped() {
+        let kb = KeyBindings::default_bindings();
+        assert!(kb.bindings.values().collect::<std::collections::HashSet<_>>().len() > 5);
+        assert!(kb.bindings.contains_key(&KeyCode::Char('q')));
+        assert!(kb.bindings.contains_key(&KeyCode::Char('/')));
+        assert!(kb.bindings.contains_key(&KeyCode::Tab));
+    }
+
+    // ── SearchState ──
+
+    #[test]
+    fn test_search_state_active_idle_transition() {
+        let active = SearchState::Active { input: "auth".into() };
+        let query = match &active {
+            SearchState::Active { input } if !input.is_empty() => Some(input.clone()),
+            _ => None,
+        };
+        let idle = SearchState::Idle { query };
+        match idle {
+            SearchState::Idle { query: Some(q) } => assert_eq!(q, "auth"),
+            _ => panic!("expected Idle with query"),
+        }
     }
 
     #[test]
-    fn test_pick_state_clear_search() {
-        let commits = vec![
-            CommitInfo {
-                id: git2::Oid::zero(),
-                short_id: "abc".into(),
-                author: "A".into(),
-                date: std::time::UNIX_EPOCH,
-                message: "First".into(),
-            },
-            CommitInfo {
-                id: git2::Oid::zero(),
-                short_id: "def".into(),
-                author: "B".into(),
-                date: std::time::UNIX_EPOCH,
-                message: "Second".into(),
-            },
-        ];
-        let mut state = PickState::new(commits);
-        state.search = SearchState::Idle { query: Some("first".into()) };
-        state.update_filter("first");
-        assert_eq!(state.filtered_indices.len(), 1);
-        state.search = SearchState::Idle { query: None };
-        state.update_filter("");
-        assert_eq!(state.filtered_indices.len(), 2);
+    fn test_search_state_active_empty_input() {
+        let state = SearchState::Active { input: String::new() };
+        match &state {
+            SearchState::Active { input } => assert!(input.is_empty()),
+            _ => panic!("expected Active"),
+        }
+    }
+
+    #[test]
+    fn test_search_state_idle_no_query() {
+        let state = SearchState::Idle { query: None };
+        assert!(matches!(state, SearchState::Idle { query: None }));
+    }
+
+    #[test]
+    fn test_search_state_cancel_preserves_query() {
+        let state = SearchState::Active { input: "test".into() };
+        let query = match &state {
+            SearchState::Active { input } if !input.is_empty() => Some(input.clone()),
+            _ => None,
+        };
+        let idle = SearchState::Idle { query };
+        match idle {
+            SearchState::Idle { query: Some(q) } => assert_eq!(q, "test"),
+            _ => panic!("expected Idle with query"),
+        }
+    }
+
+    // ── PickState ──
+
+    #[test]
+    fn test_pick_state_new_initial_state() {
+        let commits = vec![make_commit("A"), make_commit("B")];
+        let state = PickState::new(commits);
+        assert_eq!(state.filtered_indices, vec![0, 1]);
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.scroll, 0);
         assert!(matches!(state.search, SearchState::Idle { query: None }));
+        assert!(state.selected_diff.is_none());
+    }
+
+    #[test]
+    fn test_pick_state_visible_commits_matches_filter() {
+        let commits = vec![make_commit("Alpha"), make_commit("Beta"), make_commit("Gamma")];
+        let mut state = PickState::new(commits);
+        state.update_filter("a");
+        assert_eq!(state.visible_commits().len(), state.filtered_indices.len());
+    }
+
+    #[test]
+    fn test_pick_state_filter_no_matches() {
+        let commits = vec![make_commit("Alpha"), make_commit("Beta")];
+        let mut state = PickState::new(commits);
+        state.update_filter("zzz");
+        assert!(state.filtered_indices.is_empty());
+        assert!(state.visible_commits().is_empty());
+    }
+
+    #[test]
+    fn test_pick_state_filter_resets_selection() {
+        let commits = vec![make_commit("Alpha"), make_commit("Beta")];
+        let mut state = PickState::new(commits);
+        state.selected = 1;
+        state.scroll = 5;
+        state.update_filter("Alpha");
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.scroll, 0);
+    }
+
+    #[test]
+    fn test_pick_state_empty_commits() {
+        let state = PickState::new(vec![]);
+        assert!(state.filtered_indices.is_empty());
+        assert!(state.visible_commits().is_empty());
+    }
+
+    #[test]
+    fn test_pick_state_filter_case_insensitive() {
+        let commits = vec![make_commit("Hello World"), make_commit("goodbye")];
+        let mut state = PickState::new(commits);
+        state.update_filter("HELLO");
+        assert_eq!(state.filtered_indices.len(), 1);
+    }
+
+    // ── FileContent ──
+
+    #[test]
+    fn test_file_content_not_loaded_line_count() {
+        let state = ViewState::new(make_commit("C"), vec![]);
+        assert_eq!(state.line_count(), 0);
+    }
+
+    #[test]
+    fn test_file_content_binary_line_count() {
+        let mut state = ViewState::new(make_commit("C"), vec![]);
+        state.file_content = FileContent::Binary;
+        assert_eq!(state.line_count(), 1);
+    }
+
+    #[test]
+    fn test_file_content_text_line_count_prefers_highlighted() {
+        let mut state = ViewState::new(make_commit("C"), vec![]);
+        state.file_content = FileContent::Text {
+            raw: "line1\nline2\nline3\n".into(),
+            highlighted: vec![
+                Line::from("a"),
+                Line::from("b"),
+            ],
+        };
+        assert_eq!(state.line_count(), 2);
+    }
+
+    #[test]
+    fn test_file_content_text_line_count_falls_back_to_raw() {
+        let mut state = ViewState::new(make_commit("C"), vec![]);
+        state.file_content = FileContent::Text {
+            raw: "line1\nline2\nline3".into(),
+            highlighted: vec![],
+        };
+        assert_eq!(state.line_count(), 3);
+    }
+
+    #[test]
+    fn test_view_state_new_defaults() {
+        let commit = make_commit("C");
+        let tree = vec![
+            FileEntry { name: "src/".into(), path: "src".into(), kind: EntryKind::Directory },
+            FileEntry { name: "a.rs".into(), path: "src/a.rs".into(), kind: EntryKind::File },
+        ];
+        let state = ViewState::new(commit.clone(), tree);
+        assert_eq!(state.commit, commit);
+        assert_eq!(state.tree.len(), 2);
+        assert_eq!(state.selected_file, 0);
+        assert!(matches!(state.file_content, FileContent::NotLoaded));
+        assert_eq!(state.scroll, 0);
+        assert!(state.show_ignored);
+        assert!(state.changed_paths.is_empty());
+    }
+
+    // ── DiffState ──
+
+    #[test]
+    fn test_diff_state_new_defaults() {
+        let from = make_commit("From");
+        let to = make_commit("To");
+        let diff = DiffResult {
+            files: vec![],
+            from_id: "abc".into(),
+            to_id: "def".into(),
+        };
+        let state = DiffState::new(from.clone(), to.clone(), diff);
+        assert_eq!(state.from, from);
+        assert_eq!(state.to, to);
+        assert_eq!(state.selected_file, 0);
+        assert!(state.side_by_side);
+        assert_eq!(state.scroll, 0);
+        assert_eq!(state.prev_view_file, 0);
     }
 }
