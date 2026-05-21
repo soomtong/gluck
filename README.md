@@ -9,7 +9,7 @@
 > 커밋 로그라는 시간의 주름을 따라 접힌 코드가 펼쳐진다 — 읽고, 비교하고, 이해하는 행위 끝에 지식이 남는다.
 >
 > 바이너리 이름 `glc`는 손가락이 기억하는 명령어: home row에서 벗어나지 않고 `g l c`.
-> **gluck**은 그 뒤에 *u*ndoing과 *k*nowing을 더한, 프로젝트의 온전한 이름이다.
+> **gluck**은 그 뒤에 *u*nfolding과 *k*nowing을 더한, 프로젝트의 온전한 이름이다.
 
 **Git history file viewer** — 터미널에서 git history의 파일을 탐색하고 읽는 TUI 도구.
 
