@@ -109,6 +109,8 @@ impl App {
         match code {
             KeyCode::Char('c') => self.should_quit = true,
             KeyCode::Char('d') => self.debug_overlay = !self.debug_overlay,
+            KeyCode::Char('p') => self.prev_commit(),
+            KeyCode::Char('n') => self.next_commit(),
             _ => {}
         }
     }
