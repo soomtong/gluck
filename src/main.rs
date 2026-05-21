@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event::{self, Event, KeyEventKind, KeyModifiers};
 use gluck::app::App;
 use gluck::cli::Cli;
 use gluck::debug;
@@ -39,10 +39,10 @@ fn run_app(
 
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
-                if key.modifiers.is_empty() {
-                    app.handle_key(key.code);
-                } else {
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
                     app.handle_ctrl_key(key.code);
+                } else {
+                    app.handle_key(key.code);
                 }
             }
             Event::Resize(_, _) => {}
