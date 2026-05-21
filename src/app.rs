@@ -356,7 +356,17 @@ impl App {
             _ => None,
         };
 
-        let Some((path, commit)) = to_load else { return };
+        if let Mode::View(vs) = &mut self.mode {
+            vs.scroll = 0;
+        }
+
+        let Some((path, commit)) = to_load else {
+            if let Mode::View(vs) = &mut self.mode {
+                vs.content = None;
+                vs.highlighted.clear();
+            }
+            return;
+        };
 
         if let Ok(content) = read_blob(&self.repo, &commit, &path) {
             let highlighted = self.highlight.highlight(&content, &path);
