@@ -1,5 +1,5 @@
 use crate::app::App;
-use crate::git::diff::{DiffFile, DiffLineKind};
+use crate::git::diff::{DiffFile, DiffLine};
 use crate::mode::Mode;
 use crate::ui::layout;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -29,7 +29,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                 .files
                 .iter()
                 .map(|f| {
-                    f.new_path.as_deref().or(f.old_path.as_deref()).unwrap_or("?").to_string()
+                    f.change.as_ref().map(|c| c.path()).unwrap_or("?").to_string()
                 })
                 .collect();
 
@@ -60,11 +60,11 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     layout::render_footer(frame, footer, &hints);
 }
 
-fn style_for_kind(kind: &DiffLineKind) -> Style {
-    match kind {
-        DiffLineKind::Added => Style::new().fg(Color::Green),
-        DiffLineKind::Removed => Style::new().fg(Color::Red),
-        DiffLineKind::Context => Style::new(),
+fn style_for_line(line: &DiffLine) -> Style {
+    match line {
+        DiffLine::Added { .. } => Style::new().fg(Color::Green),
+        DiffLine::Removed { .. } => Style::new().fg(Color::Red),
+        DiffLine::Context { .. } => Style::new(),
     }
 }
 
@@ -78,23 +78,26 @@ fn render_unified(
         .lines
         .iter()
         .map(|dl| {
-            let prefix = match dl.kind {
-                DiffLineKind::Added => "+",
-                DiffLineKind::Removed => "-",
-                DiffLineKind::Context => " ",
+            let (prefix, line_no, content, style) = match dl {
+                DiffLine::Context { old_line_no, new_line_no, content } => {
+                    let no = if old_line_no == new_line_no {
+                        format!(" {:>4}     ", old_line_no)
+                    } else {
+                        format!(" {:>4},{:<4} ", old_line_no, new_line_no)
+                    };
+                    (" ", no, content.clone(), style_for_line(dl))
+                }
+                DiffLine::Removed { line_no, content } => {
+                    ("-", format!(" {:>4},_    ", line_no), content.clone(), style_for_line(dl))
+                }
+                DiffLine::Added { line_no, content } => {
+                    ("+", format!(" _,{:<4}    ", line_no), content.clone(), style_for_line(dl))
+                }
             };
-            let line_no = match (dl.old_line_no, dl.new_line_no) {
-                (Some(o), Some(n)) if o == n => format!(" {:>4}     ", o),
-                (Some(o), Some(n)) => format!(" {:>4},{:<4} ", o, n),
-                (Some(o), None) => format!(" {:>4},_    ", o),
-                (None, Some(n)) => format!(" _,{:<4}    ", n),
-                (None, None) => String::from("          "),
-            };
-            let style = style_for_kind(&dl.kind);
             Line::from(vec![
                 Span::styled(prefix, style),
                 Span::styled(line_no, Style::new().dark_gray()),
-                Span::styled(dl.content.clone(), style),
+                Span::styled(content, style),
             ])
         })
         .collect();
@@ -117,21 +120,23 @@ fn render_side_by_side(
     let old_lines: Vec<Line> = file
         .lines
         .iter()
-        .filter(|dl| dl.kind != DiffLineKind::Added)
+        .filter(|dl| !matches!(dl, DiffLine::Added { .. }))
         .map(|dl| {
-            let prefix = match dl.kind {
-                DiffLineKind::Removed => "-",
-                _ => " ",
+            let (prefix, line_no) = match dl {
+                DiffLine::Removed { line_no, .. } => ("-", format!(" {:>4} ", line_no)),
+                DiffLine::Context { old_line_no, .. } => (" ", format!(" {:>4} ", old_line_no)),
+                DiffLine::Added { .. } => unreachable!(),
             };
-            let line_no = dl
-                .old_line_no
-                .map(|n| format!(" {:>4} ", n))
-                .unwrap_or_else(|| String::from("      "));
-            let style = style_for_kind(&dl.kind);
+            let content = match dl {
+                DiffLine::Context { content, .. } => content,
+                DiffLine::Removed { content, .. } => content,
+                DiffLine::Added { .. } => unreachable!(),
+            };
+            let style = style_for_line(dl);
             Line::from(vec![
                 Span::styled(prefix, style),
                 Span::styled(line_no, Style::new().dark_gray()),
-                Span::styled(dl.content.clone(), style),
+                Span::styled(content.clone(), style),
             ])
         })
         .collect();
@@ -139,21 +144,23 @@ fn render_side_by_side(
     let new_lines: Vec<Line> = file
         .lines
         .iter()
-        .filter(|dl| dl.kind != DiffLineKind::Removed)
+        .filter(|dl| !matches!(dl, DiffLine::Removed { .. }))
         .map(|dl| {
-            let prefix = match dl.kind {
-                DiffLineKind::Added => "+",
-                _ => " ",
+            let (prefix, line_no) = match dl {
+                DiffLine::Added { line_no, .. } => ("+", format!(" {:>4} ", line_no)),
+                DiffLine::Context { new_line_no, .. } => (" ", format!(" {:>4} ", new_line_no)),
+                DiffLine::Removed { .. } => unreachable!(),
             };
-            let line_no = dl
-                .new_line_no
-                .map(|n| format!(" {:>4} ", n))
-                .unwrap_or_else(|| String::from("      "));
-            let style = style_for_kind(&dl.kind);
+            let content = match dl {
+                DiffLine::Context { content, .. } => content,
+                DiffLine::Added { content, .. } => content,
+                DiffLine::Removed { .. } => unreachable!(),
+            };
+            let style = style_for_line(dl);
             Line::from(vec![
                 Span::styled(prefix, style),
                 Span::styled(line_no, Style::new().dark_gray()),
-                Span::styled(dl.content.clone(), style),
+                Span::styled(content.clone(), style),
             ])
         })
         .collect();
