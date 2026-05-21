@@ -111,6 +111,8 @@ pub enum Action {
     Quit,
     ToggleView,
     SwitchMode,
+    NextCommit,
+    PrevCommit,
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +136,8 @@ impl KeyBindings {
         bindings.insert(KeyCode::Char('q'), Action::Quit);
         bindings.insert(KeyCode::Char('s'), Action::ToggleView);
         bindings.insert(KeyCode::Tab, Action::SwitchMode);
+        bindings.insert(KeyCode::Char('J'), Action::PrevCommit);
+        bindings.insert(KeyCode::Char('K'), Action::NextCommit);
         Self { bindings }
     }
 

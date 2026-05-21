@@ -99,6 +99,8 @@ impl App {
             Action::Back => self.back(),
             Action::ToggleView => self.toggle_view(),
             Action::SwitchMode => self.switch_mode(),
+            Action::NextCommit => self.next_commit(),
+            Action::PrevCommit => self.prev_commit(),
         }
     }
 
@@ -239,6 +241,38 @@ impl App {
             }
             Mode::Pick(_) => {}
         }
+    }
+
+    fn next_commit(&mut self) {
+        let current_id = match &self.mode {
+            Mode::View(s) => s.commit.id,
+            _ => return,
+        };
+        let commits = list_commits(&self.repo).unwrap_or_default();
+        let Some(idx) = commits.iter().position(|c| c.id == current_id) else { return };
+        if idx == 0 {
+            return;
+        }
+        let commit = commits[idx - 1].clone();
+        let tree = list_tree(&self.repo, &commit).unwrap_or_default();
+        self.mode = Mode::View(ViewState::new(commit, tree));
+        self.load_view_file();
+    }
+
+    fn prev_commit(&mut self) {
+        let current_id = match &self.mode {
+            Mode::View(s) => s.commit.id,
+            _ => return,
+        };
+        let commits = list_commits(&self.repo).unwrap_or_default();
+        let Some(idx) = commits.iter().position(|c| c.id == current_id) else { return };
+        if idx + 1 >= commits.len() {
+            return;
+        }
+        let commit = commits[idx + 1].clone();
+        let tree = list_tree(&self.repo, &commit).unwrap_or_default();
+        self.mode = Mode::View(ViewState::new(commit, tree));
+        self.load_view_file();
     }
 
     fn toggle_view(&mut self) {
