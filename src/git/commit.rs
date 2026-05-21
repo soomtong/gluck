@@ -3,7 +3,7 @@ use anyhow::Result;
 use git2::Oid;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CommitInfo {
     pub id: Oid,
     pub short_id: String,

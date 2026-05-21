@@ -10,7 +10,7 @@ pub enum DiffLineKind {
     Removed,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DiffLine {
     pub old_line_no: Option<u32>,
     pub new_line_no: Option<u32>,
@@ -18,14 +18,14 @@ pub struct DiffLine {
     pub kind: DiffLineKind,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct DiffFile {
     pub old_path: Option<String>,
     pub new_path: Option<String>,
     pub lines: Vec<DiffLine>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DiffResult {
     pub files: Vec<DiffFile>,
     pub from_id: String,

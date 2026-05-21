@@ -9,7 +9,7 @@ pub enum EntryKind {
     Directory,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FileEntry {
     pub name: String,
     pub path: String,
