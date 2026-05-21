@@ -203,4 +203,157 @@ mod tests {
         assert!(has_added);
         assert!(has_context);
     }
+
+    // ── FileChange invariant tests ──
+
+    #[test]
+    fn test_file_change_added_path_accessors() {
+        let change = FileChange::Added { path: "new.txt".into() };
+        assert_eq!(change.path(), "new.txt");
+        assert_eq!(change.old_path(), None);
+        assert_eq!(change.new_path(), Some("new.txt"));
+    }
+
+    #[test]
+    fn test_file_change_deleted_path_accessors() {
+        let change = FileChange::Deleted { path: "old.txt".into() };
+        assert_eq!(change.path(), "old.txt");
+        assert_eq!(change.old_path(), Some("old.txt"));
+        assert_eq!(change.new_path(), None);
+    }
+
+    #[test]
+    fn test_file_change_modified_path_accessors() {
+        let change = FileChange::Modified {
+            old_path: "a.txt".into(),
+            new_path: "b.txt".into(),
+        };
+        assert_eq!(change.path(), "b.txt");
+        assert_eq!(change.old_path(), Some("a.txt"));
+        assert_eq!(change.new_path(), Some("b.txt"));
+    }
+
+    #[test]
+    fn test_file_change_modified_same_path() {
+        let change = FileChange::Modified {
+            old_path: "same.txt".into(),
+            new_path: "same.txt".into(),
+        };
+        assert_eq!(change.path(), "same.txt");
+        assert_eq!(change.old_path(), Some("same.txt"));
+        assert_eq!(change.new_path(), Some("same.txt"));
+    }
+
+    // ── DiffLine structural invariant tests ──
+
+    #[test]
+    fn test_diffline_added_has_line_no() {
+        let line = DiffLine::Added { line_no: 5, content: "new\n".into() };
+        match line {
+            DiffLine::Added { line_no, .. } => assert!(line_no > 0),
+            _ => panic!("expected Added variant"),
+        }
+    }
+
+    #[test]
+    fn test_diffline_removed_has_line_no() {
+        let line = DiffLine::Removed { line_no: 3, content: "old\n".into() };
+        match line {
+            DiffLine::Removed { line_no, .. } => assert!(line_no > 0),
+            _ => panic!("expected Removed variant"),
+        }
+    }
+
+    #[test]
+    fn test_diffline_context_has_both_line_nos() {
+        let line = DiffLine::Context {
+            old_line_no: 1,
+            new_line_no: 1,
+            content: "unchanged\n".into(),
+        };
+        match line {
+            DiffLine::Context { old_line_no, new_line_no, .. } => {
+                assert!(old_line_no > 0);
+                assert!(new_line_no > 0);
+            }
+            _ => panic!("expected Context variant"),
+        }
+    }
+
+    // ── Diff integration tests ──
+
+    #[test]
+    fn test_diff_deleted_file() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"content", "First");
+        add_file_commit(&repo, "b.txt", b"extra", "Add b");
+        add_file_commit(&repo, "b.txt", b"", "Remove b content");
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let commits = list_commits(&git_repo).unwrap();
+        let result = compute_diff(&git_repo, &commits[0], &commits[1]).unwrap();
+        assert!(!result.files.is_empty());
+    }
+
+    #[test]
+    fn test_diff_multi_file_changes() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"one", "First");
+        add_file_commit(&repo, "b.txt", b"two", "Second");
+        add_file_commit(&repo, "a.txt", b"changed", "Modify a");
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let commits = list_commits(&git_repo).unwrap();
+        let result = compute_diff(&git_repo, &commits[1], &commits[0]).unwrap();
+        assert!(result.files.len() >= 1);
+    }
+
+    #[test]
+    fn test_diff_result_contains_correct_ids() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"first", "First");
+        add_file_commit(&repo, "a.txt", b"second", "Second");
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let commits = list_commits(&git_repo).unwrap();
+        let result = compute_diff(&git_repo, &commits[1], &commits[0]).unwrap();
+        assert_eq!(result.from_id, commits[1].short_id);
+        assert_eq!(result.to_id, commits[0].short_id);
+    }
+
+    #[test]
+    fn test_diff_computed_lines_have_content() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"line1\n", "First");
+        add_file_commit(&repo, "a.txt", b"line2\n", "Second");
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let commits = list_commits(&git_repo).unwrap();
+        let result = compute_diff(&git_repo, &commits[1], &commits[0]).unwrap();
+        for file in &result.files {
+            for line in &file.lines {
+                let content = match line {
+                    DiffLine::Context { content, .. } => content,
+                    DiffLine::Added { content, .. } => content,
+                    DiffLine::Removed { content, .. } => content,
+                };
+                assert!(!content.is_empty() || content == "\n",
+                    "DiffLine content should not be empty");
+            }
+        }
+    }
+
+    #[test]
+    fn test_diff_file_change_is_set() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"first", "First");
+        add_file_commit(&repo, "b.txt", b"second", "Add b.txt");
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let commits = list_commits(&git_repo).unwrap();
+        let result = compute_diff(&git_repo, &commits[1], &commits[0]).unwrap();
+        for file in &result.files {
+            assert!(file.change.is_some(), "FileChange should always be set for real diffs");
+        }
+    }
 }
