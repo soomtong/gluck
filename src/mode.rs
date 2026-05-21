@@ -11,12 +11,18 @@ pub enum Mode {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum SearchState {
+    Idle { query: Option<String> },
+    Active { input: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PickState {
     pub commits: Vec<CommitInfo>,
     pub filtered_indices: Vec<usize>,
     pub selected: usize,
     pub scroll: usize,
-    pub query: Option<String>,
+    pub search: SearchState,
     pub selected_diff: Option<DiffResult>,
 }
 
@@ -28,7 +34,7 @@ impl PickState {
             filtered_indices,
             selected: 0,
             scroll: 0,
-            query: None,
+            search: SearchState::Idle { query: None },
             selected_diff: None,
         }
     }
@@ -40,13 +46,21 @@ impl PickState {
             .collect()
     }
 
-    pub fn apply_search(&mut self, query: &str) {
+    pub fn query(&self) -> Option<&str> {
+        match &self.search {
+            SearchState::Idle { query } => query.as_deref(),
+            SearchState::Active { input } => {
+                if input.is_empty() {
+                    None
+                } else {
+                    Some(input)
+                }
+            }
+        }
+    }
+
+    pub fn update_filter(&mut self, query: &str) {
         use crate::git::commit::search_commits;
-        self.query = if query.is_empty() {
-            None
-        } else {
-            Some(query.to_string())
-        };
         self.filtered_indices = if query.is_empty() {
             (0..self.commits.len()).collect()
         } else {
@@ -58,12 +72,18 @@ impl PickState {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum FileContent {
+    NotLoaded,
+    Binary,
+    Text { raw: String, highlighted: Vec<Line<'static>> },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ViewState {
     pub commit: CommitInfo,
     pub tree: Vec<FileEntry>,
     pub selected_file: usize,
-    pub content: Option<String>,
-    pub highlighted: Vec<Line<'static>>,
+    pub file_content: FileContent,
     pub scroll: usize,
     pub show_ignored: bool,
     pub changed_paths: std::collections::HashSet<String>,
@@ -75,11 +95,24 @@ impl ViewState {
             commit,
             tree,
             selected_file: 0,
-            content: None,
-            highlighted: Vec::new(),
+            file_content: FileContent::NotLoaded,
             scroll: 0,
             show_ignored: true,
             changed_paths: std::collections::HashSet::new(),
+        }
+    }
+
+    pub fn line_count(&self) -> usize {
+        match &self.file_content {
+            FileContent::NotLoaded => 0,
+            FileContent::Binary => 1,
+            FileContent::Text { highlighted, raw } => {
+                if !highlighted.is_empty() {
+                    highlighted.len()
+                } else {
+                    raw.lines().count()
+                }
+            }
         }
     }
 }
@@ -193,7 +226,8 @@ mod tests {
             },
         ];
         let mut state = PickState::new(commits);
-        state.apply_search("auth");
+        state.search = SearchState::Idle { query: Some("auth".into()) };
+        state.update_filter("auth");
         assert_eq!(state.filtered_indices.len(), 1);
         assert_eq!(state.selected, 0);
     }
@@ -217,10 +251,12 @@ mod tests {
             },
         ];
         let mut state = PickState::new(commits);
-        state.apply_search("first");
+        state.search = SearchState::Idle { query: Some("first".into()) };
+        state.update_filter("first");
         assert_eq!(state.filtered_indices.len(), 1);
-        state.apply_search("");
+        state.search = SearchState::Idle { query: None };
+        state.update_filter("");
         assert_eq!(state.filtered_indices.len(), 2);
-        assert!(state.query.is_none());
+        assert!(matches!(state.search, SearchState::Idle { query: None }));
     }
 }

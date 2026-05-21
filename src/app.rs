@@ -10,17 +10,14 @@ use crate::ui;
 use anyhow::Result;
 use crossterm::event::KeyCode;
 use ratatui::Frame;
-use ratatui::style::{Style, Stylize};
-use ratatui::text::{Line, Span};
 use std::collections::HashSet;
 
 pub struct App {
     pub mode: Mode,
     pub repo: GitRepo,
+    pub commits: Vec<CommitInfo>,
     pub keybindings: KeyBindings,
     pub should_quit: bool,
-    pub searching: bool,
-    pub search_input: String,
     pub debug_overlay: bool,
     pub highlight: HighlightEngine,
 }
@@ -28,14 +25,13 @@ pub struct App {
 impl App {
     pub fn new(repo: GitRepo) -> Result<Self> {
         let commits = list_commits(&repo)?;
-        let pick_state = PickState::new(commits);
+        let pick_state = PickState::new(commits.clone());
         let mut app = Self {
             mode: Mode::Pick(pick_state),
             repo,
+            commits,
             keybindings: KeyBindings::default_bindings(),
             should_quit: false,
-            searching: false,
-            search_input: String::new(),
             debug_overlay: false,
             highlight: HighlightEngine::new(),
         };
@@ -87,7 +83,8 @@ impl App {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) {
-        if self.searching {
+        let is_searching = matches!(&self.mode, Mode::Pick(p) if matches!(p.search, crate::mode::SearchState::Active { .. }));
+        if is_searching {
             self.handle_search_input(code);
             return;
         }
@@ -136,38 +133,51 @@ impl App {
     }
 
     fn start_search(&mut self) {
-        if let Mode::Pick(_) = &self.mode {
-            self.searching = true;
-            self.search_input.clear();
+        if let Mode::Pick(state) = &mut self.mode {
+            state.search = crate::mode::SearchState::Active {
+                input: String::new(),
+            };
         }
     }
 
     fn handle_search_input(&mut self, code: KeyCode) {
-        match code {
-            KeyCode::Esc => {
-                self.searching = false;
-                self.search_input.clear();
+        use crate::mode::SearchState;
+        let query = {
+            let Mode::Pick(state) = &mut self.mode else { return };
+            match code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    let query = match &state.search {
+                        SearchState::Active { input } if !input.is_empty() => Some(input.clone()),
+                        _ => None,
+                    };
+                    state.search = SearchState::Idle { query };
+                    None
+                }
+                KeyCode::Backspace => {
+                    if let SearchState::Active { input } = &mut state.search {
+                        input.pop();
+                        Some(input.clone())
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Char(c) => {
+                    if let SearchState::Active { input } = &mut state.search {
+                        input.push(c);
+                        Some(input.clone())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
             }
-            KeyCode::Enter => {
-                self.searching = false;
+        };
+        if let Some(q) = query {
+            if let Mode::Pick(state) = &mut self.mode {
+                state.update_filter(&q);
             }
-            KeyCode::Backspace => {
-                self.search_input.pop();
-                self.apply_search();
-            }
-            KeyCode::Char(c) => {
-                self.search_input.push(c);
-                self.apply_search();
-            }
-            _ => {}
         }
-    }
-
-    fn apply_search(&mut self) {
-        if let Mode::Pick(state) = &mut self.mode {
-            state.apply_search(&self.search_input);
-            self.update_pick_diff();
-        }
+        self.update_pick_diff();
     }
 
     fn move_down(&mut self) {
@@ -232,8 +242,7 @@ impl App {
     fn back(&mut self) {
         match &self.mode {
             Mode::View(_) | Mode::Diff(_) => {
-                let commits = list_commits(&self.repo).unwrap_or_default();
-                let mut pick = PickState::new(commits);
+                let mut pick = PickState::new(self.commits.clone());
                 if let Mode::View(vs) = &self.mode {
                     pick.selected = pick
                         .commits
@@ -257,12 +266,11 @@ impl App {
     fn switch_mode(&mut self) {
         match &self.mode {
             Mode::View(state) => {
-                let commits = list_commits(&self.repo).unwrap_or_default();
-                let current_idx = commits.iter().position(|c| c.id == state.commit.id);
+                let current_idx = self.commits.iter().position(|c| c.id == state.commit.id);
                 if let Some(idx) = current_idx {
-                    if idx + 1 < commits.len() {
-                        let from = commits[idx + 1].clone();
-                        let to = commits[idx].clone();
+                    if idx + 1 < self.commits.len() {
+                        let from = self.commits[idx + 1].clone();
+                        let to = self.commits[idx].clone();
                         let prev = state.selected_file;
                         if let Ok(diff_result) = compute_diff(&self.repo, &from, &to) {
                             let mut diff_state = DiffState::new(from, to, diff_result);
@@ -274,9 +282,8 @@ impl App {
             }
             Mode::Diff(state) => {
                 let prev = state.prev_view_file;
-                let commits = list_commits(&self.repo).unwrap_or_default();
-                if let Some(idx) = commits.iter().position(|c| c.id == state.to.id) {
-                    let commit = commits[idx].clone();
+                if let Some(idx) = self.commits.iter().position(|c| c.id == state.to.id) {
+                    let commit = self.commits[idx].clone();
                     let mut view_state = self.make_view_state(commit);
                     view_state.selected_file = prev.min(view_state.tree.len().saturating_sub(1));
                     self.mode = Mode::View(view_state);
@@ -290,21 +297,19 @@ impl App {
     fn next_commit(&mut self) {
         match &self.mode {
             Mode::View(s) => {
-                let commits = list_commits(&self.repo).unwrap_or_default();
-                let Some(idx) = commits.iter().position(|c| c.id == s.commit.id) else { return };
+                let Some(idx) = self.commits.iter().position(|c| c.id == s.commit.id) else { return };
                 if idx == 0 {
                     return;
                 }
                 let prev_path = self.current_view_file_path();
-                let commit = commits[idx - 1].clone();
+                let commit = self.commits[idx - 1].clone();
                 let mut state = self.make_view_state(commit);
                 restore_file_selection(&mut state, prev_path);
                 self.mode = Mode::View(state);
                 self.load_view_file();
             }
             Mode::Diff(s) => {
-                let commits = list_commits(&self.repo).unwrap_or_default();
-                let Some(idx) = commits.iter().position(|c| c.id == s.to.id) else { return };
+                let Some(idx) = self.commits.iter().position(|c| c.id == s.to.id) else { return };
                 if idx == 0 {
                     return;
                 }
@@ -313,17 +318,19 @@ impl App {
                     .diff_result
                     .files
                     .get(s.selected_file)
-                    .and_then(|f| f.new_path.as_deref().or(f.old_path.as_deref()))
+                    .and_then(|f| f.change.as_ref().map(|c| c.path()))
                     .map(|p| p.to_string());
-                let from = commits[idx].clone();
-                let to = commits[idx - 1].clone();
+                let from = self.commits[idx].clone();
+                let to = self.commits[idx - 1].clone();
                 if let Ok(diff_result) = compute_diff(&self.repo, &from, &to) {
                     let mut state = DiffState::new(from, to, diff_result);
                     state.prev_view_file = prev_file;
                     if let Some(ref path) = prev_file_path {
                         if let Some(pos) = state.diff_result.files.iter().position(|f| {
-                            f.new_path.as_deref() == Some(path.as_str())
-                                || f.old_path.as_deref() == Some(path.as_str())
+                            f.change.as_ref().is_some_and(|c| {
+                                c.new_path() == Some(path.as_str())
+                                    || c.old_path() == Some(path.as_str())
+                            })
                         }) {
                             state.selected_file = pos;
                         }
@@ -338,22 +345,20 @@ impl App {
     fn prev_commit(&mut self) {
         match &self.mode {
             Mode::View(s) => {
-                let commits = list_commits(&self.repo).unwrap_or_default();
-                let Some(idx) = commits.iter().position(|c| c.id == s.commit.id) else { return };
-                if idx + 1 >= commits.len() {
+                let Some(idx) = self.commits.iter().position(|c| c.id == s.commit.id) else { return };
+                if idx + 1 >= self.commits.len() {
                     return;
                 }
                 let prev_path = self.current_view_file_path();
-                let commit = commits[idx + 1].clone();
+                let commit = self.commits[idx + 1].clone();
                 let mut state = self.make_view_state(commit);
                 restore_file_selection(&mut state, prev_path);
                 self.mode = Mode::View(state);
                 self.load_view_file();
             }
             Mode::Diff(s) => {
-                let commits = list_commits(&self.repo).unwrap_or_default();
-                let Some(idx) = commits.iter().position(|c| c.id == s.to.id) else { return };
-                if idx + 2 >= commits.len() {
+                let Some(idx) = self.commits.iter().position(|c| c.id == s.to.id) else { return };
+                if idx + 2 >= self.commits.len() {
                     return;
                 }
                 let prev_file = s.selected_file;
@@ -361,17 +366,19 @@ impl App {
                     .diff_result
                     .files
                     .get(s.selected_file)
-                    .and_then(|f| f.new_path.as_deref().or(f.old_path.as_deref()))
+                    .and_then(|f| f.change.as_ref().map(|c| c.path()))
                     .map(|p| p.to_string());
-                let from = commits[idx + 2].clone();
-                let to = commits[idx + 1].clone();
+                let from = self.commits[idx + 2].clone();
+                let to = self.commits[idx + 1].clone();
                 if let Ok(diff_result) = compute_diff(&self.repo, &from, &to) {
                     let mut state = DiffState::new(from, to, diff_result);
                     state.prev_view_file = prev_file;
                     if let Some(ref path) = prev_file_path {
                         if let Some(pos) = state.diff_result.files.iter().position(|f| {
-                            f.new_path.as_deref() == Some(path.as_str())
-                                || f.old_path.as_deref() == Some(path.as_str())
+                            f.change.as_ref().is_some_and(|c| {
+                                c.new_path() == Some(path.as_str())
+                                    || c.old_path() == Some(path.as_str())
+                            })
                         }) {
                             state.selected_file = pos;
                         }
@@ -393,12 +400,7 @@ impl App {
     fn page_down(&mut self) {
         match &mut self.mode {
             Mode::View(state) => {
-                let line_count = if !state.highlighted.is_empty() {
-                    state.highlighted.len()
-                } else {
-                    state.content.as_deref().map(|c| c.lines().count()).unwrap_or(0)
-                };
-                let max_scroll = line_count.saturating_sub(1);
+                let max_scroll = state.line_count().saturating_sub(1);
                 state.scroll = (state.scroll + 20).min(max_scroll);
             }
             Mode::Diff(state) => {
@@ -447,8 +449,7 @@ impl App {
             state.selected_file = prev_path
                 .and_then(|p| state.tree.iter().position(|e| e.path == p))
                 .unwrap_or(0);
-            state.content = None;
-            state.highlighted.clear();
+            state.file_content = crate::mode::FileContent::NotLoaded;
             self.load_view_file();
         }
     }
@@ -473,7 +474,7 @@ impl App {
             .map(|r| {
                 r.files
                     .iter()
-                    .filter_map(|f| f.new_path.clone().or_else(|| f.old_path.clone()))
+                    .filter_map(|f| f.change.as_ref().map(|c| c.path().to_string()))
                     .collect()
             })
             .unwrap_or_default()
@@ -486,8 +487,7 @@ impl App {
             commit,
             tree,
             selected_file: 0,
-            content: None,
-            highlighted: Vec::new(),
+            file_content: crate::mode::FileContent::NotLoaded,
             scroll: 0,
             show_ignored: true,
             changed_paths,
@@ -528,8 +528,7 @@ impl App {
 
         let Some((path, commit)) = to_load else {
             if let Mode::View(vs) = &mut self.mode {
-                vs.content = None;
-                vs.highlighted.clear();
+                vs.file_content = crate::mode::FileContent::NotLoaded;
             }
             return;
         };
@@ -537,19 +536,15 @@ impl App {
         let binary = is_binary_blob(&self.repo, &commit, &path).unwrap_or(false);
         if binary {
             if let Mode::View(vs) = &mut self.mode {
-                vs.content = None;
-                vs.highlighted = vec![
-                    Line::from(Span::styled(
-                        "(binary file)",
-                        Style::new().dark_gray(),
-                    ))
-                ];
+                vs.file_content = crate::mode::FileContent::Binary;
             }
         } else if let Ok(content) = read_blob(&self.repo, &commit, &path) {
             let highlighted = self.highlight.highlight(&content, &path);
             if let Mode::View(vs) = &mut self.mode {
-                vs.content = Some(content);
-                vs.highlighted = highlighted;
+                vs.file_content = crate::mode::FileContent::Text {
+                    raw: content,
+                    highlighted,
+                };
             }
         }
     }
@@ -645,11 +640,13 @@ mod tests {
     fn test_search_mode() {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Char('/'));
-        assert!(app.searching);
+        let Mode::Pick(state) = &app.mode else { panic!("expected pick mode") };
+        assert!(matches!(state.search, crate::mode::SearchState::Active { .. }));
         app.handle_key(KeyCode::Char('t'));
         app.handle_key(KeyCode::Char('h'));
         app.handle_key(KeyCode::Enter);
-        assert!(!app.searching);
+        let Mode::Pick(state) = &app.mode else { panic!("expected pick mode") };
+        assert!(matches!(state.search, crate::mode::SearchState::Idle { .. }));
     }
 
     #[test]
@@ -669,10 +666,12 @@ mod tests {
         let Mode::View(state) = &app.mode else {
             panic!("expected view mode");
         };
-        assert!(state.content.as_deref().unwrap().contains("fn main"));
-        assert!(!state.highlighted.is_empty());
-        assert!(state
-            .highlighted
+        let crate::mode::FileContent::Text { raw, highlighted } = &state.file_content else {
+            panic!("expected text content");
+        };
+        assert!(raw.contains("fn main"));
+        assert!(!highlighted.is_empty());
+        assert!(highlighted
             .iter()
             .flat_map(|line| line.spans.iter())
             .any(|span| span.style.fg.is_some()));
@@ -695,9 +694,11 @@ mod tests {
         let Mode::View(state) = &app.mode else {
             panic!("expected view mode");
         };
-        assert!(!state.highlighted.is_empty());
-        assert!(state
-            .highlighted
+        let crate::mode::FileContent::Text { highlighted, .. } = &state.file_content else {
+            panic!("expected text content");
+        };
+        assert!(!highlighted.is_empty());
+        assert!(highlighted
             .iter()
             .flat_map(|line| line.spans.iter())
             .any(|span| span.style.fg.is_some()));

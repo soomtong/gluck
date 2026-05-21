@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::git::tree::EntryKind;
-use crate::mode::Mode;
+use crate::mode::{FileContent, Mode};
 use crate::ui::layout;
 use ratatui::layout::Rect;
 use ratatui::style::{Style, Stylize};
@@ -55,39 +55,37 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             .map(|e| e.path.as_str())
             .unwrap_or("no file");
 
-        let lines: Vec<Line> = if !state.highlighted.is_empty() {
-            state
-                .highlighted
-                .iter()
-                .enumerate()
-                .map(|(i, line)| {
-                    let mut spans = vec![Span::styled(
-                        format!("{:>4} ", i + 1),
-                        Style::new().dark_gray(),
-                    )];
-                    spans.extend(line.spans.clone());
-                    Line::from(spans)
-                })
-                .collect()
-        } else {
-            let content_text = state
-                .content
-                .as_deref()
-                .unwrap_or("(select a file to view)");
-
-            content_text
-                .lines()
-                .enumerate()
-                .map(|(i, line)| {
-                    Line::from(vec![
-                        Span::styled(
-                            format!("{:>4} ", i + 1),
-                            Style::new().dark_gray(),
-                        ),
-                        Span::raw(line.to_string()),
-                    ])
-                })
-                .collect()
+        let lines: Vec<Line> = match &state.file_content {
+            FileContent::NotLoaded => {
+                vec![Line::from(Span::styled(
+                    "(select a file to view)",
+                    Style::new().dark_gray(),
+                ))]
+            }
+            FileContent::Binary => {
+                vec![Line::from(Span::styled(
+                    "(binary file)",
+                    Style::new().dark_gray(),
+                ))]
+            }
+            FileContent::Text { highlighted, .. } => {
+                if !highlighted.is_empty() {
+                    highlighted
+                        .iter()
+                        .enumerate()
+                        .map(|(i, line)| {
+                            let mut spans = vec![Span::styled(
+                                format!("{:>4} ", i + 1),
+                                Style::new().dark_gray(),
+                            )];
+                            spans.extend(line.spans.clone());
+                            Line::from(spans)
+                        })
+                        .collect()
+                } else {
+                    vec![Line::raw("")]
+                }
+            }
         };
 
         let content = Paragraph::new(lines)

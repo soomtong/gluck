@@ -1,5 +1,5 @@
 use crate::app::App;
-use crate::git::diff::{DiffFile, DiffLineKind};
+use crate::git::diff::{DiffFile, DiffLine};
 use crate::mode::Mode;
 use crate::ui::layout;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -56,12 +56,12 @@ fn file_stats(file: &DiffFile) -> (usize, usize) {
     let added = file
         .lines
         .iter()
-        .filter(|l| l.kind == DiffLineKind::Added)
+        .filter(|l| matches!(l, DiffLine::Added { .. }))
         .count();
     let removed = file
         .lines
         .iter()
-        .filter(|l| l.kind == DiffLineKind::Removed)
+        .filter(|l| matches!(l, DiffLine::Removed { .. }))
         .count();
     (added, removed)
 }
@@ -114,9 +114,9 @@ fn render_commit_detail(
                 .iter()
                 .map(|f| {
                     let path = f
-                        .new_path
-                        .as_deref()
-                        .or(f.old_path.as_deref())
+                        .change
+                        .as_ref()
+                        .map(|c| c.path())
                         .unwrap_or("?");
                     let (added, removed) = file_stats(f);
                     let stats = if added > 0 || removed > 0 {
@@ -154,8 +154,12 @@ fn render_commit_detail(
 pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
 
-    if app.searching {
-        layout::render_search_bar(frame, header, &app.search_input);
+    if let Mode::Pick(state) = &app.mode {
+        if let crate::mode::SearchState::Active { input } = &state.search {
+            layout::render_search_bar(frame, header, input);
+        } else {
+            layout::render_header(frame, header, "PICK");
+        }
     } else {
         layout::render_header(frame, header, "PICK");
     }
