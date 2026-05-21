@@ -1,5 +1,4 @@
-use crate::git::repo::GitRepo;
-use anyhow::Result;
+use crate::git::repo::{GitError, GitRepo};
 use git2::Oid;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -29,7 +28,7 @@ impl CommitInfo {
     }
 }
 
-pub fn list_commits(repo: &GitRepo) -> Result<Vec<CommitInfo>> {
+pub fn list_commits(repo: &GitRepo) -> Result<Vec<CommitInfo>, GitError> {
     let repository = repo.repository();
     let mut revwalk = repository.revwalk()?;
     revwalk.push_head()?;

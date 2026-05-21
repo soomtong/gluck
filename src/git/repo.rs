@@ -1,14 +1,31 @@
-use anyhow::{Context, Result};
 use git2::Repository;
 use std::path::Path;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum GitError {
+    #[error("Not a git repository: {0}")]
+    RepositoryNotFound(String),
+    #[error("Commit not found: {0}")]
+    CommitNotFound(String),
+    #[error("Tree walk failed: {0}")]
+    TreeWalkFailed(String),
+    #[error("Blob read failed: {0}")]
+    BlobReadFailed(String),
+    #[error("Diff computation failed: {0}")]
+    DiffFailed(String),
+    #[error("Git internal error: {0}")]
+    Internal(#[from] git2::Error),
+}
 
 pub struct GitRepo {
     repo: Repository,
 }
 
 impl GitRepo {
-    pub fn open(path: &Path) -> Result<Self> {
-        let repo = Repository::discover(path).context("Not a git repository")?;
+    pub fn open(path: &Path) -> Result<Self, GitError> {
+        let repo = Repository::discover(path)
+            .map_err(|e| GitError::RepositoryNotFound(format!("{}: {}", path.display(), e)))?;
         Ok(Self { repo })
     }
 

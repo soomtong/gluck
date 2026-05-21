@@ -1,6 +1,5 @@
-use crate::git::repo::GitRepo;
+use crate::git::repo::{GitError, GitRepo};
 use crate::git::commit::CommitInfo;
-use anyhow::Result;
 use git2::ObjectType;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -16,7 +15,7 @@ pub struct FileEntry {
     pub kind: EntryKind,
 }
 
-pub fn list_tree(repo: &GitRepo, commit: &CommitInfo) -> Result<Vec<FileEntry>> {
+pub fn list_tree(repo: &GitRepo, commit: &CommitInfo) -> Result<Vec<FileEntry>, GitError> {
     let repository = repo.repository();
     let git_commit = repository.find_commit(commit.id)?;
     let tree = git_commit.tree()?;
@@ -30,7 +29,7 @@ fn walk_tree(
     tree: &git2::Tree,
     prefix: &str,
     entries: &mut Vec<FileEntry>,
-) -> Result<()> {
+) -> Result<(), GitError> {
     for entry in tree.iter() {
         let name = entry.name().unwrap_or("[binary]").to_string();
         let path = if prefix.is_empty() {
@@ -62,25 +61,25 @@ fn walk_tree(
     Ok(())
 }
 
-pub fn is_binary_blob(repo: &GitRepo, commit: &CommitInfo, path: &str) -> Result<bool> {
+pub fn is_binary_blob(repo: &GitRepo, commit: &CommitInfo, path: &str) -> Result<bool, GitError> {
     let repository = repo.repository();
     let git_commit = repository.find_commit(commit.id)?;
     let tree = git_commit.tree()?;
     let entry = tree.get_path(std::path::Path::new(path))?;
     let obj = entry.to_object(repository)?;
     let blob = obj.as_blob()
-        .ok_or_else(|| anyhow::anyhow!("Not a blob: {}", path))?;
+        .ok_or_else(|| GitError::BlobReadFailed(format!("Not a blob: {}", path)))?;
     Ok(blob.is_binary())
 }
 
-pub fn read_blob(repo: &GitRepo, commit: &CommitInfo, path: &str) -> Result<String> {
+pub fn read_blob(repo: &GitRepo, commit: &CommitInfo, path: &str) -> Result<String, GitError> {
     let repository = repo.repository();
     let git_commit = repository.find_commit(commit.id)?;
     let tree = git_commit.tree()?;
     let entry = tree.get_path(std::path::Path::new(path))?;
     let obj = entry.to_object(repository)?;
     let blob = obj.as_blob()
-        .ok_or_else(|| anyhow::anyhow!("Not a blob: {}", path))?;
+        .ok_or_else(|| GitError::BlobReadFailed(format!("Not a blob: {}", path)))?;
     let content = String::from_utf8_lossy(blob.content()).into_owned();
     Ok(content)
 }

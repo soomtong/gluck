@@ -5,5 +5,5 @@ pub mod tree;
 
 pub use commit::CommitInfo;
 pub use diff::DiffResult;
-pub use repo::GitRepo;
+pub use repo::{GitError, GitRepo};
 pub use tree::FileEntry;
