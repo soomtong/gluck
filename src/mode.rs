@@ -88,6 +88,7 @@ pub struct DiffState {
     pub selected_file: usize,
     pub side_by_side: bool,
     pub scroll: usize,
+    pub prev_view_file: usize,
 }
 
 impl DiffState {
@@ -99,6 +100,7 @@ impl DiffState {
             selected_file: 0,
             side_by_side: true,
             scroll: 0,
+            prev_view_file: 0,
         }
     }
 }

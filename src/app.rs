@@ -231,19 +231,24 @@ impl App {
                     if idx + 1 < commits.len() {
                         let from = commits[idx + 1].clone();
                         let to = commits[idx].clone();
+                        let prev = state.selected_file;
                         if let Ok(diff_result) = compute_diff(&self.repo, &from, &to) {
-                            let diff_state = DiffState::new(from, to, diff_result);
+                            let mut diff_state = DiffState::new(from, to, diff_result);
+                            diff_state.prev_view_file = prev;
                             self.mode = Mode::Diff(diff_state);
                         }
                     }
                 }
             }
             Mode::Diff(state) => {
+                let prev = state.prev_view_file;
                 let commits = list_commits(&self.repo).unwrap_or_default();
                 if let Some(idx) = commits.iter().position(|c| c.id == state.to.id) {
                     let commit = commits[idx].clone();
                     let tree = list_tree(&self.repo, &commit).unwrap_or_default();
-                    self.mode = Mode::View(ViewState::new(commit, tree));
+                    let mut view_state = ViewState::new(commit, tree);
+                    view_state.selected_file = prev.min(view_state.tree.len().saturating_sub(1));
+                    self.mode = Mode::View(view_state);
                     self.load_view_file();
                 }
             }
