@@ -209,6 +209,13 @@ impl App {
                         .position(|c| c.id == vs.commit.id)
                         .unwrap_or(0);
                 }
+                if let Mode::Diff(ds) = &self.mode {
+                    pick.selected = pick
+                        .commits
+                        .iter()
+                        .position(|c| c.id == ds.to.id)
+                        .unwrap_or(0);
+                }
                 self.mode = Mode::Pick(pick);
             }
             Mode::Pick(_) => {}
