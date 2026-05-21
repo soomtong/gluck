@@ -132,6 +132,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_rust_config() {
             self.configs.insert("rust".to_string(), config);
         }
+        if let Ok(config) = Self::make_markdown_config() {
+            self.configs.insert("markdown".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -143,6 +146,19 @@ impl HighlightEngine {
             "rust",
             tree_sitter_rust::HIGHLIGHTS_QUERY,
             tree_sitter_rust::INJECTIONS_QUERY,
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_markdown_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let language = tree_sitter_markdown_fork::language();
+        let mut config = HighlightConfiguration::new(
+            language,
+            "markdown",
+            MARKDOWN_HIGHLIGHTS_QUERY,
+            "",
             "",
         )?;
         config.configure(HIGHLIGHT_NAMES);
@@ -170,7 +186,41 @@ const HIGHLIGHT_NAMES: &[&str] = &[
     "variable.builtin",
     "variable.parameter",
     "comment",
+    "text.title",
+    "text.literal",
+    "text.emphasis",
+    "text.strong",
+    "text.uri",
+    "text.reference",
+    "punctuation.special",
+    "string.escape",
+    "none",
 ];
+
+const MARKDOWN_HIGHLIGHTS_QUERY: &str = r#"[
+  (atx_heading)
+  (setext_heading)
+] @text.title
+
+(code_fence_content) @none
+
+[
+  (indented_code_block)
+  (fenced_code_block)
+  (code_span)
+] @text.literal
+
+(emphasis) @text.emphasis
+
+(strong_emphasis) @text.strong
+
+(link_destination) @text.uri
+
+[
+  (backslash_escape)
+  (hard_line_break)
+] @string.escape
+"#;
 
 fn default_theme() -> HashMap<String, Style> {
     let mut theme = HashMap::new();
@@ -193,5 +243,30 @@ fn default_theme() -> HashMap<String, Style> {
     theme.insert("property".into(), Style::new().fg(Color::White));
     theme.insert("attribute".into(), Style::new().fg(Color::Yellow));
     theme.insert("tag".into(), Style::new().fg(Color::Cyan));
+    theme.insert("text.title".into(), Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+    theme.insert("text.literal".into(), Style::new().fg(Color::Green));
+    theme.insert("text.emphasis".into(), Style::new().fg(Color::Magenta));
+    theme.insert("text.strong".into(), Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD));
+    theme.insert("text.uri".into(), Style::new().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED));
+    theme.insert("text.reference".into(), Style::new().fg(Color::Cyan));
+    theme.insert("punctuation.special".into(), Style::new().fg(Color::DarkGray));
+    theme.insert("string.escape".into(), Style::new().fg(Color::Yellow));
     theme
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_markdown_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        let lines = engine.highlight("# Title\n**bold** text\n", "readme.md");
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in markdown highlight output");
+    }
 }

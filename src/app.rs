@@ -494,4 +494,29 @@ mod tests {
             .flat_map(|line| line.spans.iter())
             .any(|span| span.style.fg.is_some()));
     }
+
+    #[test]
+    fn test_view_highlights_markdown() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(
+            &repo,
+            "readme.md",
+            b"# Title\nSome **bold** text.\n",
+            "Add markdown",
+        );
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo).unwrap();
+        app.handle_key(KeyCode::Enter);
+
+        let Mode::View(state) = &app.mode else {
+            panic!("expected view mode");
+        };
+        assert!(!state.highlighted.is_empty());
+        assert!(state
+            .highlighted
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .any(|span| span.style.fg.is_some()));
+    }
 }
