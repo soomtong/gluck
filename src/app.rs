@@ -99,8 +99,8 @@ impl App {
             Action::Back => self.back(),
             Action::ToggleView => self.toggle_view(),
             Action::SwitchMode => self.switch_mode(),
-            Action::NextCommit => self.next_commit(),
-            Action::PrevCommit => self.prev_commit(),
+            Action::PageDown => self.page_down(),
+            Action::PageUp => self.page_up(),
             Action::ToggleGitignore => self.toggle_gitignore(),
         }
     }
@@ -288,6 +288,30 @@ impl App {
         let tree = list_tree(&self.repo, &commit).unwrap_or_default();
         self.mode = Mode::View(ViewState::new(commit, tree));
         self.load_view_file();
+    }
+
+    fn page_down(&mut self) {
+        match &mut self.mode {
+            Mode::View(state) => {
+                state.scroll = state.scroll.saturating_add(20);
+            }
+            Mode::Diff(state) => {
+                state.scroll = state.scroll.saturating_add(20);
+            }
+            _ => {}
+        }
+    }
+
+    fn page_up(&mut self) {
+        match &mut self.mode {
+            Mode::View(state) => {
+                state.scroll = state.scroll.saturating_sub(20);
+            }
+            Mode::Diff(state) => {
+                state.scroll = state.scroll.saturating_sub(20);
+            }
+            _ => {}
+        }
     }
 
     fn toggle_gitignore(&mut self) {

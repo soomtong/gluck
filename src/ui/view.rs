@@ -85,6 +85,6 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         frame.render_widget(content, right);
     }
 
-    let hints = [("[j/k]", "move"), ("[J/K ^N/^P]", "commit"), ("[.]", "ign"), ("[Enter]", "open"), ("[Tab]", "diff"), ("[Esc]", "back")];
+    let hints = [("[j/k]", "move"), ("[J/K]", "scroll"), ("[^P/^N]", "commit"), ("[.]", "ign"), ("[Enter]", "open"), ("[Tab]", "diff"), ("[Esc]", "back")];
     layout::render_footer(frame, footer, &hints);
 }
