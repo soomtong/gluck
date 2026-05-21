@@ -76,7 +76,7 @@ impl App {
             ),
         };
 
-        let area = Rect::new(frame.area().width - 50, 0, 50, 1);
+        let area = Rect::new(frame.area().width.saturating_sub(50), 0, 50, 1);
         let debug = Paragraph::new(info).style(Style::new().on_dark_gray().yellow());
         frame.render_widget(debug, area);
     }
