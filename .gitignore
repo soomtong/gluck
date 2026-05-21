@@ -1,0 +1,7 @@
+target/
+gluck.log
+*.log
+.DS_Store
+*~
+*.swp
+*.swo
