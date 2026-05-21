@@ -703,4 +703,348 @@ mod tests {
             .flat_map(|line| line.spans.iter())
             .any(|span| span.style.fg.is_some()));
     }
+
+    // ── Navigation boundary tests ──
+
+    #[test]
+    fn test_move_up_at_top_does_not_underflow() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('k'));
+        let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
+        assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn test_move_down_at_bottom_does_not_overflow() {
+        let (_dir, mut app) = test_app();
+        let max_idx = {
+            let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
+            state.filtered_indices.len() - 1
+        };
+        for _ in 0..max_idx + 5 {
+            app.handle_key(KeyCode::Char('j'));
+        }
+        let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
+        assert_eq!(state.selected, max_idx);
+    }
+
+    #[test]
+    fn test_view_mode_file_navigation_bounds() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"a", "A");
+        add_file_commit(&repo, "b.txt", b"b", "B");
+        add_file_commit(&repo, "c.txt", b"c", "C");
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo).unwrap();
+        app.handle_key(KeyCode::Enter);
+
+        let file_count = {
+            let Mode::View(s) = &app.mode else { panic!("expected view") };
+            s.tree.len()
+        };
+        assert!(file_count > 0);
+
+        for _ in 0..file_count + 5 {
+            app.handle_key(KeyCode::Char('j'));
+        }
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        assert!(s.selected_file < file_count);
+
+        for _ in 0..file_count + 5 {
+            app.handle_key(KeyCode::Char('k'));
+        }
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        assert_eq!(s.selected_file, 0);
+    }
+
+    // ── Ctrl key handler tests ──
+
+    #[test]
+    fn test_ctrl_c_quits() {
+        let (_dir, mut app) = test_app();
+        assert!(!app.should_quit);
+        app.handle_ctrl_key(KeyCode::Char('c'));
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn test_ctrl_d_toggles_debug() {
+        let (_dir, mut app) = test_app();
+        assert!(!app.debug_overlay);
+        app.handle_ctrl_key(KeyCode::Char('d'));
+        assert!(app.debug_overlay);
+        app.handle_ctrl_key(KeyCode::Char('d'));
+        assert!(!app.debug_overlay);
+    }
+
+    #[test]
+    fn test_ctrl_n_next_commit_in_view() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Enter);
+        // We're at commits[0] (most recent). Ctrl+P goes older (idx+1).
+        app.handle_ctrl_key(KeyCode::Char('p'));
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let older_id = s.commit.id;
+        let _ = s;
+
+        // Ctrl+N goes newer (idx-1), back toward most recent
+        app.handle_ctrl_key(KeyCode::Char('n'));
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        assert_ne!(s.commit.id, older_id, "should have moved to newer commit");
+    }
+
+    #[test]
+    fn test_ctrl_p_prev_commit_in_view() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Enter);
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let first_id = s.commit.id;
+        let _ = s;
+
+        // Ctrl+P goes older (idx+1)
+        app.handle_ctrl_key(KeyCode::Char('p'));
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        assert_ne!(s.commit.id, first_id, "should have moved to older commit");
+    }
+
+    #[test]
+    fn test_ctrl_p_at_oldest_stays() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Enter);
+        let last_commit_id = app.commits.last().unwrap().id;
+
+        // Ctrl+P navigates older (toward last commit)
+        loop {
+            let Mode::View(s) = &app.mode else { panic!("expected view") };
+            if s.commit.id == last_commit_id { break; }
+            let _ = s;
+            app.handle_ctrl_key(KeyCode::Char('p'));
+        }
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let id_before = s.commit.id;
+        let _ = s;
+
+        // At oldest, Ctrl+P should stay
+        app.handle_ctrl_key(KeyCode::Char('p'));
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        assert_eq!(s.commit.id, id_before, "should stay at oldest");
+    }
+
+    // ── Search flow tests ──
+
+    #[test]
+    fn test_search_full_flow_filter_and_commit() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('/'));
+        app.handle_key(KeyCode::Char('t'));
+        app.handle_key(KeyCode::Char('h'));
+        app.handle_key(KeyCode::Enter);
+
+        let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
+        assert!(matches!(state.search, crate::mode::SearchState::Idle { query: Some(_) }));
+    }
+
+    #[test]
+    fn test_search_esc_with_empty_commits_query() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('/'));
+        app.handle_key(KeyCode::Esc);
+
+        let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
+        assert!(matches!(state.search, crate::mode::SearchState::Idle { query: None }));
+    }
+
+    #[test]
+    fn test_search_only_works_in_pick_mode() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Enter);
+        assert!(matches!(app.mode, Mode::View(_)));
+        app.handle_key(KeyCode::Char('/'));
+        assert!(matches!(app.mode, Mode::View(_)));
+    }
+
+    #[test]
+    fn test_search_backspace_on_empty() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('/'));
+        app.handle_key(KeyCode::Backspace);
+        let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
+        match &state.search {
+            crate::mode::SearchState::Active { input } => assert!(input.is_empty()),
+            _ => panic!("expected active search"),
+        }
+    }
+
+    // ── Toggle tests ──
+
+    #[test]
+    fn test_toggle_view_in_diff_mode() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Enter);
+        app.handle_key(KeyCode::Tab);
+        let Mode::Diff(s) = &app.mode else { panic!("expected diff") };
+        let initial = s.side_by_side;
+        let _ = s;
+
+        app.handle_key(KeyCode::Char('s'));
+        let Mode::Diff(s) = &app.mode else { panic!("expected diff") };
+        assert_ne!(s.side_by_side, initial);
+    }
+
+    #[test]
+    fn test_toggle_view_in_pick_mode_does_nothing() {
+        let (_dir, mut app) = test_app();
+        assert!(matches!(app.mode, Mode::Pick(_)));
+        app.handle_key(KeyCode::Char('s'));
+        assert!(matches!(app.mode, Mode::Pick(_)));
+    }
+
+    // ── Page scroll tests ──
+
+    #[test]
+    fn test_page_down_in_pick_does_nothing() {
+        let (_dir, mut app) = test_app();
+        assert!(matches!(app.mode, Mode::Pick(_)));
+        app.handle_key(KeyCode::Char('J'));
+        assert!(matches!(app.mode, Mode::Pick(_)));
+    }
+
+    #[test]
+    fn test_page_up_in_view_does_not_underflow() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"line1\nline2\nline3\n", "A");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo).unwrap();
+        app.handle_key(KeyCode::Enter);
+
+        app.handle_key(KeyCode::Char('K'));
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        assert_eq!(s.scroll, 0);
+    }
+
+    // ── Back restores selection ──
+
+    #[test]
+    fn test_back_from_view_restores_commit_selection() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('j'));
+        let selected_idx = {
+            let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+            s.selected
+        };
+        assert_eq!(selected_idx, 1);
+
+        app.handle_key(KeyCode::Enter);
+        assert!(matches!(app.mode, Mode::View(_)));
+        app.handle_key(KeyCode::Esc);
+        assert!(matches!(app.mode, Mode::Pick(_)));
+
+        let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+        assert_eq!(s.selected, selected_idx, "back should restore selection");
+    }
+
+    #[test]
+    fn test_back_from_diff_restores_commit_selection() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('j'));
+        let selected_idx = {
+            let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+            s.selected
+        };
+
+        app.handle_key(KeyCode::Enter);
+        app.handle_key(KeyCode::Tab);
+        assert!(matches!(app.mode, Mode::Diff(_)));
+        app.handle_key(KeyCode::Esc);
+
+        let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+        assert_eq!(s.selected, selected_idx);
+    }
+
+    // ── Switch mode (View <-> Diff) ──
+
+    #[test]
+    fn test_switch_mode_view_to_diff_and_back() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Enter);
+
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let view_file = s.selected_file;
+        let _ = s;
+
+        app.handle_key(KeyCode::Tab);
+        assert!(matches!(app.mode, Mode::Diff(_)));
+
+        app.handle_key(KeyCode::Tab);
+        assert!(matches!(app.mode, Mode::View(_)));
+        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        assert_eq!(s.selected_file, view_file, "should restore file selection");
+    }
+
+    #[test]
+    fn test_tab_in_pick_does_nothing() {
+        let (_dir, mut app) = test_app();
+        assert!(matches!(app.mode, Mode::Pick(_)));
+        app.handle_key(KeyCode::Tab);
+        assert!(matches!(app.mode, Mode::Pick(_)));
+    }
+
+    // ── Commits cached ──
+
+    #[test]
+    fn test_commits_cached_in_app() {
+        let (_dir, app) = test_app();
+        assert!(!app.commits.is_empty());
+        if let Mode::Pick(state) = &app.mode {
+            assert_eq!(app.commits.len(), state.commits.len());
+        }
+    }
+
+    // ── View loads file content ──
+
+    #[test]
+    fn test_view_binary_file_shows_binary_content() {
+        let (dir, repo) = init_test_repo();
+        let binary_content = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        add_file_commit(&repo, "image.png", &binary_content, "Add binary");
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo).unwrap();
+        app.handle_key(KeyCode::Enter);
+
+        let Mode::View(state) = &app.mode else { panic!("expected view") };
+        assert!(matches!(state.file_content, crate::mode::FileContent::Binary));
+    }
+
+    #[test]
+    fn test_view_directory_selected_stays_not_loaded() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "src/main.rs", b"fn main() {}", "Initial");
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo).unwrap();
+        app.handle_key(KeyCode::Enter);
+
+        let dir_idx = {
+            let Mode::View(state) = &app.mode else { panic!("expected view") };
+            state.tree.iter().position(|e| matches!(e.kind, EntryKind::Directory))
+        };
+
+        if let Some(idx) = dir_idx {
+            loop {
+                let Mode::View(s) = &app.mode else { panic!("expected view") };
+                let cur = s.selected_file;
+                let _ = s;
+                if cur == idx { break; }
+                if idx > cur {
+                    app.handle_key(KeyCode::Char('j'));
+                } else {
+                    app.handle_key(KeyCode::Char('k'));
+                }
+            }
+            let Mode::View(s) = &app.mode else { panic!("expected view") };
+            assert!(matches!(s.file_content, crate::mode::FileContent::NotLoaded));
+        }
+    }
 }
