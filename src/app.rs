@@ -293,10 +293,23 @@ impl App {
     fn page_down(&mut self) {
         match &mut self.mode {
             Mode::View(state) => {
-                state.scroll = state.scroll.saturating_add(20);
+                let line_count = if !state.highlighted.is_empty() {
+                    state.highlighted.len()
+                } else {
+                    state.content.as_deref().map(|c| c.lines().count()).unwrap_or(0)
+                };
+                let max_scroll = line_count.saturating_sub(1);
+                state.scroll = (state.scroll + 20).min(max_scroll);
             }
             Mode::Diff(state) => {
-                state.scroll = state.scroll.saturating_add(20);
+                let line_count = state
+                    .diff_result
+                    .files
+                    .get(state.selected_file)
+                    .map(|f| f.lines.len())
+                    .unwrap_or(0);
+                let max_scroll = line_count.saturating_sub(1);
+                state.scroll = (state.scroll + 20).min(max_scroll);
             }
             _ => {}
         }
