@@ -468,4 +468,30 @@ mod tests {
         app.handle_key(KeyCode::Enter);
         assert!(!app.searching);
     }
+
+    #[test]
+    fn test_view_loads_syntax_highlighted_content() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(
+            &repo,
+            "main.rs",
+            b"fn main() {\n    println!(\"hi\");\n}\n",
+            "Add rust file",
+        );
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo).unwrap();
+        app.handle_key(KeyCode::Enter);
+
+        let Mode::View(state) = &app.mode else {
+            panic!("expected view mode");
+        };
+        assert!(state.content.as_deref().unwrap().contains("fn main"));
+        assert!(!state.highlighted.is_empty());
+        assert!(state
+            .highlighted
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .any(|span| span.style.fg.is_some()));
+    }
 }

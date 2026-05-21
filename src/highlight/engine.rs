@@ -41,10 +41,9 @@ impl HighlightEngine {
         for event in events {
             match event {
                 Ok(HighlightEvent::HighlightStart(h)) => {
-                    let highlight_name = format!("{}", h.0);
                     current_style = self
                         .theme
-                        .get(&highlight_name)
+                        .get(HIGHLIGHT_NAMES.get(h.0).copied().unwrap_or_default())
                         .copied()
                         .unwrap_or_default();
                 }
@@ -141,9 +140,9 @@ impl HighlightEngine {
         let language = unsafe { Language::from_raw(raw_ptr as *const _) };
         let mut config = HighlightConfiguration::new(
             language,
+            "rust",
             tree_sitter_rust::HIGHLIGHTS_QUERY,
             tree_sitter_rust::INJECTIONS_QUERY,
-            "",
             "",
         )?;
         config.configure(HIGHLIGHT_NAMES);
