@@ -1,7 +1,7 @@
-use crate::git::commit::list_commits;
+use crate::git::commit::{list_commits, CommitInfo};
 use crate::git::diff::compute_diff;
 use crate::git::repo::GitRepo;
-use crate::git::tree::{list_tree, read_blob, EntryKind};
+use crate::git::tree::{is_binary_blob, list_tree, read_blob, EntryKind};
 use crate::highlight::HighlightEngine;
 use crate::mode::{
     Action, DiffState, KeyBindings, Mode, PickState, ViewState,
@@ -10,6 +10,9 @@ use crate::ui;
 use anyhow::Result;
 use crossterm::event::KeyCode;
 use ratatui::Frame;
+use ratatui::style::{Style, Stylize};
+use ratatui::text::{Line, Span};
+use std::collections::HashSet;
 
 pub struct App {
     pub mode: Mode,
@@ -26,7 +29,7 @@ impl App {
     pub fn new(repo: GitRepo) -> Result<Self> {
         let commits = list_commits(&repo)?;
         let pick_state = PickState::new(commits);
-        Ok(Self {
+        let mut app = Self {
             mode: Mode::Pick(pick_state),
             repo,
             keybindings: KeyBindings::default_bindings(),
@@ -35,7 +38,9 @@ impl App {
             search_input: String::new(),
             debug_overlay: false,
             highlight: HighlightEngine::new(),
-        })
+        };
+        app.update_pick_diff();
+        Ok(app)
     }
 
     pub fn render(&self, frame: &mut Frame) {
@@ -146,6 +151,7 @@ impl App {
     fn apply_search(&mut self) {
         if let Mode::Pick(state) = &mut self.mode {
             state.apply_search(&self.search_input);
+            self.update_pick_diff();
         }
     }
 
@@ -154,6 +160,7 @@ impl App {
             Mode::Pick(state) => {
                 let max = state.filtered_indices.len().saturating_sub(1);
                 state.selected = state.selected.saturating_add(1).min(max);
+                self.update_pick_diff();
             }
             Mode::View(state) => {
                 let max = state.tree.len().saturating_sub(1);
@@ -162,7 +169,11 @@ impl App {
             }
             Mode::Diff(state) => {
                 let max = state.diff_result.files.len().saturating_sub(1);
+                let prev = state.selected_file;
                 state.selected_file = state.selected_file.saturating_add(1).min(max);
+                if state.selected_file != prev {
+                    state.scroll = 0;
+                }
             }
         }
     }
@@ -171,13 +182,18 @@ impl App {
         match &mut self.mode {
             Mode::Pick(state) => {
                 state.selected = state.selected.saturating_sub(1);
+                self.update_pick_diff();
             }
             Mode::View(state) => {
                 state.selected_file = state.selected_file.saturating_sub(1);
                 self.load_view_file();
             }
             Mode::Diff(state) => {
+                let prev = state.selected_file;
                 state.selected_file = state.selected_file.saturating_sub(1);
+                if state.selected_file != prev {
+                    state.scroll = 0;
+                }
             }
         }
     }
@@ -187,8 +203,7 @@ impl App {
             Mode::Pick(state) => {
                 if let Some(&idx) = state.filtered_indices.get(state.selected) {
                     let commit = state.commits[idx].clone();
-                    let tree = list_tree(&self.repo, &commit).unwrap_or_default();
-                    self.mode = Mode::View(ViewState::new(commit, tree));
+                    self.mode = Mode::View(self.make_view_state(commit));
                     self.load_view_file();
                 }
             }
@@ -247,8 +262,7 @@ impl App {
                 let commits = list_commits(&self.repo).unwrap_or_default();
                 if let Some(idx) = commits.iter().position(|c| c.id == state.to.id) {
                     let commit = commits[idx].clone();
-                    let tree = list_tree(&self.repo, &commit).unwrap_or_default();
-                    let mut view_state = ViewState::new(commit, tree);
+                    let mut view_state = self.make_view_state(commit);
                     view_state.selected_file = prev.min(view_state.tree.len().saturating_sub(1));
                     self.mode = Mode::View(view_state);
                     self.load_view_file();
@@ -259,35 +273,106 @@ impl App {
     }
 
     fn next_commit(&mut self) {
-        let current_id = match &self.mode {
-            Mode::View(s) => s.commit.id,
-            _ => return,
-        };
-        let commits = list_commits(&self.repo).unwrap_or_default();
-        let Some(idx) = commits.iter().position(|c| c.id == current_id) else { return };
-        if idx == 0 {
-            return;
+        match &self.mode {
+            Mode::View(s) => {
+                let commits = list_commits(&self.repo).unwrap_or_default();
+                let Some(idx) = commits.iter().position(|c| c.id == s.commit.id) else { return };
+                if idx == 0 {
+                    return;
+                }
+                let prev_path = self.current_view_file_path();
+                let commit = commits[idx - 1].clone();
+                let mut state = self.make_view_state(commit);
+                restore_file_selection(&mut state, prev_path);
+                self.mode = Mode::View(state);
+                self.load_view_file();
+            }
+            Mode::Diff(s) => {
+                let commits = list_commits(&self.repo).unwrap_or_default();
+                let Some(idx) = commits.iter().position(|c| c.id == s.to.id) else { return };
+                if idx == 0 {
+                    return;
+                }
+                let prev_file = s.selected_file;
+                let prev_file_path = s
+                    .diff_result
+                    .files
+                    .get(s.selected_file)
+                    .and_then(|f| f.new_path.as_deref().or(f.old_path.as_deref()))
+                    .map(|p| p.to_string());
+                let from = commits[idx].clone();
+                let to = commits[idx - 1].clone();
+                if let Ok(diff_result) = compute_diff(&self.repo, &from, &to) {
+                    let mut state = DiffState::new(from, to, diff_result);
+                    state.prev_view_file = prev_file;
+                    if let Some(ref path) = prev_file_path {
+                        if let Some(pos) = state.diff_result.files.iter().position(|f| {
+                            f.new_path.as_deref() == Some(path.as_str())
+                                || f.old_path.as_deref() == Some(path.as_str())
+                        }) {
+                            state.selected_file = pos;
+                        }
+                    }
+                    self.mode = Mode::Diff(state);
+                }
+            }
+            _ => {}
         }
-        let commit = commits[idx - 1].clone();
-        let tree = list_tree(&self.repo, &commit).unwrap_or_default();
-        self.mode = Mode::View(ViewState::new(commit, tree));
-        self.load_view_file();
     }
 
     fn prev_commit(&mut self) {
-        let current_id = match &self.mode {
-            Mode::View(s) => s.commit.id,
-            _ => return,
-        };
-        let commits = list_commits(&self.repo).unwrap_or_default();
-        let Some(idx) = commits.iter().position(|c| c.id == current_id) else { return };
-        if idx + 1 >= commits.len() {
-            return;
+        match &self.mode {
+            Mode::View(s) => {
+                let commits = list_commits(&self.repo).unwrap_or_default();
+                let Some(idx) = commits.iter().position(|c| c.id == s.commit.id) else { return };
+                if idx + 1 >= commits.len() {
+                    return;
+                }
+                let prev_path = self.current_view_file_path();
+                let commit = commits[idx + 1].clone();
+                let mut state = self.make_view_state(commit);
+                restore_file_selection(&mut state, prev_path);
+                self.mode = Mode::View(state);
+                self.load_view_file();
+            }
+            Mode::Diff(s) => {
+                let commits = list_commits(&self.repo).unwrap_or_default();
+                let Some(idx) = commits.iter().position(|c| c.id == s.to.id) else { return };
+                if idx + 2 >= commits.len() {
+                    return;
+                }
+                let prev_file = s.selected_file;
+                let prev_file_path = s
+                    .diff_result
+                    .files
+                    .get(s.selected_file)
+                    .and_then(|f| f.new_path.as_deref().or(f.old_path.as_deref()))
+                    .map(|p| p.to_string());
+                let from = commits[idx + 2].clone();
+                let to = commits[idx + 1].clone();
+                if let Ok(diff_result) = compute_diff(&self.repo, &from, &to) {
+                    let mut state = DiffState::new(from, to, diff_result);
+                    state.prev_view_file = prev_file;
+                    if let Some(ref path) = prev_file_path {
+                        if let Some(pos) = state.diff_result.files.iter().position(|f| {
+                            f.new_path.as_deref() == Some(path.as_str())
+                                || f.old_path.as_deref() == Some(path.as_str())
+                        }) {
+                            state.selected_file = pos;
+                        }
+                    }
+                    self.mode = Mode::Diff(state);
+                }
+            }
+            _ => {}
         }
-        let commit = commits[idx + 1].clone();
-        let tree = list_tree(&self.repo, &commit).unwrap_or_default();
-        self.mode = Mode::View(ViewState::new(commit, tree));
-        self.load_view_file();
+    }
+
+    fn current_view_file_path(&self) -> Option<String> {
+        match &self.mode {
+            Mode::View(s) => s.tree.get(s.selected_file).map(|e| e.path.clone()),
+            _ => None,
+        }
     }
 
     fn page_down(&mut self) {
@@ -359,6 +444,59 @@ impl App {
         }
     }
 
+    fn compute_changed_paths(&self, commit: &CommitInfo) -> HashSet<String> {
+        let repository = self.repo.repository();
+        let Ok(commit_obj) = repository.find_commit(commit.id) else {
+            return HashSet::new();
+        };
+        let parent = match commit_obj.parent(0) {
+            Ok(p) => p,
+            Err(_) => return HashSet::new(),
+        };
+        let parent_info = CommitInfo::from_git_commit(&parent);
+        compute_diff(&self.repo, &parent_info, commit)
+            .map(|r| {
+                r.files
+                    .iter()
+                    .filter_map(|f| f.new_path.clone().or_else(|| f.old_path.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn make_view_state(&self, commit: CommitInfo) -> ViewState {
+        let tree = list_tree(&self.repo, &commit).unwrap_or_default();
+        let changed_paths = self.compute_changed_paths(&commit);
+        ViewState {
+            commit,
+            tree,
+            selected_file: 0,
+            content: None,
+            highlighted: Vec::new(),
+            scroll: 0,
+            show_ignored: true,
+            changed_paths,
+        }
+    }
+
+    fn update_pick_diff(&mut self) {
+        if let Mode::Pick(state) = &mut self.mode {
+            state.selected_diff = None;
+            let Some(&idx) = state.filtered_indices.get(state.selected) else { return };
+            let commit = &state.commits[idx];
+            let repository = self.repo.repository();
+            let Ok(commit_obj) = repository.find_commit(commit.id) else { return };
+            let parent = match commit_obj.parent(0) {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            let parent_info = CommitInfo::from_git_commit(&parent);
+            if let Ok(diff) = compute_diff(&self.repo, &parent_info, commit) {
+                state.selected_diff = Some(diff);
+            }
+        }
+    }
+
     fn load_view_file(&mut self) {
         let to_load = match &self.mode {
             Mode::View(state) => state
@@ -381,12 +519,42 @@ impl App {
             return;
         };
 
-        if let Ok(content) = read_blob(&self.repo, &commit, &path) {
+        let binary = is_binary_blob(&self.repo, &commit, &path).unwrap_or(false);
+        if binary {
+            if let Mode::View(vs) = &mut self.mode {
+                vs.content = None;
+                vs.highlighted = vec![
+                    Line::from(Span::styled(
+                        "(binary file)",
+                        Style::new().dark_gray(),
+                    ))
+                ];
+            }
+        } else if let Ok(content) = read_blob(&self.repo, &commit, &path) {
             let highlighted = self.highlight.highlight(&content, &path);
             if let Mode::View(vs) = &mut self.mode {
                 vs.content = Some(content);
                 vs.highlighted = highlighted;
             }
+        }
+    }
+}
+
+fn restore_file_selection(state: &mut ViewState, prev_path: Option<String>) {
+    let Some(path) = prev_path else {
+        return;
+    };
+    if let Some(idx) = state.tree.iter().position(|e| e.path == path) {
+        state.selected_file = idx;
+        return;
+    }
+    let mut parent = path.as_str();
+    while let Some(pos) = parent.rfind('/') {
+        parent = &path[..pos];
+        let prefix = format!("{}/", parent);
+        if let Some(idx) = state.tree.iter().position(|e| e.path.starts_with(&prefix)) {
+            state.selected_file = idx;
+            return;
         }
     }
 }

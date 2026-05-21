@@ -17,6 +17,7 @@ pub struct PickState {
     pub selected: usize,
     pub scroll: usize,
     pub query: Option<String>,
+    pub selected_diff: Option<DiffResult>,
 }
 
 impl PickState {
@@ -28,6 +29,7 @@ impl PickState {
             selected: 0,
             scroll: 0,
             query: None,
+            selected_diff: None,
         }
     }
 
@@ -64,6 +66,7 @@ pub struct ViewState {
     pub highlighted: Vec<Line<'static>>,
     pub scroll: usize,
     pub show_ignored: bool,
+    pub changed_paths: std::collections::HashSet<String>,
 }
 
 impl ViewState {
@@ -76,6 +79,7 @@ impl ViewState {
             highlighted: Vec::new(),
             scroll: 0,
             show_ignored: true,
+            changed_paths: std::collections::HashSet::new(),
         }
     }
 }

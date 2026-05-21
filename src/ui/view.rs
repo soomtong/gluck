@@ -17,18 +17,23 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     layout::render_header(frame, header, "gluck - View Mode");
 
     if let Mode::View(state) = &app.mode {
-        let (left, right) = layout::split_horizontal(body, 24);
+        let (left, right) = layout::split_horizontal(body, 36);
 
         let items: Vec<ListItem> = state
             .tree
             .iter()
             .map(|entry| {
-                let icon = match entry.kind {
-                    EntryKind::Directory => "📁 ",
-                    EntryKind::File => "  ",
-                };
                 let indent = "  ".repeat(entry_depth(entry));
-                ListItem::new(format!("{}{}{}", indent, icon, entry.name))
+                let marker = if state.changed_paths.contains(&entry.path) {
+                    "*"
+                } else {
+                    " "
+                };
+                let suffix = match entry.kind {
+                    EntryKind::Directory => "/",
+                    EntryKind::File => "",
+                };
+                ListItem::new(format!("{}{}{}{}", marker, indent, entry.name, suffix))
             })
             .collect();
 
@@ -38,8 +43,7 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                     .title(format!(" {} ", state.commit.short_id))
                     .style(Style::new().white()),
             )
-            .highlight_style(Style::new().black().on_white())
-            .highlight_symbol("● ");
+            .highlight_style(Style::new().black().on_white());
 
         let mut list_state = ListState::default();
         list_state.select(Some(state.selected_file));

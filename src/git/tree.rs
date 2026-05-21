@@ -62,6 +62,17 @@ fn walk_tree(
     Ok(())
 }
 
+pub fn is_binary_blob(repo: &GitRepo, commit: &CommitInfo, path: &str) -> Result<bool> {
+    let repository = repo.repository();
+    let git_commit = repository.find_commit(commit.id)?;
+    let tree = git_commit.tree()?;
+    let entry = tree.get_path(std::path::Path::new(path))?;
+    let obj = entry.to_object(repository)?;
+    let blob = obj.as_blob()
+        .ok_or_else(|| anyhow::anyhow!("Not a blob: {}", path))?;
+    Ok(blob.is_binary())
+}
+
 pub fn read_blob(repo: &GitRepo, commit: &CommitInfo, path: &str) -> Result<String> {
     let repository = repo.repository();
     let git_commit = repository.find_commit(commit.id)?;

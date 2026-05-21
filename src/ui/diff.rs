@@ -1,11 +1,11 @@
 use crate::app::App;
-use crate::git::diff::DiffLineKind;
+use crate::git::diff::{DiffFile, DiffLineKind};
 use crate::mode::Mode;
 use crate::ui::layout;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, Paragraph, Tabs};
 
 pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
@@ -17,24 +17,49 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         );
         layout::render_header(frame, header, &title);
 
-        let file = state.diff_result.files.get(state.selected_file);
-        let file_name = file
-            .map(|f| f.new_path.as_deref().unwrap_or("?"))
-            .unwrap_or("no file");
-
-        if let Some(file) = file {
-            if state.side_by_side {
-                render_side_by_side(frame, body, file, state.scroll);
-            } else {
-                render_unified(frame, body, file_name, file, state.scroll);
-            }
-        } else {
+        if state.diff_result.files.is_empty() {
             let empty = Paragraph::new("No diff").block(Block::bordered());
             frame.render_widget(empty, body);
+        } else {
+            let [tabs_row, diff_area] = Layout::vertical([
+                Constraint::Length(1),
+                Constraint::Min(1),
+            ])
+            .areas(body);
+
+            let file_names: Vec<String> = state
+                .diff_result
+                .files
+                .iter()
+                .map(|f| {
+                    f.new_path.as_deref().or(f.old_path.as_deref()).unwrap_or("?").to_string()
+                })
+                .collect();
+
+            let tabs = Tabs::new(file_names)
+                .select(state.selected_file)
+                .highlight_style(Style::new().white().bold())
+                .divider("|");
+            frame.render_widget(tabs, tabs_row);
+
+            if let Some(file) = state.diff_result.files.get(state.selected_file) {
+                if state.side_by_side {
+                    render_side_by_side(frame, diff_area, file, state.scroll);
+                } else {
+                    render_unified(frame, diff_area, file, state.scroll);
+                }
+            }
         }
     }
 
-    let hints = [("[j/k]", "move"), ("[s]", "toggle view"), ("[Tab]", "back"), ("[Esc]", "pick")];
+    let hints = [
+        ("[j/k]", "file"),
+        ("[J/K]", "scroll"),
+        ("[^P/^N]", "commit"),
+        ("[s]", "view"),
+        ("[Tab]", "back"),
+        ("[Esc]", "pick"),
+    ];
     layout::render_footer(frame, footer, &hints);
 }
 
@@ -49,8 +74,7 @@ fn style_for_kind(kind: &DiffLineKind) -> Style {
 fn render_unified(
     frame: &mut ratatui::Frame,
     area: Rect,
-    file_name: &str,
-    file: &crate::git::diff::DiffFile,
+    file: &DiffFile,
     scroll: usize,
 ) {
     let lines: Vec<Line> = file
@@ -62,20 +86,24 @@ fn render_unified(
                 DiffLineKind::Removed => "-",
                 DiffLineKind::Context => " ",
             };
+            let line_no = match (dl.old_line_no, dl.new_line_no) {
+                (Some(o), Some(n)) if o == n => format!(" {:>4}     ", o),
+                (Some(o), Some(n)) => format!(" {:>4},{:<4} ", o, n),
+                (Some(o), None) => format!(" {:>4},_    ", o),
+                (None, Some(n)) => format!(" _,{:<4}    ", n),
+                (None, None) => String::from("          "),
+            };
             let style = style_for_kind(&dl.kind);
             Line::from(vec![
-                Span::styled(prefix.to_string(), style),
+                Span::styled(prefix, style),
+                Span::styled(line_no, Style::new().dark_gray()),
                 Span::styled(dl.content.clone(), style),
             ])
         })
         .collect();
 
     let paragraph = Paragraph::new(lines)
-        .block(
-            Block::bordered()
-                .title(format!(" {} ", file_name))
-                .style(Style::new().white()),
-        )
+        .block(Block::bordered().style(Style::new().white()))
         .scroll((scroll as u16, 0));
 
     frame.render_widget(paragraph, area);
@@ -84,7 +112,7 @@ fn render_unified(
 fn render_side_by_side(
     frame: &mut ratatui::Frame,
     area: Rect,
-    file: &crate::git::diff::DiffFile,
+    file: &DiffFile,
     scroll: usize,
 ) {
     let (left, right) = layout::split_horizontal(area, area.width / 2);
@@ -98,9 +126,14 @@ fn render_side_by_side(
                 DiffLineKind::Removed => "-",
                 _ => " ",
             };
+            let line_no = dl
+                .old_line_no
+                .map(|n| format!(" {:>4} ", n))
+                .unwrap_or_else(|| String::from("      "));
             let style = style_for_kind(&dl.kind);
             Line::from(vec![
-                Span::styled(prefix.to_string(), style),
+                Span::styled(prefix, style),
+                Span::styled(line_no, Style::new().dark_gray()),
                 Span::styled(dl.content.clone(), style),
             ])
         })
@@ -115,9 +148,14 @@ fn render_side_by_side(
                 DiffLineKind::Added => "+",
                 _ => " ",
             };
+            let line_no = dl
+                .new_line_no
+                .map(|n| format!(" {:>4} ", n))
+                .unwrap_or_else(|| String::from("      "));
             let style = style_for_kind(&dl.kind);
             Line::from(vec![
-                Span::styled(prefix.to_string(), style),
+                Span::styled(prefix, style),
+                Span::styled(line_no, Style::new().dark_gray()),
                 Span::styled(dl.content.clone(), style),
             ])
         })

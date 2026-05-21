@@ -345,6 +345,7 @@ dependencies = [
  "tracing-subscriber",
  "tree-sitter",
  "tree-sitter-highlight",
+ "tree-sitter-markdown-fork",
  "tree-sitter-rust",
 ]
 
@@ -1218,6 +1219,16 @@ name = "tree-sitter-language"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-markdown-fork"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d5ad4a0fbf1d16abe5391387dab9e25977ba0c86661627a2e8680386c8a1c27"
+dependencies = [
+ "cc",
+ "tree-sitter",
+]
 
 [[package]]
 name = "tree-sitter-rust"
