@@ -1,7 +1,7 @@
 use crate::git::commit::list_commits;
 use crate::git::diff::compute_diff;
 use crate::git::repo::GitRepo;
-use crate::git::tree::{list_tree, read_blob};
+use crate::git::tree::{list_tree, read_blob, EntryKind};
 use crate::highlight::HighlightEngine;
 use crate::mode::{
     Action, DiffState, KeyBindings, Mode, PickState, ViewState,
@@ -153,6 +153,7 @@ impl App {
             Mode::View(state) => {
                 let max = state.tree.len().saturating_sub(1);
                 state.selected_file = state.selected_file.saturating_add(1).min(max);
+                self.load_view_file();
             }
             Mode::Diff(state) => {
                 let max = state.diff_result.files.len().saturating_sub(1);
@@ -168,6 +169,7 @@ impl App {
             }
             Mode::View(state) => {
                 state.selected_file = state.selected_file.saturating_sub(1);
+                self.load_view_file();
             }
             Mode::Diff(state) => {
                 state.selected_file = state.selected_file.saturating_sub(1);
@@ -181,20 +183,12 @@ impl App {
                 if let Some(&idx) = state.filtered_indices.get(state.selected) {
                     let commit = state.commits[idx].clone();
                     let tree = list_tree(&self.repo, &commit).unwrap_or_default();
-                    let view_state = ViewState::new(commit, tree);
-                    self.mode = Mode::View(view_state);
+                    self.mode = Mode::View(ViewState::new(commit, tree));
+                    self.load_view_file();
                 }
             }
-            Mode::View(state) => {
-                if let Some(entry) = state.tree.get(state.selected_file) {
-                    if let Ok(content) = read_blob(&self.repo, &state.commit, &entry.path) {
-                        let highlighted = self.highlight.highlight(&content, &entry.path);
-                        if let Mode::View(vs) = &mut self.mode {
-                            vs.content = Some(content);
-                            vs.highlighted = highlighted;
-                        }
-                    }
-                }
+            Mode::View(_) => {
+                self.load_view_file();
             }
             Mode::Diff(_) => {}
         }
@@ -239,8 +233,8 @@ impl App {
                 if let Some(idx) = commits.iter().position(|c| c.id == state.to.id) {
                     let commit = commits[idx].clone();
                     let tree = list_tree(&self.repo, &commit).unwrap_or_default();
-                    let view_state = ViewState::new(commit, tree);
-                    self.mode = Mode::View(view_state);
+                    self.mode = Mode::View(ViewState::new(commit, tree));
+                    self.load_view_file();
                 }
             }
             Mode::Pick(_) => {}
@@ -250,6 +244,27 @@ impl App {
     fn toggle_view(&mut self) {
         if let Mode::Diff(state) = &mut self.mode {
             state.side_by_side = !state.side_by_side;
+        }
+    }
+
+    fn load_view_file(&mut self) {
+        let to_load = match &self.mode {
+            Mode::View(state) => state
+                .tree
+                .get(state.selected_file)
+                .filter(|e| matches!(e.kind, EntryKind::File))
+                .map(|e| (e.path.clone(), state.commit.clone())),
+            _ => None,
+        };
+
+        let Some((path, commit)) = to_load else { return };
+
+        if let Ok(content) = read_blob(&self.repo, &commit, &path) {
+            let highlighted = self.highlight.highlight(&content, &path);
+            if let Mode::View(vs) = &mut self.mode {
+                vs.content = Some(content);
+                vs.highlighted = highlighted;
+            }
         }
     }
 }
