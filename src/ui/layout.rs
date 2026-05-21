@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Block, Paragraph};
 
 pub fn app_layout(area: Rect) -> (Rect, Rect, Rect) {
     let [header, body, footer] = Layout::vertical([

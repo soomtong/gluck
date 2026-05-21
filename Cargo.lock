@@ -345,6 +345,7 @@ dependencies = [
  "tracing-subscriber",
  "tree-sitter",
  "tree-sitter-highlight",
+ "tree-sitter-rust",
 ]
 
 [[package]]
@@ -1210,6 +1211,22 @@ dependencies = [
  "regex",
  "thiserror",
  "tree-sitter",
+]
+
+[[package]]
+name = "tree-sitter-language"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-rust"
+version = "0.23.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca8ccb3e3a3495c8a943f6c3fd24c3804c471fd7f4f16087623c7fa4c0068e8a"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
 ]
 
 [[package]]

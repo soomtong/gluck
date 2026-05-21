@@ -2,11 +2,14 @@ use crate::git::commit::list_commits;
 use crate::git::diff::compute_diff;
 use crate::git::repo::GitRepo;
 use crate::git::tree::{list_tree, read_blob};
+use crate::highlight::HighlightEngine;
 use crate::mode::{
     Action, DiffState, KeyBindings, Mode, PickState, ViewState,
 };
+use crate::ui;
 use anyhow::Result;
 use crossterm::event::KeyCode;
+use ratatui::Frame;
 
 pub struct App {
     pub mode: Mode,
@@ -16,6 +19,7 @@ pub struct App {
     pub searching: bool,
     pub search_input: String,
     pub debug_overlay: bool,
+    pub highlight: HighlightEngine,
 }
 
 impl App {
@@ -30,7 +34,51 @@ impl App {
             searching: false,
             search_input: String::new(),
             debug_overlay: false,
+            highlight: HighlightEngine::new(),
         })
+    }
+
+    pub fn render(&self, frame: &mut Frame) {
+        match &self.mode {
+            Mode::Pick(_) => ui::pick::render_pick(frame, frame.area(), self),
+            Mode::View(_) => ui::view::render_view(frame, frame.area(), self),
+            Mode::Diff(_) => ui::diff::render_diff(frame, frame.area(), self),
+        }
+
+        if self.debug_overlay {
+            self.render_debug_overlay(frame);
+        }
+    }
+
+    fn render_debug_overlay(&self, frame: &mut Frame) {
+        use ratatui::layout::Rect;
+        use ratatui::style::{Style, Stylize};
+        use ratatui::widgets::Paragraph;
+
+        let mode_name = match &self.mode {
+            Mode::Pick(_) => "Pick",
+            Mode::View(_) => "View",
+            Mode::Diff(_) => "Diff",
+        };
+
+        let info = match &self.mode {
+            Mode::Pick(s) => format!(
+                "Mode: {} | Selected: {} | Commits: {} | Filtered: {}",
+                mode_name, s.selected, s.commits.len(), s.filtered_indices.len(),
+            ),
+            Mode::View(s) => format!(
+                "Mode: {} | File: {} | Files: {} | Scroll: {}",
+                mode_name, s.selected_file, s.tree.len(), s.scroll,
+            ),
+            Mode::Diff(s) => format!(
+                "Mode: {} | File: {} | Files: {} | Side-by-side: {}",
+                mode_name, s.selected_file, s.diff_result.files.len(), s.side_by_side,
+            ),
+        };
+
+        let area = Rect::new(frame.area().width - 50, 0, 50, 1);
+        let debug = Paragraph::new(info).style(Style::new().on_dark_gray().yellow());
+        frame.render_widget(debug, area);
     }
 
     pub fn handle_key(&mut self, code: KeyCode) {
@@ -140,8 +188,10 @@ impl App {
             Mode::View(state) => {
                 if let Some(entry) = state.tree.get(state.selected_file) {
                     if let Ok(content) = read_blob(&self.repo, &state.commit, &entry.path) {
+                        let highlighted = self.highlight.highlight(&content, &entry.path);
                         if let Mode::View(vs) = &mut self.mode {
                             vs.content = Some(content);
+                            vs.highlighted = highlighted;
                         }
                     }
                 }

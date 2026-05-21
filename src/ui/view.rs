@@ -3,9 +3,9 @@ use crate::git::tree::EntryKind;
 use crate::mode::Mode;
 use crate::ui::layout;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
 
 pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
@@ -14,7 +14,6 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     if let Mode::View(state) = &app.mode {
         let (left, right) = layout::split_horizontal(body, 24);
 
-        // File tree
         let items: Vec<ListItem> = state
             .tree
             .iter()
@@ -37,31 +36,34 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         list_state.select(Some(state.selected_file));
         frame.render_stateful_widget(tree_list, left, &mut list_state);
 
-        // File content
-        let content_text = state
-            .content
-            .as_deref()
-            .unwrap_or("(select a file to view)");
-
-        let lines: Vec<Line> = content_text
-            .lines()
-            .enumerate()
-            .map(|(i, line)| {
-                Line::from(vec![
-                    Span::styled(
-                        format!("{:>4} ", i + 1),
-                        Style::new().dark_gray(),
-                    ),
-                    Span::raw(line.to_string()),
-                ])
-            })
-            .collect();
-
         let file_name = state
             .tree
             .get(state.selected_file)
             .map(|e| e.path.as_str())
             .unwrap_or("no file");
+
+        let lines: Vec<Line> = if !state.highlighted.is_empty() {
+            state.highlighted.clone()
+        } else {
+            let content_text = state
+                .content
+                .as_deref()
+                .unwrap_or("(select a file to view)");
+
+            content_text
+                .lines()
+                .enumerate()
+                .map(|(i, line)| {
+                    Line::from(vec![
+                        Span::styled(
+                            format!("{:>4} ", i + 1),
+                            Style::new().dark_gray(),
+                        ),
+                        Span::raw(line.to_string()),
+                    ])
+                })
+                .collect()
+        };
 
         let content = Paragraph::new(lines)
             .block(
