@@ -278,6 +278,10 @@ impl App {
 
     fn toggle_gitignore(&mut self) {
         if let Mode::View(state) = &mut self.mode {
+            let prev_path = state
+                .tree
+                .get(state.selected_file)
+                .map(|e| e.path.clone());
             state.show_ignored = !state.show_ignored;
             let full_tree = list_tree(&self.repo, &state.commit).unwrap_or_default();
             if state.show_ignored {
@@ -289,7 +293,9 @@ impl App {
                     .filter(|e| !repo.is_path_ignored(&e.path).unwrap_or(false))
                     .collect();
             }
-            state.selected_file = 0;
+            state.selected_file = prev_path
+                .and_then(|p| state.tree.iter().position(|e| e.path == p))
+                .unwrap_or(0);
             state.content = None;
             state.highlighted.clear();
             self.load_view_file();
