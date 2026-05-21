@@ -26,11 +26,14 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             })
             .collect();
 
-        let tree_list = List::new(items).block(
-            Block::bordered()
-                .title(format!(" {} ", state.commit.short_id))
-                .style(Style::new().white()),
-        );
+        let tree_list = List::new(items)
+            .block(
+                Block::bordered()
+                    .title(format!(" {} ", state.commit.short_id))
+                    .style(Style::new().white()),
+            )
+            .highlight_style(Style::new().black().on_white())
+            .highlight_symbol("● ");
 
         let mut list_state = ListState::default();
         list_state.select(Some(state.selected_file));
