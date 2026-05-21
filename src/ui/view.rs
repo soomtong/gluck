@@ -7,6 +7,11 @@ use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
 
+fn entry_depth(entry: &crate::git::tree::FileEntry) -> usize {
+    let path = entry.path.strip_suffix('/').unwrap_or(&entry.path);
+    path.matches('/').count()
+}
+
 pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
     layout::render_header(frame, header, "gluck - View Mode");
@@ -22,7 +27,8 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                     EntryKind::Directory => "📁 ",
                     EntryKind::File => "  ",
                 };
-                ListItem::new(format!("{}{}", icon, entry.name))
+                let indent = "  ".repeat(entry_depth(entry));
+                ListItem::new(format!("{}{}{}", indent, icon, entry.name))
             })
             .collect();
 
