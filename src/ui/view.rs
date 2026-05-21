@@ -52,7 +52,19 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             .unwrap_or("no file");
 
         let lines: Vec<Line> = if !state.highlighted.is_empty() {
-            state.highlighted.clone()
+            state
+                .highlighted
+                .iter()
+                .enumerate()
+                .map(|(i, line)| {
+                    let mut spans = vec![Span::styled(
+                        format!("{:>4} ", i + 1),
+                        Style::new().dark_gray(),
+                    )];
+                    spans.extend(line.spans.clone());
+                    Line::from(spans)
+                })
+                .collect()
         } else {
             let content_text = state
                 .content
