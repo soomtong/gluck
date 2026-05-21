@@ -270,8 +270,10 @@ fn load_commits(&self) -> Result<Vec<CommitInfo>> {
 
 ## CLI 인터페이스
 
+프로젝트 이름은 `gluck`, 실행 파일 이름은 `glc`.
+
 ```
-gluck [options] [path]
+glc [options] [path]
 
 Options:
   path              Git 저장소 경로 (기본: 현재 디렉토리)
@@ -280,3 +282,5 @@ Options:
   -h, --help        도움말
   -V, --version     버전 정보
 ```
+
+`Cargo.toml`에서 `[[bin]] name = "glc"`로 설정.
