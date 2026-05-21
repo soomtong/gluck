@@ -54,11 +54,14 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         let visible = state.visible_commits();
         let items: Vec<ListItem> = visible.iter().map(|c| ListItem::new(format_commit_line(c))).collect();
 
-        let list = List::new(items).block(
-            Block::bordered()
-                .title(format!(" {} commits ", visible.len()))
-                .style(Style::new().white()),
-        );
+        let list = List::new(items)
+            .block(
+                Block::bordered()
+                    .title(format!(" {} commits ", visible.len()))
+                    .style(Style::new().white()),
+            )
+            .highlight_style(Style::new().black().on_white())
+            .highlight_symbol("● ");
 
         let mut list_state = ListState::default();
         list_state.select(Some(state.selected));
