@@ -63,6 +63,7 @@ pub struct ViewState {
     pub content: Option<String>,
     pub highlighted: Vec<Line<'static>>,
     pub scroll: usize,
+    pub show_ignored: bool,
 }
 
 impl ViewState {
@@ -74,6 +75,7 @@ impl ViewState {
             content: None,
             highlighted: Vec::new(),
             scroll: 0,
+            show_ignored: true,
         }
     }
 }
@@ -113,6 +115,7 @@ pub enum Action {
     SwitchMode,
     NextCommit,
     PrevCommit,
+    ToggleGitignore,
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +141,7 @@ impl KeyBindings {
         bindings.insert(KeyCode::Tab, Action::SwitchMode);
         bindings.insert(KeyCode::Char('J'), Action::PrevCommit);
         bindings.insert(KeyCode::Char('K'), Action::NextCommit);
+        bindings.insert(KeyCode::Char('.'), Action::ToggleGitignore);
         Self { bindings }
     }
 

@@ -101,6 +101,7 @@ impl App {
             Action::SwitchMode => self.switch_mode(),
             Action::NextCommit => self.next_commit(),
             Action::PrevCommit => self.prev_commit(),
+            Action::ToggleGitignore => self.toggle_gitignore(),
         }
     }
 
@@ -273,6 +274,26 @@ impl App {
         let tree = list_tree(&self.repo, &commit).unwrap_or_default();
         self.mode = Mode::View(ViewState::new(commit, tree));
         self.load_view_file();
+    }
+
+    fn toggle_gitignore(&mut self) {
+        if let Mode::View(state) = &mut self.mode {
+            state.show_ignored = !state.show_ignored;
+            let full_tree = list_tree(&self.repo, &state.commit).unwrap_or_default();
+            if state.show_ignored {
+                state.tree = full_tree;
+            } else {
+                let repo = self.repo.repository();
+                state.tree = full_tree
+                    .into_iter()
+                    .filter(|e| !repo.is_path_ignored(&e.path).unwrap_or(false))
+                    .collect();
+            }
+            state.selected_file = 0;
+            state.content = None;
+            state.highlighted.clear();
+            self.load_view_file();
+        }
     }
 
     fn toggle_view(&mut self) {
