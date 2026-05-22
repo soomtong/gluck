@@ -71,11 +71,55 @@ pub struct CommitStore {
 
 impl CommitStore {
     pub fn new(repo: &GitRepo, batch_size: usize) -> Result<Self, GitError> {
-        todo!()
+        let mut store = Self {
+            loaded: Arc::new(vec![]),
+            inner: Vec::new(),
+            index: CommitIndex::new(),
+            exhausted: false,
+            batch_size,
+        };
+        store.load_batch(repo)?;
+        Ok(store)
     }
 
     pub fn load_batch(&mut self, repo: &GitRepo) -> Result<usize, GitError> {
-        todo!()
+        if self.exhausted {
+            return Ok(0);
+        }
+        let repository = repo.repository();
+        let mut revwalk = repository.revwalk()?;
+        revwalk.push_head()?;
+        revwalk.set_sorting(git2::Sort::TOPOLOGICAL)?;
+
+        let skip = self.inner.len();
+        for _ in 0..skip {
+            if revwalk.next().is_none() {
+                self.exhausted = true;
+                return Ok(0);
+            }
+        }
+
+        let start_idx = self.inner.len();
+        let mut count = 0;
+        for _ in 0..self.batch_size {
+            match revwalk.next() {
+                Some(Ok(oid)) => {
+                    self.inner
+                        .push(CommitInfo::from_git_commit(&repository.find_commit(oid)?));
+                    count += 1;
+                }
+                _ => {
+                    self.exhausted = true;
+                    break;
+                }
+            }
+        }
+        if count > 0 {
+            let new_commits = &self.inner[start_idx..];
+            self.index.append(start_idx, new_commits);
+        }
+        self.loaded = Arc::new(self.inner.clone());
+        Ok(count)
     }
 
     pub fn search(&self, query: &str) -> Vec<usize> {
@@ -91,6 +135,8 @@ impl CommitStore {
 mod tests {
     use super::*;
     use crate::git::commit::CommitInfo;
+    use crate::git::repo::tests::{add_file_commit, init_test_repo};
+    use crate::git::repo::GitRepo;
     use git2::Oid;
 
     fn make_commit(msg: &str, author: &str) -> CommitInfo {
@@ -102,6 +148,8 @@ mod tests {
             message: msg.into(),
         }
     }
+
+    // ── CommitIndex tests ──
 
     #[test]
     fn test_index_search_by_message() {
@@ -159,5 +207,104 @@ mod tests {
             make_commit("Fix login bug", "Alice"),
         ]);
         assert_eq!(index.search("login").len(), 2);
+    }
+
+    // ── CommitStore tests ──
+
+    #[test]
+    fn test_store_loads_initial_batch() {
+        let (dir, repo) = init_test_repo();
+        for i in 0..10 {
+            add_file_commit(
+                &repo,
+                &format!("f{}.txt", i),
+                b"x",
+                &format!("c{}", i),
+            );
+        }
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let store = CommitStore::new(&git_repo, 5).unwrap();
+        assert_eq!(store.loaded.len(), 5);
+        assert!(!store.exhausted);
+    }
+
+    #[test]
+    fn test_store_paging_loads_more() {
+        let (dir, repo) = init_test_repo();
+        for i in 0..10 {
+            add_file_commit(
+                &repo,
+                &format!("f{}.txt", i),
+                b"x",
+                &format!("c{}", i),
+            );
+        }
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut store = CommitStore::new(&git_repo, 5).unwrap();
+        assert_eq!(store.loaded.len(), 5);
+
+        let added = store.load_batch(&git_repo).unwrap();
+        assert_eq!(added, 5);
+        assert_eq!(store.loaded.len(), 10);
+        // Next load should return 0 and mark exhausted
+        assert_eq!(store.load_batch(&git_repo).unwrap(), 0);
+        assert!(store.exhausted);
+    }
+
+    #[test]
+    fn test_store_exhausted_returns_zero() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "f.txt", b"x", "only");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut store = CommitStore::new(&git_repo, 5).unwrap();
+        assert!(store.exhausted);
+        assert_eq!(store.load_batch(&git_repo).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_store_arc_shares_data() {
+        let (dir, repo) = init_test_repo();
+        for i in 0..3 {
+            add_file_commit(
+                &repo,
+                &format!("f{}.txt", i),
+                b"x",
+                &format!("c{}", i),
+            );
+        }
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let store = CommitStore::new(&git_repo, 3).unwrap();
+        let a1 = store.loaded.clone();
+        let a2 = store.loaded.clone();
+        assert!(Arc::strong_count(&store.loaded) >= 3);
+        assert_eq!(a1.len(), 3);
+        assert_eq!(a2.len(), 3);
+    }
+
+    #[test]
+    fn test_store_search_after_paging() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "z.txt", b"z", "Sphinx of black quartz");
+        for i in 0..10 {
+            add_file_commit(
+                &repo,
+                &format!("f{}.txt", i),
+                b"x",
+                &format!("c{}", i),
+            );
+        }
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut store = CommitStore::new(&git_repo, 3).unwrap();
+
+        let found_fast = !store.search("sphinx").is_empty();
+        while !store.exhausted {
+            store.load_batch(&git_repo).unwrap();
+            if !store.search("sphinx").is_empty() {
+                break;
+            }
+        }
+        let found_later = !store.search("sphinx").is_empty();
+        assert!(found_fast || found_later);
+        assert_eq!(store.search("sphinx").len(), 1);
     }
 }
