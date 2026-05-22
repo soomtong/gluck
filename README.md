@@ -1,6 +1,6 @@
 # gluck
 
-[![Version](https://img.shields.io/badge/version-0.1.1-blue)](https://github.com/soomtong/gluck)
+[![Version](https://img.shields.io/badge/version-0.3.1-blue)](https://github.com/soomtong/gluck)
 [![Rust](https://img.shields.io/badge/rust-edition%202021-orange)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -41,32 +41,56 @@ glc /path/to/repo   # 특정 저장소 열기
 |----|------|
 | `j` / `k` / `↑` / `↓` | 커밋 이동 |
 | `Enter` / `l` | 선택 커밋 View 모드 |
-| `d` | 선택 커밋 Diff 모드 |
-| `p` | 작성자 필터 토글 |
+| `Tab` | 선택 커밋 Diff 모드 |
 | `.` | .gitignore 파일 필터 토글 |
 | `/` | 커밋 검색 |
+| `^T` | 색상 테마 전환 |
 | `q` | 종료 |
 
 ### View 모드 — 파일 읽기
 
 | 키 | 동작 |
 |----|------|
-| `j` / `k` / `↑` / `↓` | 파일 트리 / 내용 이동 |
-| `Tab` | 파일 목록 ↔ 내용 전환 |
-| `h` / `Esc` | Pick 모드 |
+| `j` / `k` / `↑` / `↓` | 파일 트리 이동 |
+| `u` / `d` | 내용 스크롤 (3줄) |
+| `J` / `K` | 내용 페이지 스크롤 |
+| `Tab` | Diff 모드 전환 |
+| `Esc` / `h` | Pick 모드 |
+| `^N` / `^P` | 다음/이전 커밋 이동 |
+| `^T` | 색상 테마 전환 |
 | `q` | 종료 |
 
 ### Diff 모드 — 변경 비교
 
 | 키 | 동작 |
 |----|------|
-| `j` / `k` / `h` / `l` / `←` / `→` / `↑` / `↓` | 변경 파일 이동 |
-| `J` / `K` | diff 내용 스크롤 |
+| `j` / `k` / `↑` / `↓` | 변경 파일 이동 |
+| `h` / `l` / `←` / `→` | 변경 파일 이동 |
+| `u` / `d` | diff 내용 스크롤 (3줄) |
+| `J` / `K` | diff 내용 페이지 스크롤 |
 | `s` | side-by-side / unified 토글 |
 | `Tab` | View 모드 |
 | `Esc` | Pick 모드 |
 | `^N` / `^P` | 다음/이전 커밋 쌍 이동 |
+| `^T` | 색상 테마 전환 |
 | `q` | 종료 |
+
+## 설정
+
+설정 파일은 XDG config 경로에 저장됩니다.
+
+- **macOS**: `~/Library/Application Support/gluck/config.toml`
+- **Linux**: `~/.config/gluck/config.toml`
+
+```toml
+[theme]
+# 색상 테마: plain (기본), catppuccin, tokyo-night, nord, gruvbox, one-light
+name = "plain"
+
+[ui]
+# u/d 키 스크롤 줄 수 (기본: 3)
+scroll_lines = 3
+```
 
 ## 배경
 
