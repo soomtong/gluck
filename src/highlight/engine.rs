@@ -25,6 +25,10 @@ impl HighlightEngine {
         engine
     }
 
+    pub fn set_theme(&mut self, theme: HashMap<String, Style>) {
+        self.theme = theme;
+    }
+
     pub fn highlight(&mut self, source: &str, path: &str) -> Vec<Line<'static>> {
         let lang = Self::detect_language(path);
         let config = match self.configs.get(&lang) {

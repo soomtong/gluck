@@ -5,6 +5,7 @@ use gluck::app::App;
 use gluck::cli::Cli;
 use gluck::debug;
 use gluck::git::repo::GitRepo;
+use gluck::config::Config;
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
@@ -25,7 +26,8 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
-    let mut app = App::new(repo)?;
+    let config = Config::load().unwrap_or_default();
+    let mut app = App::new(repo, config)?;
     if cli.debug {
         app.debug_overlay = true;
     }

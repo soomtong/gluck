@@ -5,6 +5,8 @@ use crate::git::tree::{is_binary_blob, list_tree, read_blob, EntryKind};
 use crate::highlight::HighlightEngine;
 use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, ViewState};
 use crate::ui;
+use crate::config::Config;
+use crate::theme::Palette;
 use anyhow::Result;
 use crossterm::event::KeyCode;
 use ratatui::Frame;
@@ -18,12 +20,17 @@ pub struct App {
     pub should_quit: bool,
     pub debug_overlay: bool,
     pub highlight: HighlightEngine,
+    pub palette: Palette,
+    pub theme_name: String,
+    pub config: Config,
 }
 
 impl App {
-    pub fn new(repo: GitRepo) -> Result<Self> {
+    pub fn new(repo: GitRepo, config: Config) -> Result<Self> {
         let commits = list_commits(&repo)?;
         let pick_state = PickState::new(commits.clone());
+        let theme_name = config.theme.name.clone();
+        let palette = crate::theme::resolve_palette(Some(&theme_name));
         let mut app = Self {
             mode: Mode::Pick(pick_state),
             repo,
@@ -32,7 +39,11 @@ impl App {
             should_quit: false,
             debug_overlay: false,
             highlight: HighlightEngine::new(),
+            palette,
+            theme_name,
+            config,
         };
+        app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
         Ok(app)
     }
@@ -134,8 +145,9 @@ impl App {
             KeyCode::Char('c') => self.should_quit = true,
             KeyCode::Char('d') => self.debug_overlay = !self.debug_overlay,
             KeyCode::Char('p') => self.prev_commit(),
-            KeyCode::Char('n') => self.next_commit(),
-            _ => {}
+        KeyCode::Char('n') => self.next_commit(),
+        KeyCode::Char('t') => self.next_theme(),
+        _ => {}
         }
     }
 
@@ -581,6 +593,17 @@ impl App {
             }
         }
     }
+
+    fn next_theme(&mut self) {
+        let names: Vec<&str> = crate::theme::THEMES.iter().map(|(n, _)| *n).collect();
+        let current_idx = names.iter().position(|&n| n == self.theme_name).unwrap_or(0);
+        let next_idx = (current_idx + 1) % names.len();
+        self.theme_name = names[next_idx].to_string();
+        self.palette = crate::theme::resolve_palette(Some(&self.theme_name));
+        self.highlight.set_theme(self.palette.to_highlight_map());
+        self.config.theme.name = self.theme_name.clone();
+        let _ = self.config.save();
+    }
 }
 
 fn restore_file_selection(state: &mut ViewState, prev_path: Option<String>) {
@@ -613,7 +636,7 @@ mod tests {
         add_file_commit(&repo, "b.txt", b"second", "Second commit");
         add_file_commit(&repo, "a.txt", b"third", "Third commit");
         let git_repo = GitRepo::open(dir.path()).unwrap();
-        let app = App::new(git_repo).unwrap();
+        let app = App::new(git_repo, Config::default()).unwrap();
         (dir, app)
     }
 
@@ -703,7 +726,7 @@ mod tests {
         );
 
         let git_repo = GitRepo::open(dir.path()).unwrap();
-        let mut app = App::new(git_repo).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
         app.handle_key(KeyCode::Enter);
 
         let Mode::View(state) = &app.mode else {
@@ -731,7 +754,7 @@ mod tests {
         );
 
         let git_repo = GitRepo::open(dir.path()).unwrap();
-        let mut app = App::new(git_repo).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
         app.handle_key(KeyCode::Enter);
 
         let Mode::View(state) = &app.mode else {
@@ -785,7 +808,7 @@ mod tests {
         add_file_commit(&repo, "c.txt", b"c", "C");
 
         let git_repo = GitRepo::open(dir.path()).unwrap();
-        let mut app = App::new(git_repo).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
         app.handle_key(KeyCode::Enter);
 
         let file_count = {
@@ -1002,7 +1025,7 @@ mod tests {
         let (dir, repo) = init_test_repo();
         add_file_commit(&repo, "a.txt", b"line1\nline2\nline3\n", "A");
         let git_repo = GitRepo::open(dir.path()).unwrap();
-        let mut app = App::new(git_repo).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
         app.handle_key(KeyCode::Enter);
 
         app.handle_key(KeyCode::Char('K'));
@@ -1111,7 +1134,7 @@ mod tests {
         add_file_commit(&repo, "image.png", &binary_content, "Add binary");
 
         let git_repo = GitRepo::open(dir.path()).unwrap();
-        let mut app = App::new(git_repo).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
         app.handle_key(KeyCode::Enter);
 
         let Mode::View(state) = &app.mode else {
@@ -1129,7 +1152,7 @@ mod tests {
         add_file_commit(&repo, "src/main.rs", b"fn main() {}", "Initial");
 
         let git_repo = GitRepo::open(dir.path()).unwrap();
-        let mut app = App::new(git_repo).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
         app.handle_key(KeyCode::Enter);
 
         let dir_idx = {
