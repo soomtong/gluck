@@ -49,6 +49,19 @@ pub mod tests {
         (dir, repo)
     }
 
+    pub fn init_test_repo_with_n_commits(n: usize) -> (TempDir, Repository) {
+        let (dir, repo) = init_test_repo();
+        for i in 0..n {
+            add_file_commit(
+                &repo,
+                &format!("f{}.txt", i),
+                format!("content {}", i).as_bytes(),
+                &format!("Commit number {}", i),
+            );
+        }
+        (dir, repo)
+    }
+
     pub fn add_file_commit(
         repo: &Repository,
         path: &str,
@@ -91,5 +104,13 @@ pub mod tests {
     fn test_open_invalid_path() {
         let dir = TempDir::new().unwrap();
         assert!(GitRepo::open(dir.path()).is_err());
+    }
+
+    #[test]
+    fn test_create_n_commits() {
+        let (_dir, repo) = init_test_repo_with_n_commits(50);
+        let mut revwalk = repo.revwalk().unwrap();
+        revwalk.push_head().unwrap();
+        assert_eq!(revwalk.count(), 50);
     }
 }
