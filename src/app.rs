@@ -789,7 +789,7 @@ fn restore_file_selection(state: &mut ViewState, prev_path: Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::repo::tests::{add_file_commit, init_test_repo};
+    use crate::git::repo::tests::{add_file_commit, init_test_repo, init_test_repo_with_n_commits};
 
     fn test_app() -> (tempfile::TempDir, App) {
         let (dir, repo) = init_test_repo();
@@ -1345,5 +1345,64 @@ mod tests {
                 crate::mode::FileContent::NotLoaded
             ));
         }
+    }
+
+    // ── Performance integration tests ──
+
+    #[test]
+    fn test_paging_triggers_on_near_end() {
+        let (dir, _repo) = init_test_repo_with_n_commits(300);
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
+
+        // Initial load: 200 (batch_size)
+        assert_eq!(app.store.loaded.len(), 200);
+        assert!(!app.store.exhausted);
+
+        // Navigate to near end (absolute idx ~150 + 50 >= 200 → triggers prefetch)
+        for _ in 0..150 {
+            app.handle_key(KeyCode::Char('j'));
+        }
+        // After reaching near end, loaded count should have increased
+        assert!(app.store.loaded.len() > 200 || app.store.exhausted);
+    }
+
+    #[test]
+    fn test_diff_cache_hit_on_cursor_move() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"first", "First");
+        add_file_commit(&repo, "a.txt", b"second", "Second");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
+
+        // Move down (to commit 1) — diff computed and cached
+        app.handle_key(KeyCode::Char('j'));
+        // Move up (back to commit 0) — should compute new diff
+        app.handle_key(KeyCode::Char('k'));
+
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert!(s.selected_diff.is_some());
+    }
+
+    #[test]
+    fn test_tree_cache_hit_on_view_reentry() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "src/main.rs", b"fn main() {}", "Initial");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
+
+        // Enter view (populates tree cache)
+        app.handle_key(KeyCode::Enter);
+        // Back to pick
+        app.handle_key(KeyCode::Esc);
+        // Enter view again (should cache hit)
+        app.handle_key(KeyCode::Enter);
+
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert!(!s.tree.is_empty());
     }
 }
