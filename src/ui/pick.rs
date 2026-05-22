@@ -197,7 +197,8 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                     .title(format!(" {} commits ", visible.len()))
                     .border_style(Style::new().fg(palette.border)),
             )
-            .highlight_style(palette.highlight_style());
+            .highlight_style(palette.highlight_style())
+            .scroll_padding(3);
 
         let mut list_state = ListState::default();
         list_state.select(Some(state.selected));
