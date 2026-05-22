@@ -176,8 +176,14 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     }
 
     if let Mode::Pick(state) = &app.mode {
-        let [commit_area, detail_area] =
-            Layout::horizontal([Constraint::Min(1), Constraint::Length(60)]).areas(body);
+        const MIN_DETAIL_WIDTH: u16 = 100;
+        let (commit_area, detail_area) = if body.width >= MIN_DETAIL_WIDTH {
+            let [left, right] =
+                Layout::horizontal([Constraint::Ratio(3, 5), Constraint::Ratio(2, 5)]).areas(body);
+            (left, Some(right))
+        } else {
+            (body, None)
+        };
 
         let visible = state.visible_commits();
         let items: Vec<ListItem> = visible
@@ -197,7 +203,9 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         list_state.select(Some(state.selected));
 
         frame.render_stateful_widget(list, commit_area, &mut list_state);
-        render_commit_detail(frame, detail_area, app);
+        if let Some(area) = detail_area {
+            render_commit_detail(frame, area, app);
+        }
     }
 
     let hints = [
