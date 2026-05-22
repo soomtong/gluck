@@ -1,9 +1,10 @@
 use crate::app::App;
 use crate::git::diff::{DiffFile, DiffLine};
 use crate::mode::Mode;
+use crate::theme::Palette;
 use crate::ui::layout;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
 
@@ -29,14 +30,17 @@ fn days_to_date(days: u64) -> (u64, u64, u64) {
     (y, m, d)
 }
 
-fn format_commit_line(commit: &crate::git::commit::CommitInfo) -> Line<'static> {
+fn format_commit_line(
+    commit: &crate::git::commit::CommitInfo,
+    palette: &Palette,
+) -> Line<'static> {
     let date_str = format_date(commit.date);
     Line::from(vec![
         Span::styled(
             format!(" {} ", commit.short_id),
-            Style::new().yellow().add_modifier(Modifier::BOLD),
+            Style::new().fg(palette.warning).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!("{:<12} ", date_str), Style::new().dark_gray()),
+        Span::styled(format!("{:<12} ", date_str), Style::new().fg(palette.dim)),
         Span::raw(commit.message.lines().next().unwrap_or("").to_string()),
     ])
 }
@@ -66,6 +70,7 @@ fn file_stats(file: &DiffFile) -> (usize, usize) {
 }
 
 fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
+    let palette = &app.palette;
     if let Mode::Pick(state) = &app.mode {
         let Some(&idx) = state.filtered_indices.get(state.selected) else {
             return;
@@ -89,11 +94,11 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         let mut desc_lines: Vec<Line> = vec![
             Line::from(Span::styled(
                 format!(" {}", subject),
-                Style::new().white().add_modifier(Modifier::BOLD),
+                Style::new().fg(palette.fg).add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
                 format!(" {} <{}>", format_date(commit.date), commit.author),
-                Style::new().dark_gray(),
+                Style::new().fg(palette.dim),
             )),
         ];
         if !body.is_empty() {
@@ -106,7 +111,7 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         let desc = Paragraph::new(desc_lines).block(
             Block::bordered()
                 .title(" Description ")
-                .style(Style::new().white()),
+                .border_style(Style::new().fg(palette.border)),
         );
         frame.render_widget(desc, desc_area);
 
@@ -121,14 +126,14 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                     if added > 0 {
                         spans.push(Span::styled(
                             format!("+{}", added),
-                            Style::new().green(),
+                            Style::new().fg(palette.added),
                         ));
                         spans.push(Span::raw(" "));
                     }
                     if removed > 0 {
                         spans.push(Span::styled(
                             format!("-{}", removed),
-                            Style::new().red(),
+                            Style::new().fg(palette.removed),
                         ));
                         spans.push(Span::raw(" "));
                     }
@@ -140,7 +145,7 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             let files_list = List::new(file_items).block(
                 Block::bordered()
                     .title(format!(" Files ({}) ", diff.files.len()))
-                    .style(Style::new().white()),
+                    .border_style(Style::new().fg(palette.border)),
             );
 
             frame.render_widget(files_list, files_area);
@@ -149,9 +154,9 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                 .block(
                     Block::bordered()
                         .title(" Files ")
-                        .style(Style::new().white()),
+                        .border_style(Style::new().fg(palette.border)),
                 )
-                .style(Style::new().dark_gray());
+                .style(Style::new().fg(palette.dim));
             frame.render_widget(no_diff, files_area);
         }
     }
@@ -159,15 +164,16 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
 pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
+    let palette = &app.palette;
 
     if let Mode::Pick(state) = &app.mode {
         if let crate::mode::SearchState::Active { input } = &state.search {
-            layout::render_search_bar(frame, header, &app.palette, input);
+            layout::render_search_bar(frame, header, palette, input);
         } else {
-            layout::render_header(frame, header, &app.palette, "PICK", &app.theme_name, None);
+            layout::render_header(frame, header, palette, "PICK", &app.theme_name, None);
         }
     } else {
-        layout::render_header(frame, header, &app.palette, "PICK", &app.theme_name, None);
+        layout::render_header(frame, header, palette, "PICK", &app.theme_name, None);
     }
 
     if let Mode::Pick(state) = &app.mode {
@@ -177,16 +183,16 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         let visible = state.visible_commits();
         let items: Vec<ListItem> = visible
             .iter()
-            .map(|c| ListItem::new(format_commit_line(c)))
+            .map(|c| ListItem::new(format_commit_line(c, palette)))
             .collect();
 
         let list = List::new(items)
             .block(
                 Block::bordered()
                     .title(format!(" {} commits ", visible.len()))
-                    .style(Style::new().white()),
+                    .border_style(Style::new().fg(palette.border)),
             )
-            .highlight_style(Style::new().black().on_white());
+            .highlight_style(palette.highlight_style());
 
         let mut list_state = ListState::default();
         list_state.select(Some(state.selected));
@@ -201,5 +207,5 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         ("[/]", "search"),
         ("[q]", "quit"),
     ];
-    layout::render_footer(frame, footer, &app.palette, &hints);
+    layout::render_footer(frame, footer, palette, &hints);
 }
