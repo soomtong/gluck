@@ -5,7 +5,7 @@ use crate::ui::layout;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Tabs};
+use ratatui::widgets::{Block, Clear, Paragraph, Tabs};
 
 pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
@@ -59,6 +59,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             frame.render_widget(tabs, tabs_row);
 
             if let Some(file) = state.diff_result.files.get(state.selected_file) {
+                frame.render_widget(Clear, diff_area);
                 if state.side_by_side {
                     render_side_by_side(frame, diff_area, file, state.scroll, palette);
                 } else {
