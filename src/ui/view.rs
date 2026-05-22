@@ -3,7 +3,7 @@ use crate::git::tree::EntryKind;
 use crate::mode::{FileContent, Mode};
 use crate::ui::layout;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style, Stylize};
+use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
 
@@ -16,6 +16,8 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
 
     if let Mode::View(state) = &app.mode {
+        let palette = &app.palette;
+
         layout::render_header(frame, header, &app.palette, "VIEW", &app.theme_name, Some(&state.commit.message));
         let (left, right) = layout::split_horizontal(body, 36);
 
@@ -25,7 +27,7 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             .map(|entry| {
                 let indent = "  ".repeat(entry_depth(entry));
                 let marker = if state.changed_paths.contains(&entry.path) {
-                    Span::styled("*", Style::new().yellow())
+                    Span::styled("*", Style::new().fg(palette.warning))
                 } else {
                     Span::styled(" ", Style::new().reset())
                 };
@@ -44,14 +46,14 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                         spans.push(Span::raw(" "));
                         spans.push(Span::styled(
                             format!("+{}", added),
-                            Style::new().fg(Color::Green),
+                            Style::new().fg(palette.added),
                         ));
                     }
                     if removed > 0 {
                         spans.push(Span::raw(" "));
                         spans.push(Span::styled(
                             format!("-{}", removed),
-                            Style::new().fg(Color::Red),
+                            Style::new().fg(palette.removed),
                         ));
                     }
                 }
@@ -64,9 +66,9 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             .block(
                 Block::bordered()
                     .title(format!(" {} ", state.commit.short_id))
-                    .style(Style::new().white()),
+                    .border_style(Style::new().fg(palette.border)),
             )
-            .highlight_style(Style::new().black().on_white());
+            .highlight_style(palette.highlight_style());
 
         let mut list_state = ListState::default();
         list_state.select(Some(state.selected_file));
@@ -82,13 +84,13 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             FileContent::NotLoaded => {
                 vec![Line::from(Span::styled(
                     "(select a file to view)",
-                    Style::new().dark_gray(),
+                    Style::new().fg(palette.dim),
                 ))]
             }
             FileContent::Binary => {
                 vec![Line::from(Span::styled(
                     "(binary file)",
-                    Style::new().dark_gray(),
+                    Style::new().fg(palette.dim),
                 ))]
             }
             FileContent::Text { highlighted, .. } => {
@@ -99,7 +101,7 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                         .map(|(i, line)| {
                             let mut spans = vec![Span::styled(
                                 format!("{:>4} ", i + 1),
-                                Style::new().dark_gray(),
+                                Style::new().fg(palette.dim),
                             )];
                             spans.extend(line.spans.clone());
                             Line::from(spans)
@@ -115,7 +117,7 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             .block(
                 Block::bordered()
                     .title(format!(" {} ", file_name))
-                    .style(Style::new().white()),
+                    .border_style(Style::new().fg(palette.border)),
             )
             .scroll((state.scroll as u16, 0));
 
