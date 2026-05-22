@@ -76,7 +76,31 @@ impl TreeCache {
         repo: &GitRepo,
         commit: &CommitInfo,
     ) -> Result<&Vec<FileEntry>, GitError> {
-        todo!()
+        let key = commit.id;
+        if self.entries.contains_key(&key) {
+            self.touch(&key);
+            return Ok(&self.entries[&key]);
+        }
+        let tree = list_tree(repo, commit)?;
+        self.insert(key, tree);
+        Ok(&self.entries[&key])
+    }
+
+    fn insert(&mut self, key: Oid, entries: Vec<FileEntry>) {
+        if self.entries.len() >= self.max_size {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(key, entries);
+        self.order.push_back(key);
+    }
+
+    fn touch(&mut self, key: &Oid) {
+        if let Some(pos) = self.order.iter().position(|k| k == key) {
+            self.order.remove(pos);
+            self.order.push_back(*key);
+        }
     }
 }
 
@@ -86,6 +110,8 @@ mod tests {
     use crate::git::commit::list_commits;
     use crate::git::repo::tests::{add_file_commit, init_test_repo};
     use crate::git::repo::GitRepo;
+
+    // ── DiffCache tests ──
 
     #[test]
     fn test_diff_cache_hit() {
@@ -161,5 +187,51 @@ mod tests {
             .get_or_compute(&git_repo, &commits[6], &commits[5])
             .unwrap();
         assert!(cache.entries.contains_key(&(commits[1].id, commits[0].id)));
+    }
+
+    // ── TreeCache tests ──
+
+    #[test]
+    fn test_tree_cache_hit() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "src/main.rs", b"fn main() {}", "Initial");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let commits = list_commits(&git_repo).unwrap();
+
+        let mut cache = TreeCache::new(10);
+        let len1 = cache
+            .get_or_compute(&git_repo, &commits[0])
+            .unwrap()
+            .len();
+        let len2 = cache
+            .get_or_compute(&git_repo, &commits[0])
+            .unwrap()
+            .len();
+        assert_eq!(len1, len2);
+        assert_eq!(cache.entries.len(), 1);
+    }
+
+    #[test]
+    fn test_tree_cache_lru_eviction() {
+        let (dir, repo) = init_test_repo();
+        for i in 0..15 {
+            add_file_commit(
+                &repo,
+                &format!("f{}.txt", i),
+                b"x",
+                &format!("c{}", i),
+            );
+        }
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let commits = list_commits(&git_repo).unwrap();
+        let mut cache = TreeCache::new(5);
+
+        for i in 0..5 {
+            cache.get_or_compute(&git_repo, &commits[i]).unwrap();
+        }
+        assert_eq!(cache.entries.len(), 5);
+
+        cache.get_or_compute(&git_repo, &commits[5]).unwrap();
+        assert_eq!(cache.entries.len(), 5);
     }
 }
