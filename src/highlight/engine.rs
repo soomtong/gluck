@@ -163,7 +163,7 @@ impl HighlightEngine {
     }
 }
 
-const HIGHLIGHT_NAMES: &[&str] = &[
+pub const HIGHLIGHT_NAMES: &[&str] = &[
     "attribute",
     "constant",
     "function.builtin",

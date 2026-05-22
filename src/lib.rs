@@ -4,4 +4,5 @@ pub mod debug;
 pub mod git;
 pub mod highlight;
 pub mod mode;
+pub mod theme;
 pub mod ui;
