@@ -18,7 +18,13 @@ fn main() -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
 
-    let repo = GitRepo::open(&path)?;
+    let repo = match GitRepo::open(&path) {
+        Ok(r) => r,
+        Err(_) => {
+            eprintln!("fatal: not a git repository: {}", path.display());
+            std::process::exit(1);
+        }
+    };
     let mut app = App::new(repo)?;
     if cli.debug {
         app.debug_overlay = true;
@@ -30,10 +36,7 @@ fn main() -> Result<()> {
     result
 }
 
-fn run_app(
-    terminal: &mut ratatui::DefaultTerminal,
-    app: &mut App,
-) -> Result<()> {
+fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     loop {
         terminal.draw(|f| app.render(f))?;
 
