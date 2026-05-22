@@ -6,6 +6,8 @@ use std::path::PathBuf;
 #[serde(default)]
 pub struct Config {
     pub theme: ThemeConfig,
+    #[serde(default)]
+    pub ui: UiConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +21,18 @@ impl Default for ThemeConfig {
         Self {
             name: crate::theme::default_theme_name().to_string(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiConfig {
+    pub scroll_lines: usize,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self { scroll_lines: 3 }
     }
 }
 
@@ -72,6 +86,7 @@ mod tests {
             theme: ThemeConfig {
                 name: "nord".to_string(),
             },
+            ui: UiConfig::default(),
         };
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();

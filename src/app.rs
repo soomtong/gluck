@@ -461,10 +461,11 @@ impl App {
     }
 
     fn scroll_down(&mut self) {
+        let n = self.config.ui.scroll_lines;
         match &mut self.mode {
             Mode::View(state) => {
                 let max_scroll = state.line_count().saturating_sub(1);
-                state.scroll = (state.scroll + 3).min(max_scroll);
+                state.scroll = (state.scroll + n).min(max_scroll);
             }
             Mode::Diff(state) => {
                 let line_count = state
@@ -474,19 +475,20 @@ impl App {
                     .map(|f| f.lines.len())
                     .unwrap_or(0);
                 let max_scroll = line_count.saturating_sub(1);
-                state.scroll = (state.scroll + 3).min(max_scroll);
+                state.scroll = (state.scroll + n).min(max_scroll);
             }
             _ => {}
         }
     }
 
     fn scroll_up(&mut self) {
+        let n = self.config.ui.scroll_lines;
         match &mut self.mode {
             Mode::View(state) => {
-                state.scroll = state.scroll.saturating_sub(3);
+                state.scroll = state.scroll.saturating_sub(n);
             }
             Mode::Diff(state) => {
-                state.scroll = state.scroll.saturating_sub(3);
+                state.scroll = state.scroll.saturating_sub(n);
             }
             _ => {}
         }
