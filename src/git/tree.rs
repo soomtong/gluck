@@ -1,5 +1,5 @@
-use crate::git::repo::{GitError, GitRepo};
 use crate::git::commit::CommitInfo;
+use crate::git::repo::{GitError, GitRepo};
 use git2::ObjectType;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,7 +67,8 @@ pub fn is_binary_blob(repo: &GitRepo, commit: &CommitInfo, path: &str) -> Result
     let tree = git_commit.tree()?;
     let entry = tree.get_path(std::path::Path::new(path))?;
     let obj = entry.to_object(repository)?;
-    let blob = obj.as_blob()
+    let blob = obj
+        .as_blob()
         .ok_or_else(|| GitError::BlobReadFailed(format!("Not a blob: {}", path)))?;
     Ok(blob.is_binary())
 }
@@ -78,7 +79,8 @@ pub fn read_blob(repo: &GitRepo, commit: &CommitInfo, path: &str) -> Result<Stri
     let tree = git_commit.tree()?;
     let entry = tree.get_path(std::path::Path::new(path))?;
     let obj = entry.to_object(repository)?;
-    let blob = obj.as_blob()
+    let blob = obj
+        .as_blob()
         .ok_or_else(|| GitError::BlobReadFailed(format!("Not a blob: {}", path)))?;
     let content = String::from_utf8_lossy(blob.content()).into_owned();
     Ok(content)
@@ -125,7 +127,12 @@ mod tests {
     #[test]
     fn test_read_blob() {
         let (dir, repo) = init_test_repo();
-        add_file_commit(&repo, "hello.rs", b"fn hello() { println!(\"hi\"); }", "Add hello");
+        add_file_commit(
+            &repo,
+            "hello.rs",
+            b"fn hello() { println!(\"hi\"); }",
+            "Add hello",
+        );
 
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let commits = list_commits(&git_repo).unwrap();

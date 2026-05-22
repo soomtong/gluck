@@ -14,7 +14,7 @@ pub struct CommitInfo {
 impl CommitInfo {
     pub fn from_git_commit(commit: &git2::Commit) -> Self {
         let id = commit.id();
-        let short_id = format!("{}", &id.to_string()[..7.min(id.to_string().len())]);
+        let short_id = id.to_string()[..7.min(id.to_string().len())].to_string();
         let author = commit.author().to_string();
         let date = UNIX_EPOCH + Duration::from_secs(commit.time().seconds() as u64);
         let message = commit.message().unwrap_or("").trim().to_string();
@@ -110,7 +110,7 @@ mod tests {
 
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let commits = list_commits(&git_repo).unwrap();
-        let short = format!("{}", &oid.to_string()[..4]);
+        let short = oid.to_string()[..4].to_string();
         let results = search_commits(&commits, &short);
         assert_eq!(results.len(), 1);
     }

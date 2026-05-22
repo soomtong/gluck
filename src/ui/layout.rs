@@ -14,11 +14,8 @@ pub fn app_layout(area: Rect) -> (Rect, Rect, Rect) {
 }
 
 pub fn split_horizontal(area: Rect, left_width: u16) -> (Rect, Rect) {
-    let [left, right] = Layout::horizontal([
-        Constraint::Length(left_width),
-        Constraint::Min(1),
-    ])
-    .areas(area);
+    let [left, right] =
+        Layout::horizontal([Constraint::Length(left_width), Constraint::Min(1)]).areas(area);
     (left, right)
 }
 
@@ -34,12 +31,10 @@ pub fn render_header(frame: &mut ratatui::Frame, area: Rect, mode: &str) {
         Style::new().dark_gray().italic(),
     );
 
-    let line = Line::from(vec![
-        logo, name, version, sep, mode_span, project, tagline,
-    ]);
+    let line = Line::from(vec![logo, name, version, sep, mode_span, project, tagline]);
 
-    let header = Paragraph::new(line)
-        .block(Block::bordered().border_style(Style::new().dark_gray()));
+    let header =
+        Paragraph::new(line).block(Block::bordered().border_style(Style::new().dark_gray()));
     frame.render_widget(header, area);
 }
 

@@ -3,9 +3,7 @@ use crate::git::diff::compute_diff;
 use crate::git::repo::GitRepo;
 use crate::git::tree::{is_binary_blob, list_tree, read_blob, EntryKind};
 use crate::highlight::HighlightEngine;
-use crate::mode::{
-    Action, DiffState, KeyBindings, Mode, PickState, ViewState,
-};
+use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, ViewState};
 use crate::ui;
 use anyhow::Result;
 use crossterm::event::KeyCode;
@@ -65,15 +63,24 @@ impl App {
         let info = match &self.mode {
             Mode::Pick(s) => format!(
                 "Mode: {} | Selected: {} | Commits: {} | Filtered: {}",
-                mode_name, s.selected, s.commits.len(), s.filtered_indices.len(),
+                mode_name,
+                s.selected,
+                s.commits.len(),
+                s.filtered_indices.len(),
             ),
             Mode::View(s) => format!(
                 "Mode: {} | File: {} | Files: {} | Scroll: {}",
-                mode_name, s.selected_file, s.tree.len(), s.scroll,
+                mode_name,
+                s.selected_file,
+                s.tree.len(),
+                s.scroll,
             ),
             Mode::Diff(s) => format!(
                 "Mode: {} | File: {} | Files: {} | Side-by-side: {}",
-                mode_name, s.selected_file, s.diff_result.files.len(), s.side_by_side,
+                mode_name,
+                s.selected_file,
+                s.diff_result.files.len(),
+                s.side_by_side,
             ),
         };
 
@@ -143,7 +150,9 @@ impl App {
     fn handle_search_input(&mut self, code: KeyCode) {
         use crate::mode::SearchState;
         let query = {
-            let Mode::Pick(state) = &mut self.mode else { return };
+            let Mode::Pick(state) = &mut self.mode else {
+                return;
+            };
             match code {
                 KeyCode::Esc | KeyCode::Enter => {
                     let query = match &state.search {
@@ -297,7 +306,9 @@ impl App {
     fn next_commit(&mut self) {
         match &self.mode {
             Mode::View(s) => {
-                let Some(idx) = self.commits.iter().position(|c| c.id == s.commit.id) else { return };
+                let Some(idx) = self.commits.iter().position(|c| c.id == s.commit.id) else {
+                    return;
+                };
                 if idx == 0 {
                     return;
                 }
@@ -309,7 +320,9 @@ impl App {
                 self.load_view_file();
             }
             Mode::Diff(s) => {
-                let Some(idx) = self.commits.iter().position(|c| c.id == s.to.id) else { return };
+                let Some(idx) = self.commits.iter().position(|c| c.id == s.to.id) else {
+                    return;
+                };
                 if idx == 0 {
                     return;
                 }
@@ -345,7 +358,9 @@ impl App {
     fn prev_commit(&mut self) {
         match &self.mode {
             Mode::View(s) => {
-                let Some(idx) = self.commits.iter().position(|c| c.id == s.commit.id) else { return };
+                let Some(idx) = self.commits.iter().position(|c| c.id == s.commit.id) else {
+                    return;
+                };
                 if idx + 1 >= self.commits.len() {
                     return;
                 }
@@ -357,7 +372,9 @@ impl App {
                 self.load_view_file();
             }
             Mode::Diff(s) => {
-                let Some(idx) = self.commits.iter().position(|c| c.id == s.to.id) else { return };
+                let Some(idx) = self.commits.iter().position(|c| c.id == s.to.id) else {
+                    return;
+                };
                 if idx + 2 >= self.commits.len() {
                     return;
                 }
@@ -431,10 +448,7 @@ impl App {
 
     fn toggle_gitignore(&mut self) {
         if let Mode::View(state) = &mut self.mode {
-            let prev_path = state
-                .tree
-                .get(state.selected_file)
-                .map(|e| e.path.clone());
+            let prev_path = state.tree.get(state.selected_file).map(|e| e.path.clone());
             state.show_ignored = !state.show_ignored;
             let full_tree = list_tree(&self.repo, &state.commit).unwrap_or_default();
             if state.show_ignored {
@@ -497,10 +511,14 @@ impl App {
     fn update_pick_diff(&mut self) {
         if let Mode::Pick(state) = &mut self.mode {
             state.selected_diff = None;
-            let Some(&idx) = state.filtered_indices.get(state.selected) else { return };
+            let Some(&idx) = state.filtered_indices.get(state.selected) else {
+                return;
+            };
             let commit = &state.commits[idx];
             let repository = self.repo.repository();
-            let Ok(commit_obj) = repository.find_commit(commit.id) else { return };
+            let Ok(commit_obj) = repository.find_commit(commit.id) else {
+                return;
+            };
             let parent = match commit_obj.parent(0) {
                 Ok(p) => p,
                 Err(_) => return,
@@ -640,13 +658,23 @@ mod tests {
     fn test_search_mode() {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Char('/'));
-        let Mode::Pick(state) = &app.mode else { panic!("expected pick mode") };
-        assert!(matches!(state.search, crate::mode::SearchState::Active { .. }));
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick mode")
+        };
+        assert!(matches!(
+            state.search,
+            crate::mode::SearchState::Active { .. }
+        ));
         app.handle_key(KeyCode::Char('t'));
         app.handle_key(KeyCode::Char('h'));
         app.handle_key(KeyCode::Enter);
-        let Mode::Pick(state) = &app.mode else { panic!("expected pick mode") };
-        assert!(matches!(state.search, crate::mode::SearchState::Idle { .. }));
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick mode")
+        };
+        assert!(matches!(
+            state.search,
+            crate::mode::SearchState::Idle { .. }
+        ));
     }
 
     #[test]
@@ -710,7 +738,9 @@ mod tests {
     fn test_move_up_at_top_does_not_underflow() {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Char('k'));
-        let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick")
+        };
         assert_eq!(state.selected, 0);
     }
 
@@ -718,13 +748,17 @@ mod tests {
     fn test_move_down_at_bottom_does_not_overflow() {
         let (_dir, mut app) = test_app();
         let max_idx = {
-            let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
+            let Mode::Pick(state) = &app.mode else {
+                panic!("expected pick")
+            };
             state.filtered_indices.len() - 1
         };
         for _ in 0..max_idx + 5 {
             app.handle_key(KeyCode::Char('j'));
         }
-        let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick")
+        };
         assert_eq!(state.selected, max_idx);
     }
 
@@ -740,7 +774,9 @@ mod tests {
         app.handle_key(KeyCode::Enter);
 
         let file_count = {
-            let Mode::View(s) = &app.mode else { panic!("expected view") };
+            let Mode::View(s) = &app.mode else {
+                panic!("expected view")
+            };
             s.tree.len()
         };
         assert!(file_count > 0);
@@ -748,13 +784,17 @@ mod tests {
         for _ in 0..file_count + 5 {
             app.handle_key(KeyCode::Char('j'));
         }
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         assert!(s.selected_file < file_count);
 
         for _ in 0..file_count + 5 {
             app.handle_key(KeyCode::Char('k'));
         }
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         assert_eq!(s.selected_file, 0);
     }
 
@@ -784,13 +824,17 @@ mod tests {
         app.handle_key(KeyCode::Enter);
         // We're at commits[0] (most recent). Ctrl+P goes older (idx+1).
         app.handle_ctrl_key(KeyCode::Char('p'));
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         let older_id = s.commit.id;
         let _ = s;
 
         // Ctrl+N goes newer (idx-1), back toward most recent
         app.handle_ctrl_key(KeyCode::Char('n'));
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         assert_ne!(s.commit.id, older_id, "should have moved to newer commit");
     }
 
@@ -798,13 +842,17 @@ mod tests {
     fn test_ctrl_p_prev_commit_in_view() {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Enter);
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         let first_id = s.commit.id;
         let _ = s;
 
         // Ctrl+P goes older (idx+1)
         app.handle_ctrl_key(KeyCode::Char('p'));
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         assert_ne!(s.commit.id, first_id, "should have moved to older commit");
     }
 
@@ -816,18 +864,26 @@ mod tests {
 
         // Ctrl+P navigates older (toward last commit)
         loop {
-            let Mode::View(s) = &app.mode else { panic!("expected view") };
-            if s.commit.id == last_commit_id { break; }
+            let Mode::View(s) = &app.mode else {
+                panic!("expected view")
+            };
+            if s.commit.id == last_commit_id {
+                break;
+            }
             let _ = s;
             app.handle_ctrl_key(KeyCode::Char('p'));
         }
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         let id_before = s.commit.id;
         let _ = s;
 
         // At oldest, Ctrl+P should stay
         app.handle_ctrl_key(KeyCode::Char('p'));
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         assert_eq!(s.commit.id, id_before, "should stay at oldest");
     }
 
@@ -841,8 +897,13 @@ mod tests {
         app.handle_key(KeyCode::Char('h'));
         app.handle_key(KeyCode::Enter);
 
-        let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
-        assert!(matches!(state.search, crate::mode::SearchState::Idle { query: Some(_) }));
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert!(matches!(
+            state.search,
+            crate::mode::SearchState::Idle { query: Some(_) }
+        ));
     }
 
     #[test]
@@ -851,8 +912,13 @@ mod tests {
         app.handle_key(KeyCode::Char('/'));
         app.handle_key(KeyCode::Esc);
 
-        let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
-        assert!(matches!(state.search, crate::mode::SearchState::Idle { query: None }));
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert!(matches!(
+            state.search,
+            crate::mode::SearchState::Idle { query: None }
+        ));
     }
 
     #[test]
@@ -869,7 +935,9 @@ mod tests {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Char('/'));
         app.handle_key(KeyCode::Backspace);
-        let Mode::Pick(state) = &app.mode else { panic!("expected pick") };
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick")
+        };
         match &state.search {
             crate::mode::SearchState::Active { input } => assert!(input.is_empty()),
             _ => panic!("expected active search"),
@@ -883,12 +951,16 @@ mod tests {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Enter);
         app.handle_key(KeyCode::Tab);
-        let Mode::Diff(s) = &app.mode else { panic!("expected diff") };
+        let Mode::Diff(s) = &app.mode else {
+            panic!("expected diff")
+        };
         let initial = s.side_by_side;
         let _ = s;
 
         app.handle_key(KeyCode::Char('s'));
-        let Mode::Diff(s) = &app.mode else { panic!("expected diff") };
+        let Mode::Diff(s) = &app.mode else {
+            panic!("expected diff")
+        };
         assert_ne!(s.side_by_side, initial);
     }
 
@@ -919,7 +991,9 @@ mod tests {
         app.handle_key(KeyCode::Enter);
 
         app.handle_key(KeyCode::Char('K'));
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         assert_eq!(s.scroll, 0);
     }
 
@@ -930,7 +1004,9 @@ mod tests {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Char('j'));
         let selected_idx = {
-            let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+            let Mode::Pick(s) = &app.mode else {
+                panic!("expected pick")
+            };
             s.selected
         };
         assert_eq!(selected_idx, 1);
@@ -940,7 +1016,9 @@ mod tests {
         app.handle_key(KeyCode::Esc);
         assert!(matches!(app.mode, Mode::Pick(_)));
 
-        let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
         assert_eq!(s.selected, selected_idx, "back should restore selection");
     }
 
@@ -949,7 +1027,9 @@ mod tests {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Char('j'));
         let selected_idx = {
-            let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+            let Mode::Pick(s) = &app.mode else {
+                panic!("expected pick")
+            };
             s.selected
         };
 
@@ -958,7 +1038,9 @@ mod tests {
         assert!(matches!(app.mode, Mode::Diff(_)));
         app.handle_key(KeyCode::Esc);
 
-        let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
         assert_eq!(s.selected, selected_idx);
     }
 
@@ -969,7 +1051,9 @@ mod tests {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Enter);
 
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         let view_file = s.selected_file;
         let _ = s;
 
@@ -978,7 +1062,9 @@ mod tests {
 
         app.handle_key(KeyCode::Tab);
         assert!(matches!(app.mode, Mode::View(_)));
-        let Mode::View(s) = &app.mode else { panic!("expected view") };
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
         assert_eq!(s.selected_file, view_file, "should restore file selection");
     }
 
@@ -1013,8 +1099,13 @@ mod tests {
         let mut app = App::new(git_repo).unwrap();
         app.handle_key(KeyCode::Enter);
 
-        let Mode::View(state) = &app.mode else { panic!("expected view") };
-        assert!(matches!(state.file_content, crate::mode::FileContent::Binary));
+        let Mode::View(state) = &app.mode else {
+            panic!("expected view")
+        };
+        assert!(matches!(
+            state.file_content,
+            crate::mode::FileContent::Binary
+        ));
     }
 
     #[test]
@@ -1027,24 +1118,38 @@ mod tests {
         app.handle_key(KeyCode::Enter);
 
         let dir_idx = {
-            let Mode::View(state) = &app.mode else { panic!("expected view") };
-            state.tree.iter().position(|e| matches!(e.kind, EntryKind::Directory))
+            let Mode::View(state) = &app.mode else {
+                panic!("expected view")
+            };
+            state
+                .tree
+                .iter()
+                .position(|e| matches!(e.kind, EntryKind::Directory))
         };
 
         if let Some(idx) = dir_idx {
             loop {
-                let Mode::View(s) = &app.mode else { panic!("expected view") };
+                let Mode::View(s) = &app.mode else {
+                    panic!("expected view")
+                };
                 let cur = s.selected_file;
                 let _ = s;
-                if cur == idx { break; }
+                if cur == idx {
+                    break;
+                }
                 if idx > cur {
                     app.handle_key(KeyCode::Char('j'));
                 } else {
                     app.handle_key(KeyCode::Char('k'));
                 }
             }
-            let Mode::View(s) = &app.mode else { panic!("expected view") };
-            assert!(matches!(s.file_content, crate::mode::FileContent::NotLoaded));
+            let Mode::View(s) = &app.mode else {
+                panic!("expected view")
+            };
+            assert!(matches!(
+                s.file_content,
+                crate::mode::FileContent::NotLoaded
+            ));
         }
     }
 }

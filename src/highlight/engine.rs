@@ -4,6 +4,12 @@ use std::collections::HashMap;
 use tree_sitter::Language;
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
+impl Default for HighlightEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct HighlightEngine {
     configs: HashMap<String, HighlightConfiguration>,
     theme: HashMap<String, Style>,
@@ -73,8 +79,7 @@ impl HighlightEngine {
                                 lines.push(Line::from(std::mem::take(&mut current_spans)));
                             }
                             if !part.is_empty() {
-                                current_spans
-                                    .push(Span::styled(part.to_string(), current_style));
+                                current_spans.push(Span::styled(part.to_string(), current_style));
                             }
                         }
                     } else if !text.is_empty() {
@@ -97,10 +102,7 @@ impl HighlightEngine {
     }
 
     fn plain_lines(source: &str) -> Vec<Line<'static>> {
-        source
-            .lines()
-            .map(|l| Line::from(l.to_string()))
-            .collect()
+        source.lines().map(|l| Line::from(l.to_string())).collect()
     }
 
     fn detect_language(path: &str) -> String {
@@ -154,13 +156,8 @@ impl HighlightEngine {
 
     fn make_markdown_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
         let language = tree_sitter_markdown_fork::language();
-        let mut config = HighlightConfiguration::new(
-            language,
-            "markdown",
-            MARKDOWN_HIGHLIGHTS_QUERY,
-            "",
-            "",
-        )?;
+        let mut config =
+            HighlightConfiguration::new(language, "markdown", MARKDOWN_HIGHLIGHTS_QUERY, "", "")?;
         config.configure(HIGHLIGHT_NAMES);
         Ok(config)
     }
@@ -224,7 +221,10 @@ const MARKDOWN_HIGHLIGHTS_QUERY: &str = r#"[
 
 fn default_theme() -> HashMap<String, Style> {
     let mut theme = HashMap::new();
-    theme.insert("keyword".into(), Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD));
+    theme.insert(
+        "keyword".into(),
+        Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+    );
     theme.insert("function".into(), Style::new().fg(Color::Blue));
     theme.insert("function.builtin".into(), Style::new().fg(Color::Cyan));
     theme.insert("string".into(), Style::new().fg(Color::Green));
@@ -238,18 +238,38 @@ fn default_theme() -> HashMap<String, Style> {
     theme.insert("variable.parameter".into(), Style::new().fg(Color::White));
     theme.insert("operator".into(), Style::new().fg(Color::Yellow));
     theme.insert("punctuation".into(), Style::new().fg(Color::DarkGray));
-    theme.insert("punctuation.bracket".into(), Style::new().fg(Color::DarkGray));
-    theme.insert("punctuation.delimiter".into(), Style::new().fg(Color::DarkGray));
+    theme.insert(
+        "punctuation.bracket".into(),
+        Style::new().fg(Color::DarkGray),
+    );
+    theme.insert(
+        "punctuation.delimiter".into(),
+        Style::new().fg(Color::DarkGray),
+    );
     theme.insert("property".into(), Style::new().fg(Color::White));
     theme.insert("attribute".into(), Style::new().fg(Color::Yellow));
     theme.insert("tag".into(), Style::new().fg(Color::Cyan));
-    theme.insert("text.title".into(), Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+    theme.insert(
+        "text.title".into(),
+        Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+    );
     theme.insert("text.literal".into(), Style::new().fg(Color::Green));
     theme.insert("text.emphasis".into(), Style::new().fg(Color::Magenta));
-    theme.insert("text.strong".into(), Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD));
-    theme.insert("text.uri".into(), Style::new().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED));
+    theme.insert(
+        "text.strong".into(),
+        Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+    );
+    theme.insert(
+        "text.uri".into(),
+        Style::new()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::UNDERLINED),
+    );
     theme.insert("text.reference".into(), Style::new().fg(Color::Cyan));
-    theme.insert("punctuation.special".into(), Style::new().fg(Color::DarkGray));
+    theme.insert(
+        "punctuation.special".into(),
+        Style::new().fg(Color::DarkGray),
+    );
     theme.insert("string.escape".into(), Style::new().fg(Color::Yellow));
     theme
 }

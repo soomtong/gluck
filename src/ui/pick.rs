@@ -8,7 +8,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
 
 fn format_date(time: std::time::SystemTime) -> String {
-    let duration = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    let duration = time
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
     let (year, month, day) = days_to_date(duration.as_secs() / 86400);
     format!("{:04}-{:02}-{:02}", year, month, day)
 }
@@ -34,10 +36,7 @@ fn format_commit_line(commit: &crate::git::commit::CommitInfo) -> Line<'static> 
             format!(" {} ", commit.short_id),
             Style::new().yellow().add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            format!("{:<12} ", date_str),
-            Style::new().dark_gray(),
-        ),
+        Span::styled(format!("{:<12} ", date_str), Style::new().dark_gray()),
         Span::raw(commit.message.lines().next().unwrap_or("").to_string()),
     ])
 }
@@ -66,26 +65,26 @@ fn file_stats(file: &DiffFile) -> (usize, usize) {
     (added, removed)
 }
 
-fn render_commit_detail(
-    frame: &mut ratatui::Frame,
-    area: Rect,
-    app: &App,
-) {
+fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     if let Mode::Pick(state) = &app.mode {
-        let Some(&idx) = state.filtered_indices.get(state.selected) else { return };
+        let Some(&idx) = state.filtered_indices.get(state.selected) else {
+            return;
+        };
         let commit = &state.commits[idx];
         let (subject, body) = split_message(&commit.message);
 
         let desc_height = {
-            let h = 2 + if body.is_empty() { 0 } else { body.lines().count() + 1 } + 3;
+            let h =
+                2 + if body.is_empty() {
+                    0
+                } else {
+                    body.lines().count() + 1
+                } + 3;
             (h as u16).clamp(3, area.height / 2)
         };
 
-        let [desc_area, files_area] = Layout::vertical([
-            Constraint::Length(desc_height),
-            Constraint::Min(1),
-        ])
-        .areas(area);
+        let [desc_area, files_area] =
+            Layout::vertical([Constraint::Length(desc_height), Constraint::Min(1)]).areas(area);
 
         let mut desc_lines: Vec<Line> = vec![
             Line::from(Span::styled(
@@ -104,8 +103,11 @@ fn render_commit_detail(
             }
         }
 
-        let desc = Paragraph::new(desc_lines)
-            .block(Block::bordered().title(" Description ").style(Style::new().white()));
+        let desc = Paragraph::new(desc_lines).block(
+            Block::bordered()
+                .title(" Description ")
+                .style(Style::new().white()),
+        );
         frame.render_widget(desc, desc_area);
 
         if let Some(diff) = &state.selected_diff {
@@ -113,11 +115,7 @@ fn render_commit_detail(
                 .files
                 .iter()
                 .map(|f| {
-                    let path = f
-                        .change
-                        .as_ref()
-                        .map(|c| c.path())
-                        .unwrap_or("?");
+                    let path = f.change.as_ref().map(|c| c.path()).unwrap_or("?");
                     let (added, removed) = file_stats(f);
                     let stats = if added > 0 || removed > 0 {
                         format!(" +{} -{}", added, removed)
@@ -125,26 +123,26 @@ fn render_commit_detail(
                         String::new()
                     };
                     ListItem::new(Line::from(vec![
-                        Span::styled(
-                            format!(" {:<8} ", stats.trim()),
-                            Style::new().dark_gray(),
-                        ),
+                        Span::styled(format!(" {:<8} ", stats.trim()), Style::new().dark_gray()),
                         Span::raw(path.to_string()),
                     ]))
                 })
                 .collect();
 
-            let files_list = List::new(file_items)
-                .block(
-                    Block::bordered()
-                        .title(format!(" Files ({}) ", diff.files.len()))
-                        .style(Style::new().white()),
-                );
+            let files_list = List::new(file_items).block(
+                Block::bordered()
+                    .title(format!(" Files ({}) ", diff.files.len()))
+                    .style(Style::new().white()),
+            );
 
             frame.render_widget(files_list, files_area);
         } else {
             let no_diff = Paragraph::new(" (root commit) ")
-                .block(Block::bordered().title(" Files ").style(Style::new().white()))
+                .block(
+                    Block::bordered()
+                        .title(" Files ")
+                        .style(Style::new().white()),
+                )
                 .style(Style::new().dark_gray());
             frame.render_widget(no_diff, files_area);
         }
@@ -165,11 +163,8 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     }
 
     if let Mode::Pick(state) = &app.mode {
-        let [commit_area, detail_area] = Layout::horizontal([
-            Constraint::Min(1),
-            Constraint::Length(60),
-        ])
-        .areas(body);
+        let [commit_area, detail_area] =
+            Layout::horizontal([Constraint::Min(1), Constraint::Length(60)]).areas(body);
 
         let visible = state.visible_commits();
         let items: Vec<ListItem> = visible

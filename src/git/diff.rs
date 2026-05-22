@@ -65,7 +65,11 @@ pub struct DiffResult {
     pub to_id: String,
 }
 
-pub fn compute_diff(repo: &GitRepo, from: &CommitInfo, to: &CommitInfo) -> Result<DiffResult, GitError> {
+pub fn compute_diff(
+    repo: &GitRepo,
+    from: &CommitInfo,
+    to: &CommitInfo,
+) -> Result<DiffResult, GitError> {
     let repository = repo.repository();
     let from_commit = repository.find_commit(from.id)?;
     let to_commit = repository.find_commit(to.id)?;
@@ -104,7 +108,9 @@ pub fn compute_diff(repo: &GitRepo, from: &CommitInfo, to: &CommitInfo) -> Resul
         },
         None,
         None,
-        Some(&mut |_: git2::DiffDelta<'_>, _: Option<git2::DiffHunk<'_>>, line: git2::DiffLine<'_>| {
+        Some(&mut |_: git2::DiffDelta<'_>,
+                   _: Option<git2::DiffHunk<'_>>,
+                   line: git2::DiffLine<'_>| {
             if let Some(idx) = *current_file_index.borrow() {
                 let content = String::from_utf8_lossy(line.content()).into_owned();
                 let diff_line = match line.origin() {
@@ -165,11 +171,15 @@ mod tests {
         let result = compute_diff(&git_repo, &commits[1], &commits[0]).unwrap();
         assert!(!result.files.is_empty());
 
-        let all_lines: String = result.files[0].lines.iter().map(|l| match l {
-            DiffLine::Context { content, .. }
-            | DiffLine::Added { content, .. }
-            | DiffLine::Removed { content, .. } => content.clone(),
-        }).collect();
+        let all_lines: String = result.files[0]
+            .lines
+            .iter()
+            .map(|l| match l {
+                DiffLine::Context { content, .. }
+                | DiffLine::Added { content, .. }
+                | DiffLine::Removed { content, .. } => content.clone(),
+            })
+            .collect();
         assert!(all_lines.contains("second"));
     }
 
@@ -182,7 +192,10 @@ mod tests {
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let commits = list_commits(&git_repo).unwrap();
         let result = compute_diff(&git_repo, &commits[1], &commits[0]).unwrap();
-        assert!(result.files.iter().any(|f| f.change.as_ref().map(|c| c.new_path()) == Some(Some("b.txt"))));
+        assert!(result
+            .files
+            .iter()
+            .any(|f| f.change.as_ref().map(|c| c.new_path()) == Some(Some("b.txt"))));
     }
 
     #[test]
@@ -196,9 +209,18 @@ mod tests {
         let result = compute_diff(&git_repo, &commits[1], &commits[0]).unwrap();
         let file = &result.files[0];
 
-        let has_removed = file.lines.iter().any(|l| matches!(l, DiffLine::Removed { .. }));
-        let has_added = file.lines.iter().any(|l| matches!(l, DiffLine::Added { .. }));
-        let has_context = file.lines.iter().any(|l| matches!(l, DiffLine::Context { .. }));
+        let has_removed = file
+            .lines
+            .iter()
+            .any(|l| matches!(l, DiffLine::Removed { .. }));
+        let has_added = file
+            .lines
+            .iter()
+            .any(|l| matches!(l, DiffLine::Added { .. }));
+        let has_context = file
+            .lines
+            .iter()
+            .any(|l| matches!(l, DiffLine::Context { .. }));
         assert!(has_removed);
         assert!(has_added);
         assert!(has_context);
@@ -208,7 +230,9 @@ mod tests {
 
     #[test]
     fn test_file_change_added_path_accessors() {
-        let change = FileChange::Added { path: "new.txt".into() };
+        let change = FileChange::Added {
+            path: "new.txt".into(),
+        };
         assert_eq!(change.path(), "new.txt");
         assert_eq!(change.old_path(), None);
         assert_eq!(change.new_path(), Some("new.txt"));
@@ -216,7 +240,9 @@ mod tests {
 
     #[test]
     fn test_file_change_deleted_path_accessors() {
-        let change = FileChange::Deleted { path: "old.txt".into() };
+        let change = FileChange::Deleted {
+            path: "old.txt".into(),
+        };
         assert_eq!(change.path(), "old.txt");
         assert_eq!(change.old_path(), Some("old.txt"));
         assert_eq!(change.new_path(), None);
@@ -248,7 +274,10 @@ mod tests {
 
     #[test]
     fn test_diffline_added_has_line_no() {
-        let line = DiffLine::Added { line_no: 5, content: "new\n".into() };
+        let line = DiffLine::Added {
+            line_no: 5,
+            content: "new\n".into(),
+        };
         match line {
             DiffLine::Added { line_no, .. } => assert!(line_no > 0),
             _ => panic!("expected Added variant"),
@@ -257,7 +286,10 @@ mod tests {
 
     #[test]
     fn test_diffline_removed_has_line_no() {
-        let line = DiffLine::Removed { line_no: 3, content: "old\n".into() };
+        let line = DiffLine::Removed {
+            line_no: 3,
+            content: "old\n".into(),
+        };
         match line {
             DiffLine::Removed { line_no, .. } => assert!(line_no > 0),
             _ => panic!("expected Removed variant"),
@@ -272,7 +304,11 @@ mod tests {
             content: "unchanged\n".into(),
         };
         match line {
-            DiffLine::Context { old_line_no, new_line_no, .. } => {
+            DiffLine::Context {
+                old_line_no,
+                new_line_no,
+                ..
+            } => {
                 assert!(old_line_no > 0);
                 assert!(new_line_no > 0);
             }
@@ -305,7 +341,7 @@ mod tests {
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let commits = list_commits(&git_repo).unwrap();
         let result = compute_diff(&git_repo, &commits[1], &commits[0]).unwrap();
-        assert!(result.files.len() >= 1);
+        assert!(!result.files.is_empty());
     }
 
     #[test]
@@ -337,8 +373,10 @@ mod tests {
                     DiffLine::Added { content, .. } => content,
                     DiffLine::Removed { content, .. } => content,
                 };
-                assert!(!content.is_empty() || content == "\n",
-                    "DiffLine content should not be empty");
+                assert!(
+                    !content.is_empty() || content == "\n",
+                    "DiffLine content should not be empty"
+                );
             }
         }
     }
@@ -353,7 +391,10 @@ mod tests {
         let commits = list_commits(&git_repo).unwrap();
         let result = compute_diff(&git_repo, &commits[1], &commits[0]).unwrap();
         for file in &result.files {
-            assert!(file.change.is_some(), "FileChange should always be set for real diffs");
+            assert!(
+                file.change.is_some(),
+                "FileChange should always be set for real diffs"
+            );
         }
     }
 }

@@ -75,7 +75,10 @@ impl PickState {
 pub enum FileContent {
     NotLoaded,
     Binary,
-    Text { raw: String, highlighted: Vec<Line<'static>> },
+    Text {
+        raw: String,
+        highlighted: Vec<Line<'static>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -223,7 +226,13 @@ mod tests {
     #[test]
     fn test_keybindings_all_actions_mapped() {
         let kb = KeyBindings::default_bindings();
-        assert!(kb.bindings.values().collect::<std::collections::HashSet<_>>().len() > 5);
+        assert!(
+            kb.bindings
+                .values()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                > 5
+        );
         assert!(kb.bindings.contains_key(&KeyCode::Char('q')));
         assert!(kb.bindings.contains_key(&KeyCode::Char('/')));
         assert!(kb.bindings.contains_key(&KeyCode::Tab));
@@ -233,7 +242,9 @@ mod tests {
 
     #[test]
     fn test_search_state_active_idle_transition() {
-        let active = SearchState::Active { input: "auth".into() };
+        let active = SearchState::Active {
+            input: "auth".into(),
+        };
         let query = match &active {
             SearchState::Active { input } if !input.is_empty() => Some(input.clone()),
             _ => None,
@@ -247,7 +258,9 @@ mod tests {
 
     #[test]
     fn test_search_state_active_empty_input() {
-        let state = SearchState::Active { input: String::new() };
+        let state = SearchState::Active {
+            input: String::new(),
+        };
         match &state {
             SearchState::Active { input } => assert!(input.is_empty()),
             _ => panic!("expected Active"),
@@ -262,7 +275,9 @@ mod tests {
 
     #[test]
     fn test_search_state_cancel_preserves_query() {
-        let state = SearchState::Active { input: "test".into() };
+        let state = SearchState::Active {
+            input: "test".into(),
+        };
         let query = match &state {
             SearchState::Active { input } if !input.is_empty() => Some(input.clone()),
             _ => None,
@@ -289,7 +304,11 @@ mod tests {
 
     #[test]
     fn test_pick_state_visible_commits_matches_filter() {
-        let commits = vec![make_commit("Alpha"), make_commit("Beta"), make_commit("Gamma")];
+        let commits = vec![
+            make_commit("Alpha"),
+            make_commit("Beta"),
+            make_commit("Gamma"),
+        ];
         let mut state = PickState::new(commits);
         state.update_filter("a");
         assert_eq!(state.visible_commits().len(), state.filtered_indices.len());
@@ -350,10 +369,7 @@ mod tests {
         let mut state = ViewState::new(make_commit("C"), vec![]);
         state.file_content = FileContent::Text {
             raw: "line1\nline2\nline3\n".into(),
-            highlighted: vec![
-                Line::from("a"),
-                Line::from("b"),
-            ],
+            highlighted: vec![Line::from("a"), Line::from("b")],
         };
         assert_eq!(state.line_count(), 2);
     }
@@ -372,8 +388,16 @@ mod tests {
     fn test_view_state_new_defaults() {
         let commit = make_commit("C");
         let tree = vec![
-            FileEntry { name: "src/".into(), path: "src".into(), kind: EntryKind::Directory },
-            FileEntry { name: "a.rs".into(), path: "src/a.rs".into(), kind: EntryKind::File },
+            FileEntry {
+                name: "src/".into(),
+                path: "src".into(),
+                kind: EntryKind::Directory,
+            },
+            FileEntry {
+                name: "a.rs".into(),
+                path: "src/a.rs".into(),
+                kind: EntryKind::File,
+            },
         ];
         let state = ViewState::new(commit.clone(), tree);
         assert_eq!(state.commit, commit);

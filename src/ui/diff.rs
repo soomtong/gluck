@@ -18,18 +18,19 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             let empty = Paragraph::new("No diff").block(Block::bordered());
             frame.render_widget(empty, body);
         } else {
-            let [tabs_row, diff_area] = Layout::vertical([
-                Constraint::Length(1),
-                Constraint::Min(1),
-            ])
-            .areas(body);
+            let [tabs_row, diff_area] =
+                Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(body);
 
             let file_names: Vec<String> = state
                 .diff_result
                 .files
                 .iter()
                 .map(|f| {
-                    f.change.as_ref().map(|c| c.path()).unwrap_or("?").to_string()
+                    f.change
+                        .as_ref()
+                        .map(|c| c.path())
+                        .unwrap_or("?")
+                        .to_string()
                 })
                 .collect();
 
@@ -68,18 +69,17 @@ fn style_for_line(line: &DiffLine) -> Style {
     }
 }
 
-fn render_unified(
-    frame: &mut ratatui::Frame,
-    area: Rect,
-    file: &DiffFile,
-    scroll: usize,
-) {
+fn render_unified(frame: &mut ratatui::Frame, area: Rect, file: &DiffFile, scroll: usize) {
     let lines: Vec<Line> = file
         .lines
         .iter()
         .map(|dl| {
             let (prefix, line_no, content, style) = match dl {
-                DiffLine::Context { old_line_no, new_line_no, content } => {
+                DiffLine::Context {
+                    old_line_no,
+                    new_line_no,
+                    content,
+                } => {
                     let no = if old_line_no == new_line_no {
                         format!(" {:>4}     ", old_line_no)
                     } else {
@@ -87,12 +87,18 @@ fn render_unified(
                     };
                     (" ", no, content.clone(), style_for_line(dl))
                 }
-                DiffLine::Removed { line_no, content } => {
-                    ("-", format!(" {:>4},_    ", line_no), content.clone(), style_for_line(dl))
-                }
-                DiffLine::Added { line_no, content } => {
-                    ("+", format!(" _,{:<4}    ", line_no), content.clone(), style_for_line(dl))
-                }
+                DiffLine::Removed { line_no, content } => (
+                    "-",
+                    format!(" {:>4},_    ", line_no),
+                    content.clone(),
+                    style_for_line(dl),
+                ),
+                DiffLine::Added { line_no, content } => (
+                    "+",
+                    format!(" _,{:<4}    ", line_no),
+                    content.clone(),
+                    style_for_line(dl),
+                ),
             };
             Line::from(vec![
                 Span::styled(prefix, style),
@@ -109,12 +115,7 @@ fn render_unified(
     frame.render_widget(paragraph, area);
 }
 
-fn render_side_by_side(
-    frame: &mut ratatui::Frame,
-    area: Rect,
-    file: &DiffFile,
-    scroll: usize,
-) {
+fn render_side_by_side(frame: &mut ratatui::Frame, area: Rect, file: &DiffFile, scroll: usize) {
     let (left, right) = layout::split_horizontal(area, area.width / 2);
 
     let old_lines: Vec<Line> = file

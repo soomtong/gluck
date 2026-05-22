@@ -77,10 +77,8 @@ pub mod tests {
         };
         let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
 
-        let oid = repo
-            .commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs)
-            .unwrap();
-        oid
+        repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs)
+            .unwrap()
     }
 
     #[test]
