@@ -43,12 +43,16 @@ impl CommitIndex {
 
     fn index_tokens(&mut self, idx: usize, text: &str) {
         for word in text.split_whitespace() {
-            for end in 1..=word.len() {
+            for (end, _) in word.char_indices().skip(1) {
                 self.prefixes
                     .entry(word[..end].into())
                     .or_default()
                     .push(idx);
             }
+            self.prefixes
+                .entry(word.into())
+                .or_default()
+                .push(idx);
         }
     }
 
