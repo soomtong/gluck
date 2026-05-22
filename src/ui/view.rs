@@ -126,7 +126,8 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
     let hints = [
         ("[j/k]", "move"),
-        ("[J/K]", "scroll"),
+        ("[u/d]", "scroll"),
+        ("[J/K]", "page"),
         ("[^P/^N]", "commit"),
         ("[.]", "ign"),
         ("[Enter]", "open"),

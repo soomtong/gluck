@@ -192,7 +192,9 @@ impl Palette {
     }
 }
 
-pub static THEMES: &[(&str, fn() -> Palette)] = &[
+pub type ThemeFactory = fn() -> Palette;
+
+pub static THEMES: &[(&str, ThemeFactory)] = &[
     ("plain", Palette::plain),
     ("catppuccin", Palette::catppuccin),
     ("tokyo-night", Palette::tokyo_night),
@@ -201,7 +203,7 @@ pub static THEMES: &[(&str, fn() -> Palette)] = &[
     ("one-light", Palette::one_light),
 ];
 
-pub fn find_theme(name: &str) -> Option<fn() -> Palette> {
+pub fn find_theme(name: &str) -> Option<ThemeFactory> {
     THEMES.iter().find(|(n, _)| *n == name).map(|(_, f)| *f)
 }
 
@@ -210,7 +212,7 @@ pub fn default_theme_name() -> &'static str {
 }
 
 pub fn resolve_palette(name: Option<&str>) -> Palette {
-    name.and_then(|n| find_theme(n))
+    name.and_then(find_theme)
         .unwrap_or(Palette::plain)()
 }
 

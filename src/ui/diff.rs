@@ -53,7 +53,8 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
     let hints = [
         ("[j/k/←/→]", "file"),
-        ("[J/K]", "scroll"),
+        ("[u/d]", "scroll"),
+        ("[J/K]", "page"),
         ("[^P/^N]", "commit"),
         ("[s]", "view"),
         ("[Tab]", "back"),

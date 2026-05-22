@@ -137,6 +137,8 @@ impl App {
             Action::PageDown => self.page_down(),
             Action::PageUp => self.page_up(),
             Action::ToggleGitignore => self.toggle_gitignore(),
+            Action::ScrollDown => self.scroll_down(),
+            Action::ScrollUp => self.scroll_up(),
         }
     }
 
@@ -453,6 +455,38 @@ impl App {
             }
             Mode::Diff(state) => {
                 state.scroll = state.scroll.saturating_sub(20);
+            }
+            _ => {}
+        }
+    }
+
+    fn scroll_down(&mut self) {
+        match &mut self.mode {
+            Mode::View(state) => {
+                let max_scroll = state.line_count().saturating_sub(1);
+                state.scroll = (state.scroll + 3).min(max_scroll);
+            }
+            Mode::Diff(state) => {
+                let line_count = state
+                    .diff_result
+                    .files
+                    .get(state.selected_file)
+                    .map(|f| f.lines.len())
+                    .unwrap_or(0);
+                let max_scroll = line_count.saturating_sub(1);
+                state.scroll = (state.scroll + 3).min(max_scroll);
+            }
+            _ => {}
+        }
+    }
+
+    fn scroll_up(&mut self) {
+        match &mut self.mode {
+            Mode::View(state) => {
+                state.scroll = state.scroll.saturating_sub(3);
+            }
+            Mode::Diff(state) => {
+                state.scroll = state.scroll.saturating_sub(3);
             }
             _ => {}
         }

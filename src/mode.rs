@@ -160,6 +160,8 @@ pub enum Action {
     PageDown,
     PageUp,
     ToggleGitignore,
+    ScrollDown,
+    ScrollUp,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +190,8 @@ impl KeyBindings {
         bindings.insert(KeyCode::Char('K'), Action::PageUp);
         bindings.insert(KeyCode::Char('J'), Action::PageDown);
         bindings.insert(KeyCode::Char('.'), Action::ToggleGitignore);
+        bindings.insert(KeyCode::Char('u'), Action::ScrollUp);
+        bindings.insert(KeyCode::Char('d'), Action::ScrollDown);
         Self { bindings }
     }
 
