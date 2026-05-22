@@ -1,5 +1,6 @@
 pub mod app;
 pub mod cli;
+pub mod config;
 pub mod debug;
 pub mod git;
 pub mod highlight;
