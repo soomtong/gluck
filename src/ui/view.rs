@@ -3,7 +3,7 @@ use crate::git::tree::EntryKind;
 use crate::mode::{FileContent, Mode};
 use crate::ui::layout;
 use ratatui::layout::Rect;
-use ratatui::style::{Style, Stylize};
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
 
@@ -33,10 +33,30 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                     EntryKind::Directory => "/",
                     EntryKind::File => "",
                 };
-                ListItem::new(Line::from(vec![
+
+                let mut spans = vec![
                     marker,
                     Span::raw(format!("{}{}{}", indent, entry.name, suffix)),
-                ]))
+                ];
+
+                if let Some(&(added, removed)) = state.changed_stats.get(&entry.path) {
+                    if added > 0 {
+                        spans.push(Span::raw(" "));
+                        spans.push(Span::styled(
+                            format!("+{}", added),
+                            Style::new().fg(Color::Green),
+                        ));
+                    }
+                    if removed > 0 {
+                        spans.push(Span::raw(" "));
+                        spans.push(Span::styled(
+                            format!("-{}", removed),
+                            Style::new().fg(Color::Red),
+                        ));
+                    }
+                }
+
+                ListItem::new(Line::from(spans))
             })
             .collect();
 

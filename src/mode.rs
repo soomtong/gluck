@@ -90,6 +90,7 @@ pub struct ViewState {
     pub scroll: usize,
     pub show_ignored: bool,
     pub changed_paths: std::collections::HashSet<String>,
+    pub changed_stats: std::collections::HashMap<String, (usize, usize)>,
 }
 
 impl ViewState {
@@ -102,6 +103,7 @@ impl ViewState {
             scroll: 0,
             show_ignored: true,
             changed_paths: std::collections::HashSet::new(),
+            changed_stats: std::collections::HashMap::new(),
         }
     }
 

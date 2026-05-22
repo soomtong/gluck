@@ -8,7 +8,7 @@ use crate::ui;
 use anyhow::Result;
 use crossterm::event::KeyCode;
 use ratatui::Frame;
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 pub struct App {
     pub mode: Mode,
@@ -474,21 +474,34 @@ impl App {
         }
     }
 
-    fn compute_changed_paths(&self, commit: &CommitInfo) -> HashSet<String> {
+    fn compute_changed_stats(&self, commit: &CommitInfo) -> HashMap<String, (usize, usize)> {
         let repository = self.repo.repository();
         let Ok(commit_obj) = repository.find_commit(commit.id) else {
-            return HashSet::new();
+            return HashMap::new();
         };
         let parent = match commit_obj.parent(0) {
             Ok(p) => p,
-            Err(_) => return HashSet::new(),
+            Err(_) => return HashMap::new(),
         };
         let parent_info = CommitInfo::from_git_commit(&parent);
         compute_diff(&self.repo, &parent_info, commit)
             .map(|r| {
                 r.files
                     .iter()
-                    .filter_map(|f| f.change.as_ref().map(|c| c.path().to_string()))
+                    .filter_map(|f| {
+                        let path = f.change.as_ref().map(|c| c.path().to_string())?;
+                        let added = f
+                            .lines
+                            .iter()
+                            .filter(|l| matches!(l, crate::git::diff::DiffLine::Added { .. }))
+                            .count();
+                        let removed = f
+                            .lines
+                            .iter()
+                            .filter(|l| matches!(l, crate::git::diff::DiffLine::Removed { .. }))
+                            .count();
+                        Some((path, (added, removed)))
+                    })
                     .collect()
             })
             .unwrap_or_default()
@@ -496,7 +509,8 @@ impl App {
 
     fn make_view_state(&self, commit: CommitInfo) -> ViewState {
         let tree = list_tree(&self.repo, &commit).unwrap_or_default();
-        let changed_paths = self.compute_changed_paths(&commit);
+        let changed_stats = self.compute_changed_stats(&commit);
+        let changed_paths = changed_stats.keys().cloned().collect();
         ViewState {
             commit,
             tree,
@@ -505,6 +519,7 @@ impl App {
             scroll: 0,
             show_ignored: true,
             changed_paths,
+            changed_stats,
         }
     }
 
