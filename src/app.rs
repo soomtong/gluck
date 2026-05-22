@@ -1,12 +1,12 @@
+use crate::config::Config;
 use crate::git::commit::{list_commits, CommitInfo};
 use crate::git::diff::compute_diff;
 use crate::git::repo::GitRepo;
 use crate::git::tree::{is_binary_blob, list_tree, read_blob, EntryKind};
 use crate::highlight::HighlightEngine;
-use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, ViewState};
-use crate::ui;
-use crate::config::Config;
+use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, SearchState, ViewState};
 use crate::theme::Palette;
+use crate::ui;
 use anyhow::Result;
 use crossterm::event::KeyCode;
 use ratatui::Frame;
@@ -23,6 +23,7 @@ pub struct App {
     pub palette: Palette,
     pub theme_name: String,
     pub config: Config,
+    pub saved_search: SearchState,
 }
 
 impl App {
@@ -42,6 +43,7 @@ impl App {
             palette,
             theme_name,
             config,
+            saved_search: SearchState::Idle { query: None },
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
@@ -107,6 +109,18 @@ impl App {
             return;
         }
 
+        if code == KeyCode::Esc {
+            if let Mode::Pick(state) = &mut self.mode {
+                if let SearchState::Idle { query: Some(_) } = &state.search {
+                    state.search = SearchState::Idle { query: None };
+                    state.update_filter("");
+                    self.saved_search = SearchState::Idle { query: None };
+                    self.update_pick_diff();
+                    return;
+                }
+            }
+        }
+
         // Diff mode: h/l and arrow keys navigate files
         if matches!(self.mode, Mode::Diff(_)) {
             match code {
@@ -147,9 +161,9 @@ impl App {
             KeyCode::Char('c') => self.should_quit = true,
             KeyCode::Char('d') => self.debug_overlay = !self.debug_overlay,
             KeyCode::Char('p') => self.prev_commit(),
-        KeyCode::Char('n') => self.next_commit(),
-        KeyCode::Char('t') => self.next_theme(),
-        _ => {}
+            KeyCode::Char('n') => self.next_commit(),
+            KeyCode::Char('t') => self.next_theme(),
+            _ => {}
         }
     }
 
@@ -249,6 +263,7 @@ impl App {
     fn enter(&mut self) {
         match &self.mode {
             Mode::Pick(state) => {
+                self.saved_search = state.search.clone();
                 if let Some(&idx) = state.filtered_indices.get(state.selected) {
                     let commit = state.commits[idx].clone();
                     self.mode = Mode::View(self.make_view_state(commit));
@@ -265,21 +280,33 @@ impl App {
     fn back(&mut self) {
         match &self.mode {
             Mode::View(_) | Mode::Diff(_) => {
+                let target_id = if let Mode::View(vs) = &self.mode {
+                    Some(vs.commit.id)
+                } else if let Mode::Diff(ds) = &self.mode {
+                    Some(ds.to.id)
+                } else {
+                    None
+                };
+
                 let mut pick = PickState::new(self.commits.clone());
-                if let Mode::View(vs) = &self.mode {
-                    pick.selected = pick
-                        .commits
-                        .iter()
-                        .position(|c| c.id == vs.commit.id)
-                        .unwrap_or(0);
+
+                if let SearchState::Idle { query: Some(q) } = &self.saved_search {
+                    pick.search = SearchState::Idle {
+                        query: Some(q.clone()),
+                    };
+                    pick.update_filter(q);
                 }
-                if let Mode::Diff(ds) = &self.mode {
-                    pick.selected = pick
-                        .commits
-                        .iter()
-                        .position(|c| c.id == ds.to.id)
-                        .unwrap_or(0);
+
+                if let Some(id) = target_id {
+                    if let Some(full_idx) = pick.commits.iter().position(|c| c.id == id) {
+                        pick.selected = pick
+                            .filtered_indices
+                            .iter()
+                            .position(|&i| i == full_idx)
+                            .unwrap_or(0);
+                    }
                 }
+
                 self.mode = Mode::Pick(pick);
             }
             Mode::Pick(_) => {}
@@ -632,7 +659,10 @@ impl App {
 
     fn next_theme(&mut self) {
         let names: Vec<&str> = crate::theme::THEMES.iter().map(|(n, _)| *n).collect();
-        let current_idx = names.iter().position(|&n| n == self.theme_name).unwrap_or(0);
+        let current_idx = names
+            .iter()
+            .position(|&n| n == self.theme_name)
+            .unwrap_or(0);
         let next_idx = (current_idx + 1) % names.len();
         self.theme_name = names[next_idx].to_string();
         self.palette = crate::theme::resolve_palette(Some(&self.theme_name));
