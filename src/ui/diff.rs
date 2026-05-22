@@ -42,9 +42,14 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                 })
                 .collect();
 
-            let tabs = Tabs::new(file_names)
-                .select(state.selected_file)
-                .highlight_style(Style::new().fg(palette.fg).add_modifier(Modifier::BOLD))
+            let (tab_offset, visible_names) =
+                visible_tabs(&file_names, state.selected_file, tabs_row.width);
+
+            let adjusted_select = state.selected_file.saturating_sub(tab_offset);
+
+            let tabs = Tabs::new(visible_names)
+                .select(adjusted_select)
+                .highlight_style(Style::new().fg(palette.fg).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED))
                 .divider("|");
             frame.render_widget(tabs, tabs_row);
 
@@ -68,6 +73,80 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         ("[Esc]", "pick"),
     ];
     layout::render_footer(frame, footer, &app.palette, &hints);
+}
+
+fn visible_tabs(file_names: &[String], selected: usize, area_width: u16) -> (usize, Vec<String>) {
+    if file_names.is_empty() {
+        return (0, vec![]);
+    }
+
+    let width = area_width as usize;
+    let divider_len = " | ".len();
+
+    let max_fit = {
+        let mut n = 0;
+        let mut w = 0;
+        for name in file_names {
+            let need = if n == 0 { name.len() } else { divider_len + name.len() };
+            if w + need > width {
+                break;
+            }
+            w += need;
+            n += 1;
+        }
+        n.max(1)
+    };
+
+    let right_margin = match max_fit {
+        0 | 1 => 0,
+        2..=4 => 1,
+        _ => 2,
+    };
+
+    // 1. selected tab
+    let mut used = file_names[selected].len();
+
+    // 2. ensure at least right_margin tabs to the right
+    let mut right_count = 0;
+    for i in 1..=right_margin {
+        let idx = selected + i;
+        if idx >= file_names.len() {
+            break;
+        }
+        if used + divider_len + file_names[idx].len() > width {
+            break;
+        }
+        used += divider_len + file_names[idx].len();
+        right_count = i;
+    }
+
+    // 3. fill left with as many as fit
+    let mut left_count = 0;
+    for i in (0..selected).rev() {
+        if used + divider_len + file_names[i].len() > width {
+            break;
+        }
+        used += divider_len + file_names[i].len();
+        left_count += 1;
+    }
+
+    // 4. fill any remaining space with more right tabs
+    for i in (right_count + 1).. {
+        let idx = selected + i;
+        if idx >= file_names.len() {
+            break;
+        }
+        if used + divider_len + file_names[idx].len() > width {
+            break;
+        }
+        used += divider_len + file_names[idx].len();
+        right_count = i;
+    }
+
+    let offset = selected - left_count;
+    let end = selected + 1 + right_count;
+    let visible: Vec<String> = file_names[offset..end].to_vec();
+    (offset, visible)
 }
 
 fn style_for_line(line: &DiffLine, palette: &crate::theme::Palette) -> Style {
@@ -204,4 +283,49 @@ fn render_side_by_side(
 
     frame.render_widget(old_widget, left);
     frame.render_widget(new_widget, right);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_visible_tabs_empty() {
+        let (offset, visible) = visible_tabs(&[], 0, 80);
+        assert_eq!(offset, 0);
+        assert!(visible.is_empty());
+    }
+
+    #[test]
+    fn test_visible_tabs_all_fit() {
+        let names = vec!["a.rs".to_string(), "b.rs".to_string(), "c.rs".to_string()];
+        let (offset, visible) = visible_tabs(&names, 1, 80);
+        assert_eq!(offset, 0);
+        assert_eq!(visible, names);
+    }
+
+    #[test]
+    fn test_visible_tabs_scroll_to_selected() {
+        let names: Vec<String> = (0..20).map(|i| format!("file_{:02}.rs", i)).collect();
+        let (offset, visible) = visible_tabs(&names, 15, 80);
+        assert!(offset > 0, "should scroll when selected is beyond visible range");
+        let adjusted = 15 - offset;
+        assert_eq!(visible[adjusted], "file_15.rs");
+    }
+
+    #[test]
+    fn test_visible_tabs_selected_at_zero() {
+        let names: Vec<String> = (0..20).map(|i| format!("file_{:02}.rs", i)).collect();
+        let (offset, _visible) = visible_tabs(&names, 0, 80);
+        assert_eq!(offset, 0);
+    }
+
+    #[test]
+    fn test_visible_tabs_narrow_width() {
+        let names = vec!["aaaaa.rs".to_string(), "bbbbb.rs".to_string()];
+        let (offset, visible) = visible_tabs(&names, 1, 10);
+        assert_eq!(offset, 1);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0], "bbbbb.rs");
+    }
 }
