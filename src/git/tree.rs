@@ -40,7 +40,7 @@ fn walk_tree(
         match entry.kind() {
             Some(ObjectType::Tree) => {
                 entries.push(FileEntry {
-                    name: format!("{}/", name),
+                    name: name.to_string(),
                     path: path.clone(),
                     kind: EntryKind::Directory,
                 });
