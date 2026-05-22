@@ -22,7 +22,10 @@ pub fn split_horizontal(area: Rect, left_width: u16) -> (Rect, Rect) {
 pub fn render_header(frame: &mut ratatui::Frame, area: Rect, mode: &str) {
     let logo = Span::styled("◆ ", Style::new().magenta());
     let name = Span::styled("glc", Style::new().white().bold());
-    let version = Span::styled(" v0.2.2", Style::new().dark_gray());
+    let version = Span::styled(
+        format!(" v{}", env!("CARGO_PKG_VERSION")),
+        Style::new().dark_gray(),
+    );
     let sep = Span::styled(" · ", Style::new().dark_gray());
     let mode_span = Span::styled(mode, Style::new().cyan().bold());
     let project = Span::styled(" GLUCK", Style::new().white().not_bold());
