@@ -58,10 +58,10 @@ impl Config {
 }
 
 fn config_path() -> PathBuf {
-    let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("gluck");
-    path.push("config.toml");
-    path
+    let base = dirs::config_dir()
+        .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join("gluck").join("config.toml")
 }
 
 #[cfg(test)]
