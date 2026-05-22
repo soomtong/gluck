@@ -8,6 +8,12 @@ pub struct CommitIndex {
     prefixes: BTreeMap<String, Vec<usize>>,
 }
 
+impl Default for CommitIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommitIndex {
     pub fn new() -> Self {
         Self {
@@ -170,10 +176,7 @@ mod tests {
 
     #[test]
     fn test_index_by_author() {
-        let index = CommitIndex::build(&[
-            make_commit("A", "Alice"),
-            make_commit("B", "Bob"),
-        ]);
+        let index = CommitIndex::build(&[make_commit("A", "Alice"), make_commit("B", "Bob")]);
         assert_eq!(index.search("bob"), vec![1]);
     }
 
@@ -193,10 +196,7 @@ mod tests {
 
     #[test]
     fn test_index_empty_query() {
-        let index = CommitIndex::build(&[
-            make_commit("Hello", "A"),
-            make_commit("World", "B"),
-        ]);
+        let index = CommitIndex::build(&[make_commit("Hello", "A"), make_commit("World", "B")]);
         assert!(index.search("").is_empty());
     }
 
@@ -215,12 +215,7 @@ mod tests {
     fn test_store_loads_initial_batch() {
         let (dir, repo) = init_test_repo();
         for i in 0..10 {
-            add_file_commit(
-                &repo,
-                &format!("f{}.txt", i),
-                b"x",
-                &format!("c{}", i),
-            );
+            add_file_commit(&repo, &format!("f{}.txt", i), b"x", &format!("c{}", i));
         }
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let store = CommitStore::new(&git_repo, 5).unwrap();
@@ -232,12 +227,7 @@ mod tests {
     fn test_store_paging_loads_more() {
         let (dir, repo) = init_test_repo();
         for i in 0..10 {
-            add_file_commit(
-                &repo,
-                &format!("f{}.txt", i),
-                b"x",
-                &format!("c{}", i),
-            );
+            add_file_commit(&repo, &format!("f{}.txt", i), b"x", &format!("c{}", i));
         }
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let mut store = CommitStore::new(&git_repo, 5).unwrap();
@@ -265,12 +255,7 @@ mod tests {
     fn test_store_arc_shares_data() {
         let (dir, repo) = init_test_repo();
         for i in 0..3 {
-            add_file_commit(
-                &repo,
-                &format!("f{}.txt", i),
-                b"x",
-                &format!("c{}", i),
-            );
+            add_file_commit(&repo, &format!("f{}.txt", i), b"x", &format!("c{}", i));
         }
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let store = CommitStore::new(&git_repo, 3).unwrap();
@@ -286,12 +271,7 @@ mod tests {
         let (dir, repo) = init_test_repo();
         add_file_commit(&repo, "z.txt", b"z", "Sphinx of black quartz");
         for i in 0..10 {
-            add_file_commit(
-                &repo,
-                &format!("f{}.txt", i),
-                b"x",
-                &format!("c{}", i),
-            );
+            add_file_commit(&repo, &format!("f{}.txt", i), b"x", &format!("c{}", i));
         }
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let mut store = CommitStore::new(&git_repo, 3).unwrap();
