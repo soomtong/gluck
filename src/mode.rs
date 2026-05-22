@@ -2,6 +2,7 @@ use crate::git::commit::CommitInfo;
 use crate::git::diff::DiffResult;
 use crate::git::tree::FileEntry;
 use ratatui::text::Line;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
@@ -18,7 +19,7 @@ pub enum SearchState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PickState {
-    pub commits: Vec<CommitInfo>,
+    pub commits: Arc<Vec<CommitInfo>>,
     pub filtered_indices: Vec<usize>,
     pub selected: usize,
     pub scroll: usize,
@@ -27,7 +28,7 @@ pub struct PickState {
 }
 
 impl PickState {
-    pub fn new(commits: Vec<CommitInfo>) -> Self {
+    pub fn new(commits: Arc<Vec<CommitInfo>>) -> Self {
         let filtered_indices = (0..commits.len()).collect();
         Self {
             commits,
@@ -60,11 +61,20 @@ impl PickState {
     }
 
     pub fn update_filter(&mut self, query: &str) {
-        use crate::git::commit::search_commits;
+        let q = query.to_lowercase();
         self.filtered_indices = if query.is_empty() {
             (0..self.commits.len()).collect()
         } else {
-            search_commits(&self.commits, query)
+            self.commits
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| {
+                    c.message.to_lowercase().contains(&q)
+                        || c.author.to_lowercase().contains(&q)
+                        || c.short_id.starts_with(&q)
+                })
+                .map(|(i, _)| i)
+                .collect()
         };
         self.selected = 0;
         self.scroll = 0;
@@ -299,7 +309,7 @@ mod tests {
 
     #[test]
     fn test_pick_state_new_initial_state() {
-        let commits = vec![make_commit("A"), make_commit("B")];
+        let commits = Arc::new(vec![make_commit("A"), make_commit("B")]);
         let state = PickState::new(commits);
         assert_eq!(state.filtered_indices, vec![0, 1]);
         assert_eq!(state.selected, 0);
@@ -310,11 +320,11 @@ mod tests {
 
     #[test]
     fn test_pick_state_visible_commits_matches_filter() {
-        let commits = vec![
+        let commits = Arc::new(vec![
             make_commit("Alpha"),
             make_commit("Beta"),
             make_commit("Gamma"),
-        ];
+        ]);
         let mut state = PickState::new(commits);
         state.update_filter("a");
         assert_eq!(state.visible_commits().len(), state.filtered_indices.len());
@@ -322,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_pick_state_filter_no_matches() {
-        let commits = vec![make_commit("Alpha"), make_commit("Beta")];
+        let commits = Arc::new(vec![make_commit("Alpha"), make_commit("Beta")]);
         let mut state = PickState::new(commits);
         state.update_filter("zzz");
         assert!(state.filtered_indices.is_empty());
@@ -331,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_pick_state_filter_resets_selection() {
-        let commits = vec![make_commit("Alpha"), make_commit("Beta")];
+        let commits = Arc::new(vec![make_commit("Alpha"), make_commit("Beta")]);
         let mut state = PickState::new(commits);
         state.selected = 1;
         state.scroll = 5;
@@ -342,14 +352,14 @@ mod tests {
 
     #[test]
     fn test_pick_state_empty_commits() {
-        let state = PickState::new(vec![]);
+        let state = PickState::new(Arc::new(vec![]));
         assert!(state.filtered_indices.is_empty());
         assert!(state.visible_commits().is_empty());
     }
 
     #[test]
     fn test_pick_state_filter_case_insensitive() {
-        let commits = vec![make_commit("Hello World"), make_commit("goodbye")];
+        let commits = Arc::new(vec![make_commit("Hello World"), make_commit("goodbye")]);
         let mut state = PickState::new(commits);
         state.update_filter("HELLO");
         assert_eq!(state.filtered_indices.len(), 1);

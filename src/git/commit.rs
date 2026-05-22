@@ -43,20 +43,6 @@ pub fn list_commits(repo: &GitRepo) -> Result<Vec<CommitInfo>, GitError> {
     Ok(commits)
 }
 
-pub fn search_commits(commits: &[CommitInfo], query: &str) -> Vec<usize> {
-    let q = query.to_lowercase();
-    commits
-        .iter()
-        .enumerate()
-        .filter(|(_, c)| {
-            c.message.to_lowercase().contains(&q)
-                || c.author.to_lowercase().contains(&q)
-                || c.short_id.starts_with(&q)
-        })
-        .map(|(i, _)| i)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,28 +76,4 @@ mod tests {
         assert_eq!(c.message, "Test message");
     }
 
-    #[test]
-    fn test_search_by_message() {
-        let (dir, repo) = init_test_repo();
-        add_file_commit(&repo, "a.txt", b"a", "Add auth module");
-        add_file_commit(&repo, "b.txt", b"b", "Fix login bug");
-        add_file_commit(&repo, "c.txt", b"c", "Update README");
-
-        let git_repo = GitRepo::open(dir.path()).unwrap();
-        let commits = list_commits(&git_repo).unwrap();
-        let results = search_commits(&commits, "auth");
-        assert_eq!(results, vec![2]);
-    }
-
-    #[test]
-    fn test_search_by_hash_prefix() {
-        let (dir, repo) = init_test_repo();
-        let oid = add_file_commit(&repo, "a.txt", b"a", "First");
-
-        let git_repo = GitRepo::open(dir.path()).unwrap();
-        let commits = list_commits(&git_repo).unwrap();
-        let short = oid.to_string()[..4].to_string();
-        let results = search_commits(&commits, &short);
-        assert_eq!(results.len(), 1);
-    }
 }

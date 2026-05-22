@@ -11,6 +11,7 @@ use anyhow::Result;
 use crossterm::event::KeyCode;
 use ratatui::Frame;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct App {
     pub mode: Mode,
@@ -29,7 +30,8 @@ pub struct App {
 impl App {
     pub fn new(repo: GitRepo, config: Config) -> Result<Self> {
         let commits = list_commits(&repo)?;
-        let pick_state = PickState::new(commits.clone());
+        let commits_arc = Arc::new(commits.clone());
+        let pick_state = PickState::new(commits_arc);
         let theme_name = config.theme.name.clone();
         let palette = crate::theme::resolve_palette(Some(&theme_name));
         let mut app = Self {
@@ -288,7 +290,7 @@ impl App {
                     None
                 };
 
-                let mut pick = PickState::new(self.commits.clone());
+                let mut pick = PickState::new(Arc::new(self.commits.clone()));
 
                 if let SearchState::Idle { query: Some(q) } = &self.saved_search {
                     pick.search = SearchState::Idle {
