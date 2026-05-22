@@ -117,15 +117,23 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                 .map(|f| {
                     let path = f.change.as_ref().map(|c| c.path()).unwrap_or("?");
                     let (added, removed) = file_stats(f);
-                    let stats = if added > 0 || removed > 0 {
-                        format!(" +{} -{}", added, removed)
-                    } else {
-                        String::new()
-                    };
-                    ListItem::new(Line::from(vec![
-                        Span::styled(format!(" {:<8} ", stats.trim()), Style::new().dark_gray()),
-                        Span::raw(path.to_string()),
-                    ]))
+                    let mut spans = vec![Span::raw(" ")];
+                    if added > 0 {
+                        spans.push(Span::styled(
+                            format!("+{}", added),
+                            Style::new().green(),
+                        ));
+                        spans.push(Span::raw(" "));
+                    }
+                    if removed > 0 {
+                        spans.push(Span::styled(
+                            format!("-{}", removed),
+                            Style::new().red(),
+                        ));
+                        spans.push(Span::raw(" "));
+                    }
+                    spans.push(Span::raw(path.to_string()));
+                    ListItem::new(Line::from(spans))
                 })
                 .collect();
 
