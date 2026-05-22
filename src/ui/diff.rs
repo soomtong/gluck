@@ -12,7 +12,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
     if let Mode::Diff(state) = &app.mode {
         let title = format!("DIFF: {} ↦ {}", state.from.short_id, state.to.short_id);
-        layout::render_header(frame, header, &title);
+        layout::render_header(frame, header, &title, Some(&state.to.message));
 
         if state.diff_result.files.is_empty() {
             let empty = Paragraph::new("No diff").block(Block::bordered());

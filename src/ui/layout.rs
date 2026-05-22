@@ -19,7 +19,7 @@ pub fn split_horizontal(area: Rect, left_width: u16) -> (Rect, Rect) {
     (left, right)
 }
 
-pub fn render_header(frame: &mut ratatui::Frame, area: Rect, mode: &str) {
+pub fn render_header(frame: &mut ratatui::Frame, area: Rect, mode: &str, message: Option<&str>) {
     let logo = Span::styled("◆ ", Style::new().magenta());
     let name = Span::styled("glc", Style::new().white().bold());
     let version = Span::styled(
@@ -28,13 +28,26 @@ pub fn render_header(frame: &mut ratatui::Frame, area: Rect, mode: &str) {
     );
     let sep = Span::styled(" · ", Style::new().dark_gray());
     let mode_span = Span::styled(mode, Style::new().cyan().bold());
-    let project = Span::styled(" GLUCK", Style::new().white().not_bold());
-    let tagline = Span::styled(
-        " git log unfolds code into knowledge",
-        Style::new().dark_gray().italic(),
-    );
 
-    let line = Line::from(vec![logo, name, version, sep, mode_span, project, tagline]);
+    let line = if let Some(msg) = message {
+        let prefix_width = 2 + 3 + 2 + env!("CARGO_PKG_VERSION").len() + mode.len() + 6;
+        let available = (area.width as usize).saturating_sub(prefix_width + 2);
+        let truncated: String = if msg.len() > available && available > 0 {
+            msg.chars().take(available.saturating_sub(1)).chain(['…']).collect()
+        } else {
+            msg.to_string()
+        };
+        let sep2 = Span::styled(" · ", Style::new().dark_gray());
+        let msg_span = Span::styled(truncated, Style::new().dark_gray());
+        Line::from(vec![logo, name, version, sep, mode_span, sep2, msg_span])
+    } else {
+        let project = Span::styled(" GLUCK", Style::new().white().not_bold());
+        let tagline = Span::styled(
+            " git log unfolds code into knowledge",
+            Style::new().dark_gray().italic(),
+        );
+        Line::from(vec![logo, name, version, sep, mode_span, project, tagline])
+    };
 
     let header =
         Paragraph::new(line).block(Block::bordered().border_style(Style::new().dark_gray()));

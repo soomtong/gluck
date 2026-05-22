@@ -14,9 +14,9 @@ fn entry_depth(entry: &crate::git::tree::FileEntry) -> usize {
 
 pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
-    layout::render_header(frame, header, "VIEW");
 
     if let Mode::View(state) = &app.mode {
+        layout::render_header(frame, header, "VIEW", Some(&state.commit.message));
         let (left, right) = layout::split_horizontal(body, 36);
 
         let items: Vec<ListItem> = state
@@ -25,15 +25,18 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             .map(|entry| {
                 let indent = "  ".repeat(entry_depth(entry));
                 let marker = if state.changed_paths.contains(&entry.path) {
-                    "*"
+                    Span::styled("*", Style::new().yellow())
                 } else {
-                    " "
+                    Span::styled(" ", Style::new().reset())
                 };
                 let suffix = match entry.kind {
                     EntryKind::Directory => "/",
                     EntryKind::File => "",
                 };
-                ListItem::new(format!("{}{}{}{}", marker, indent, entry.name, suffix))
+                ListItem::new(Line::from(vec![
+                    marker,
+                    Span::raw(format!("{}{}{}", indent, entry.name, suffix)),
+                ]))
             })
             .collect();
 

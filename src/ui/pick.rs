@@ -156,10 +156,10 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         if let crate::mode::SearchState::Active { input } = &state.search {
             layout::render_search_bar(frame, header, input);
         } else {
-            layout::render_header(frame, header, "PICK");
+            layout::render_header(frame, header, "PICK", None);
         }
     } else {
-        layout::render_header(frame, header, "PICK");
+        layout::render_header(frame, header, "PICK", None);
     }
 
     if let Mode::Pick(state) = &app.mode {
