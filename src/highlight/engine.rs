@@ -1,4 +1,4 @@
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use std::collections::HashMap;
 use tree_sitter::Language;
@@ -19,7 +19,7 @@ impl HighlightEngine {
     pub fn new() -> Self {
         let mut engine = Self {
             configs: HashMap::new(),
-            theme: default_theme(),
+            theme: HashMap::new(),
         };
         engine.register_languages();
         engine
@@ -223,60 +223,6 @@ const MARKDOWN_HIGHLIGHTS_QUERY: &str = r#"[
 ] @string.escape
 "#;
 
-fn default_theme() -> HashMap<String, Style> {
-    let mut theme = HashMap::new();
-    theme.insert(
-        "keyword".into(),
-        Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
-    );
-    theme.insert("function".into(), Style::new().fg(Color::Blue));
-    theme.insert("function.builtin".into(), Style::new().fg(Color::Cyan));
-    theme.insert("string".into(), Style::new().fg(Color::Green));
-    theme.insert("string.special".into(), Style::new().fg(Color::Cyan));
-    theme.insert("comment".into(), Style::new().fg(Color::DarkGray));
-    theme.insert("type".into(), Style::new().fg(Color::Cyan));
-    theme.insert("type.builtin".into(), Style::new().fg(Color::Cyan));
-    theme.insert("constant".into(), Style::new().fg(Color::Yellow));
-    theme.insert("variable".into(), Style::new().fg(Color::White));
-    theme.insert("variable.builtin".into(), Style::new().fg(Color::Cyan));
-    theme.insert("variable.parameter".into(), Style::new().fg(Color::White));
-    theme.insert("operator".into(), Style::new().fg(Color::Yellow));
-    theme.insert("punctuation".into(), Style::new().fg(Color::DarkGray));
-    theme.insert(
-        "punctuation.bracket".into(),
-        Style::new().fg(Color::DarkGray),
-    );
-    theme.insert(
-        "punctuation.delimiter".into(),
-        Style::new().fg(Color::DarkGray),
-    );
-    theme.insert("property".into(), Style::new().fg(Color::White));
-    theme.insert("attribute".into(), Style::new().fg(Color::Yellow));
-    theme.insert("tag".into(), Style::new().fg(Color::Cyan));
-    theme.insert(
-        "text.title".into(),
-        Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-    );
-    theme.insert("text.literal".into(), Style::new().fg(Color::Green));
-    theme.insert("text.emphasis".into(), Style::new().fg(Color::Magenta));
-    theme.insert(
-        "text.strong".into(),
-        Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
-    );
-    theme.insert(
-        "text.uri".into(),
-        Style::new()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::UNDERLINED),
-    );
-    theme.insert("text.reference".into(), Style::new().fg(Color::Cyan));
-    theme.insert(
-        "punctuation.special".into(),
-        Style::new().fg(Color::DarkGray),
-    );
-    theme.insert("string.escape".into(), Style::new().fg(Color::Yellow));
-    theme
-}
 
 #[cfg(test)]
 mod tests {
@@ -285,6 +231,7 @@ mod tests {
     #[test]
     fn test_markdown_highlight_produces_colors() {
         let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
         let lines = engine.highlight("# Title\n**bold** text\n", "readme.md");
         assert!(!lines.is_empty());
         let has_color = lines
@@ -292,5 +239,16 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .any(|s| s.style.fg.is_some());
         assert!(has_color, "no colored spans in markdown highlight output");
+    }
+
+    #[test]
+    fn test_highlight_without_theme_produces_no_colors() {
+        let mut engine = HighlightEngine::new();
+        let lines = engine.highlight("fn main() {}", "main.rs");
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(!has_color, "expected no colors without theme set");
     }
 }
