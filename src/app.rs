@@ -368,10 +368,7 @@ impl App {
                         let from = commits[idx + 1].clone();
                         let to = commits[idx].clone();
                         let prev = state.selected_file;
-                        let prev_path = state
-                            .tree
-                            .get(state.selected_file)
-                            .map(|e| e.path.clone());
+                        let prev_path = state.tree.get(state.selected_file).map(|e| e.path.clone());
                         drop(commits);
                         let diff_result = self
                             .diff_cache
@@ -381,14 +378,14 @@ impl App {
                             let mut diff_state = DiffState::new(from, to, diff_result);
                             diff_state.prev_view_file = prev;
                             if let Some(ref path) = prev_path {
-                                if let Some(pos) = diff_state.diff_result.files.iter().position(
-                                    |f| {
+                                if let Some(pos) =
+                                    diff_state.diff_result.files.iter().position(|f| {
                                         f.change.as_ref().is_some_and(|c| {
                                             c.new_path() == Some(path.as_str())
                                                 || c.old_path() == Some(path.as_str())
                                         })
-                                    },
-                                ) {
+                                    })
+                                {
                                     diff_state.selected_file = pos;
                                 }
                             }

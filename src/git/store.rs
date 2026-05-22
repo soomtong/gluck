@@ -49,10 +49,7 @@ impl CommitIndex {
                     .or_default()
                     .push(idx);
             }
-            self.prefixes
-                .entry(word.into())
-                .or_default()
-                .push(idx);
+            self.prefixes.entry(word.into()).or_default().push(idx);
         }
     }
 

@@ -49,7 +49,12 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
             let tabs = Tabs::new(visible_names)
                 .select(adjusted_select)
-                .highlight_style(Style::new().fg(palette.fg).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED))
+                .highlight_style(
+                    Style::new()
+                        .fg(palette.fg)
+                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::UNDERLINED),
+                )
                 .divider("|");
             frame.render_widget(tabs, tabs_row);
 
@@ -87,7 +92,11 @@ fn visible_tabs(file_names: &[String], selected: usize, area_width: u16) -> (usi
         let mut n = 0;
         let mut w = 0;
         for name in file_names {
-            let need = if n == 0 { name.len() } else { divider_len + name.len() };
+            let need = if n == 0 {
+                name.len()
+            } else {
+                divider_len + name.len()
+            };
             if w + need > width {
                 break;
             }
@@ -308,7 +317,10 @@ mod tests {
     fn test_visible_tabs_scroll_to_selected() {
         let names: Vec<String> = (0..20).map(|i| format!("file_{:02}.rs", i)).collect();
         let (offset, visible) = visible_tabs(&names, 15, 80);
-        assert!(offset > 0, "should scroll when selected is beyond visible range");
+        assert!(
+            offset > 0,
+            "should scroll when selected is beyond visible range"
+        );
         let adjusted = 15 - offset;
         assert_eq!(visible[adjusted], "file_15.rs");
     }
