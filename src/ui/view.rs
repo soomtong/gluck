@@ -16,7 +16,7 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let (header, body, footer) = layout::app_layout(area);
 
     if let Mode::View(state) = &app.mode {
-        layout::render_header(frame, header, "VIEW", Some(&state.commit.message));
+        layout::render_header(frame, header, &app.palette, "VIEW", &app.theme_name, Some(&state.commit.message));
         let (left, right) = layout::split_horizontal(body, 36);
 
         let items: Vec<ListItem> = state
@@ -131,5 +131,5 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         ("[Tab]", "diff"),
         ("[Esc]", "back"),
     ];
-    layout::render_footer(frame, footer, &hints);
+    layout::render_footer(frame, footer, &app.palette, &hints);
 }

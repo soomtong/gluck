@@ -12,7 +12,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
     if let Mode::Diff(state) = &app.mode {
         let title = format!("DIFF: {} ↦ {}", state.from.short_id, state.to.short_id);
-        layout::render_header(frame, header, &title, Some(&state.to.message));
+        layout::render_header(frame, header, &app.palette, &title, &app.theme_name, Some(&state.to.message));
 
         if state.diff_result.files.is_empty() {
             let empty = Paragraph::new("No diff").block(Block::bordered());
@@ -58,7 +58,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         ("[Tab]", "back"),
         ("[Esc]", "pick"),
     ];
-    layout::render_footer(frame, footer, &hints);
+    layout::render_footer(frame, footer, &app.palette, &hints);
 }
 
 fn style_for_line(line: &DiffLine) -> Style {
