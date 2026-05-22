@@ -161,7 +161,12 @@ impl Palette {
 
     pub fn to_highlight_map(&self) -> HashMap<String, Style> {
         let mut m = HashMap::new();
-        m.insert("keyword".into(), Style::new().fg(self.syn_keyword).add_modifier(Modifier::BOLD));
+        m.insert(
+            "keyword".into(),
+            Style::new()
+                .fg(self.syn_keyword)
+                .add_modifier(Modifier::BOLD),
+        );
         m.insert("function".into(), Style::new().fg(self.syn_function));
         m.insert("function.builtin".into(), Style::new().fg(self.syn_type));
         m.insert("string".into(), Style::new().fg(self.syn_string));
@@ -172,7 +177,10 @@ impl Palette {
         m.insert("constant".into(), Style::new().fg(self.syn_constant));
         m.insert("variable".into(), Style::new().fg(self.syn_variable));
         m.insert("variable.builtin".into(), Style::new().fg(self.syn_type));
-        m.insert("variable.parameter".into(), Style::new().fg(self.syn_variable));
+        m.insert(
+            "variable.parameter".into(),
+            Style::new().fg(self.syn_variable),
+        );
         m.insert("operator".into(), Style::new().fg(self.syn_operator));
         m.insert("punctuation".into(), Style::new().fg(self.dim));
         m.insert("punctuation.bracket".into(), Style::new().fg(self.dim));
@@ -180,11 +188,24 @@ impl Palette {
         m.insert("property".into(), Style::new().fg(self.syn_variable));
         m.insert("attribute".into(), Style::new().fg(self.syn_constant));
         m.insert("tag".into(), Style::new().fg(self.syn_type));
-        m.insert("text.title".into(), Style::new().fg(self.syn_keyword).add_modifier(Modifier::BOLD));
+        m.insert(
+            "text.title".into(),
+            Style::new()
+                .fg(self.syn_keyword)
+                .add_modifier(Modifier::BOLD),
+        );
         m.insert("text.literal".into(), Style::new().fg(self.syn_string));
         m.insert("text.emphasis".into(), Style::new().fg(self.accent));
-        m.insert("text.strong".into(), Style::new().fg(self.accent).add_modifier(Modifier::BOLD));
-        m.insert("text.uri".into(), Style::new().fg(self.syn_type).add_modifier(Modifier::UNDERLINED));
+        m.insert(
+            "text.strong".into(),
+            Style::new().fg(self.accent).add_modifier(Modifier::BOLD),
+        );
+        m.insert(
+            "text.uri".into(),
+            Style::new()
+                .fg(self.syn_type)
+                .add_modifier(Modifier::UNDERLINED),
+        );
         m.insert("text.reference".into(), Style::new().fg(self.syn_type));
         m.insert("punctuation.special".into(), Style::new().fg(self.dim));
         m.insert("string.escape".into(), Style::new().fg(self.syn_constant));
@@ -212,8 +233,7 @@ pub fn default_theme_name() -> &'static str {
 }
 
 pub fn resolve_palette(name: Option<&str>) -> Palette {
-    name.and_then(find_theme)
-        .unwrap_or(Palette::plain)()
+    name.and_then(find_theme).unwrap_or(Palette::plain)()
 }
 
 #[cfg(test)]

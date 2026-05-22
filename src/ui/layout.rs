@@ -29,13 +29,19 @@ pub fn render_header(
     message: Option<&str>,
 ) {
     let logo = Span::styled("◆ ", Style::new().fg(palette.accent));
-    let name = Span::styled("glc", Style::new().fg(palette.fg).add_modifier(Modifier::BOLD));
+    let name = Span::styled(
+        "glc",
+        Style::new().fg(palette.fg).add_modifier(Modifier::BOLD),
+    );
     let version = Span::styled(
         format!(" v{}", env!("CARGO_PKG_VERSION")),
         Style::new().fg(palette.dim),
     );
     let sep = Span::styled(" · ", Style::new().fg(palette.dim));
-    let mode_span = Span::styled(mode, Style::new().fg(palette.accent).add_modifier(Modifier::BOLD));
+    let mode_span = Span::styled(
+        mode,
+        Style::new().fg(palette.accent).add_modifier(Modifier::BOLD),
+    );
     let theme_span = Span::styled(format!(" · {}", theme), Style::new().fg(palette.dim));
 
     let line = if let Some(msg) = message {
@@ -66,8 +72,8 @@ pub fn render_header(
         ])
     };
 
-    let header = Paragraph::new(line)
-        .block(Block::bordered().border_style(Style::new().fg(palette.border)));
+    let header =
+        Paragraph::new(line).block(Block::bordered().border_style(Style::new().fg(palette.border)));
     frame.render_widget(header, area);
 }
 
@@ -83,7 +89,9 @@ pub fn render_footer(
             vec![
                 Span::styled(
                     format!("[{}]", key),
-                    Style::new().fg(palette.warning).add_modifier(Modifier::BOLD),
+                    Style::new()
+                        .fg(palette.warning)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(format!(" {} ", desc)),
             ]
@@ -93,12 +101,7 @@ pub fn render_footer(
     frame.render_widget(footer, area);
 }
 
-pub fn render_search_bar(
-    frame: &mut ratatui::Frame,
-    area: Rect,
-    palette: &Palette,
-    query: &str,
-) {
+pub fn render_search_bar(frame: &mut ratatui::Frame, area: Rect, palette: &Palette, query: &str) {
     let search = Paragraph::new(format!("/ {}", query))
         .style(Style::new().fg(palette.warning))
         .block(Block::bordered().border_style(Style::new().fg(palette.border)));

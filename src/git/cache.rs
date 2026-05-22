@@ -134,12 +134,7 @@ mod tests {
     fn test_diff_cache_lru_eviction() {
         let (dir, repo) = init_test_repo();
         for i in 0..15 {
-            add_file_commit(
-                &repo,
-                &format!("f{}.txt", i),
-                b"x",
-                &format!("c{}", i),
-            );
+            add_file_commit(&repo, &format!("f{}.txt", i), b"x", &format!("c{}", i));
         }
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let commits = list_commits(&git_repo).unwrap();
@@ -162,12 +157,7 @@ mod tests {
     fn test_diff_cache_lru_refreshes_on_hit() {
         let (dir, repo) = init_test_repo();
         for i in 0..15 {
-            add_file_commit(
-                &repo,
-                &format!("f{}.txt", i),
-                b"x",
-                &format!("c{}", i),
-            );
+            add_file_commit(&repo, &format!("f{}.txt", i), b"x", &format!("c{}", i));
         }
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let commits = list_commits(&git_repo).unwrap();
@@ -199,14 +189,8 @@ mod tests {
         let commits = list_commits(&git_repo).unwrap();
 
         let mut cache = TreeCache::new(10);
-        let len1 = cache
-            .get_or_compute(&git_repo, &commits[0])
-            .unwrap()
-            .len();
-        let len2 = cache
-            .get_or_compute(&git_repo, &commits[0])
-            .unwrap()
-            .len();
+        let len1 = cache.get_or_compute(&git_repo, &commits[0]).unwrap().len();
+        let len2 = cache.get_or_compute(&git_repo, &commits[0]).unwrap().len();
         assert_eq!(len1, len2);
         assert_eq!(cache.entries.len(), 1);
     }
@@ -215,12 +199,7 @@ mod tests {
     fn test_tree_cache_lru_eviction() {
         let (dir, repo) = init_test_repo();
         for i in 0..15 {
-            add_file_commit(
-                &repo,
-                &format!("f{}.txt", i),
-                b"x",
-                &format!("c{}", i),
-            );
+            add_file_commit(&repo, &format!("f{}.txt", i), b"x", &format!("c{}", i));
         }
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let commits = list_commits(&git_repo).unwrap();

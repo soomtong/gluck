@@ -13,7 +13,14 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     if let Mode::Diff(state) = &app.mode {
         let palette = &app.palette;
         let title = format!("DIFF: {} ↦ {}", state.from.short_id, state.to.short_id);
-        layout::render_header(frame, header, palette, &title, &app.theme_name, Some(&state.to.message));
+        layout::render_header(
+            frame,
+            header,
+            palette,
+            &title,
+            &app.theme_name,
+            Some(&state.to.message),
+        );
 
         if state.diff_result.files.is_empty() {
             let empty = Paragraph::new("No diff").block(Block::bordered());
@@ -71,7 +78,13 @@ fn style_for_line(line: &DiffLine, palette: &crate::theme::Palette) -> Style {
     }
 }
 
-fn render_unified(frame: &mut ratatui::Frame, area: Rect, file: &DiffFile, scroll: usize, palette: &crate::theme::Palette) {
+fn render_unified(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    file: &DiffFile,
+    scroll: usize,
+    palette: &crate::theme::Palette,
+) {
     let lines: Vec<Line> = file
         .lines
         .iter()
@@ -117,7 +130,13 @@ fn render_unified(frame: &mut ratatui::Frame, area: Rect, file: &DiffFile, scrol
     frame.render_widget(paragraph, area);
 }
 
-fn render_side_by_side(frame: &mut ratatui::Frame, area: Rect, file: &DiffFile, scroll: usize, palette: &crate::theme::Palette) {
+fn render_side_by_side(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    file: &DiffFile,
+    scroll: usize,
+    palette: &crate::theme::Palette,
+) {
     let (left, right) = layout::split_horizontal(area, area.width / 2);
 
     let old_lines: Vec<Line> = file
@@ -169,10 +188,18 @@ fn render_side_by_side(frame: &mut ratatui::Frame, area: Rect, file: &DiffFile, 
         .collect();
 
     let old_widget = Paragraph::new(old_lines)
-        .block(Block::bordered().title(" old ").border_style(Style::new().fg(palette.border)))
+        .block(
+            Block::bordered()
+                .title(" old ")
+                .border_style(Style::new().fg(palette.border)),
+        )
         .scroll((scroll as u16, 0));
     let new_widget = Paragraph::new(new_lines)
-        .block(Block::bordered().title(" new ").border_style(Style::new().fg(palette.border)))
+        .block(
+            Block::bordered()
+                .title(" new ")
+                .border_style(Style::new().fg(palette.border)),
+        )
         .scroll((scroll as u16, 0));
 
     frame.render_widget(old_widget, left);

@@ -634,30 +634,19 @@ impl App {
                             r.files
                                 .iter()
                                 .filter_map(|f| {
-                                    let path =
-                                        f.change.as_ref().map(|c| c.path().to_string())?;
+                                    let path = f.change.as_ref().map(|c| c.path().to_string())?;
                                     let added = f
                                         .lines
                                         .iter()
                                         .filter(|l| {
-                                            matches!(
-                                                l,
-                                                crate::git::diff::DiffLine::Added {
-                                                    ..
-                                                }
-                                            )
+                                            matches!(l, crate::git::diff::DiffLine::Added { .. })
                                         })
                                         .count();
                                     let removed = f
                                         .lines
                                         .iter()
                                         .filter(|l| {
-                                            matches!(
-                                                l,
-                                                crate::git::diff::DiffLine::Removed {
-                                                    ..
-                                                }
-                                            )
+                                            matches!(l, crate::git::diff::DiffLine::Removed { .. })
                                         })
                                         .count();
                                     Some((path, (added, removed)))

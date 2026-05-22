@@ -75,5 +75,4 @@ mod tests {
         assert!(c.author.contains("Test"));
         assert_eq!(c.message, "Test message");
     }
-
 }

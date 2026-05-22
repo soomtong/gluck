@@ -30,15 +30,14 @@ fn days_to_date(days: u64) -> (u64, u64, u64) {
     (y, m, d)
 }
 
-fn format_commit_line(
-    commit: &crate::git::commit::CommitInfo,
-    palette: &Palette,
-) -> Line<'static> {
+fn format_commit_line(commit: &crate::git::commit::CommitInfo, palette: &Palette) -> Line<'static> {
     let date_str = format_date(commit.date);
     Line::from(vec![
         Span::styled(
             format!(" {} ", commit.short_id),
-            Style::new().fg(palette.warning).add_modifier(Modifier::BOLD),
+            Style::new()
+                .fg(palette.warning)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!("{:<12} ", date_str), Style::new().fg(palette.dim)),
         Span::raw(commit.message.lines().next().unwrap_or("").to_string()),

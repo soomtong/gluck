@@ -18,7 +18,14 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     if let Mode::View(state) = &app.mode {
         let palette = &app.palette;
 
-        layout::render_header(frame, header, &app.palette, "VIEW", &app.theme_name, Some(&state.commit.message));
+        layout::render_header(
+            frame,
+            header,
+            &app.palette,
+            "VIEW",
+            &app.theme_name,
+            Some(&state.commit.message),
+        );
         let (left, right) = layout::split_horizontal(body, 36);
 
         let items: Vec<ListItem> = state

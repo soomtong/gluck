@@ -3,9 +3,9 @@ use clap::Parser;
 use crossterm::event::{self, Event, KeyEventKind, KeyModifiers};
 use gluck::app::App;
 use gluck::cli::Cli;
+use gluck::config::Config;
 use gluck::debug;
 use gluck::git::repo::GitRepo;
-use gluck::config::Config;
 use std::path::PathBuf;
 
 fn main() -> Result<()> {

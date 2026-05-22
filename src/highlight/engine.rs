@@ -223,7 +223,6 @@ const MARKDOWN_HIGHLIGHTS_QUERY: &str = r#"[
 ] @string.escape
 "#;
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
