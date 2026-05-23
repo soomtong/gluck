@@ -52,7 +52,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y musl-tools
           if [[ "$CARGO_TARGET" == "aarch64-unknown-linux-musl" ]]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
           fi
 
       - name: Configure cross linker (Linux aarch64 musl)
