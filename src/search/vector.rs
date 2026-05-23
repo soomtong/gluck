@@ -65,7 +65,6 @@ impl VectorIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     fn make_vec(val: f32, dim: usize) -> Vec<f32> {
         vec![val; dim]

@@ -46,7 +46,8 @@ impl Chunk {
                 }
             }
             Chunk::WholeFile { path, content, .. } => {
-                format!("{}\n{}", path, &content[..content.len().min(2048)])
+                let end = content.floor_char_boundary(content.len().min(2048));
+                format!("{}\n{}", path, &content[..end])
             }
             Chunk::Symbol {
                 path,
