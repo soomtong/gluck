@@ -27,7 +27,7 @@ jobs:
       OS_NAME: ${{ matrix.os_name }}
       CARGO_TARGET: ${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -57,7 +57,7 @@ jobs:
           7z a "glc-${VERSION}-${OS_NAME}.zip" ./dist/glc.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: glc-${{ matrix.os_name }}
           path: |
@@ -73,10 +73,10 @@ jobs:
     env:
       TAG_NAME: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
