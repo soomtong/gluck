@@ -53,6 +53,8 @@ cargo build --release
 ```bash
 glc                 # 현재 디렉토리의 git history 열기
 glc /path/to/repo   # 특정 저장소 열기
+glc index           # 시맨틱 검색 인덱스 빌드
+glc index --force   # 인덱스 강제 재빌드
 ```
 
 ### Pick 모드 — 커밋 탐색
@@ -64,6 +66,7 @@ glc /path/to/repo   # 특정 저장소 열기
 | `Enter` / `l` | 선택 커밋 View 모드 |
 | `Tab` | 선택 커밋 Diff 모드 |
 | `/` | 커밋 검색 |
+| `S` | 시맨틱 검색 모달 열기 (`glc index` 선행 필요) |
 | `^T` | 색상 테마 전환 |
 | `q` | 종료 |
 
@@ -78,6 +81,7 @@ glc /path/to/repo   # 특정 저장소 열기
 | `Tab` | Diff 모드 전환 |
 | `Esc` / `h` | Pick 모드 |
 | `^N` / `^P` | 이전(older)/다음(newer) 커밋 이동 |
+| `S` | 시맨틱 검색 모달 열기 |
 | `^T` | 색상 테마 전환 |
 | `q` | 종료 |
 
@@ -93,8 +97,57 @@ glc /path/to/repo   # 특정 저장소 열기
 | `Tab` | View 모드 |
 | `Esc` | Pick 모드 |
 | `^N` / `^P` | 이전(older)/다음(newer) 커밋 쌍 이동 |
+| `S` | 시맨틱 검색 모달 열기 |
 | `^T` | 색상 테마 전환 |
 | `q` | 종료 |
+
+### 시맨틱 검색 모달
+
+`S` 키를 누르면 커밋 메시지와 파일/심볼을 동시에 검색하는 모달이 열립니다.
+
+```
+┌─ Search ──────────────────────────────────────────┐
+│ > 에러 처리                                         │
+├───────────────────────────────────────────────────┤
+│ Commits                                            │
+│   • bb20b71  Remove Todo Item                      │
+│                                                    │
+│ Files & Symbols                                    │
+│   • src/search/error.rs::handle_io_error  (fn)     │
+└───────────────────────────────────────────────────┘
+```
+
+- **Enter**: 선택한 커밋 → Pick 모드 / 파일·심볼 → View 모드로 자동 전환
+- **Esc**: 모달 닫기
+
+사용 전 `glc index`로 인덱스를 먼저 빌드해야 합니다.
+
+## 시맨틱 검색 인덱스
+
+`glc index`는 커밋 메시지와 HEAD의 파일을 인덱싱합니다. 인덱스는 레포 루트의 `.glc-index/` 디렉토리에 저장됩니다.
+
+```
+.glc-index/
+├── meta.toml      # 인덱스 메타데이터
+├── bm25/          # Tantivy BM25 인덱스
+└── vectors/       # turbovec 4-bit 벡터 인덱스
+```
+
+### 임베딩 모델 다운로드
+
+`glc index` 최초 실행 시 임베딩 모델([minishlab/potion-multilingual-128M](https://huggingface.co/minishlab/potion-multilingual-128M), 약 500MB)을 자동으로 다운로드합니다.
+
+모델은 HuggingFace Hub 기본 캐시에 저장됩니다:
+
+- **macOS / Linux**: `~/.cache/huggingface/hub/`
+
+같은 머신에서 다른 레포를 인덱싱할 때는 캐시에서 즉시 로드되므로 재다운로드가 없습니다.
+
+`.glc-index/`는 `.gitignore`에 추가하는 것을 권장합니다:
+
+```
+echo '.glc-index/' >> .gitignore
+```
 
 ## 설정
 
