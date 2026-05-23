@@ -8,6 +8,28 @@ pub struct Config {
     pub theme: ThemeConfig,
     #[serde(default)]
     pub ui: UiConfig,
+    #[serde(default)]
+    pub search: SearchConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchConfig {
+    pub index_dir: Option<String>,
+    pub batch_size: usize,
+    pub max_file_bytes: usize,
+    pub result_limit: usize,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            index_dir: None,
+            batch_size: 64,
+            max_file_bytes: 1_000_000,
+            result_limit: 20,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +108,7 @@ mod tests {
                 name: "nord".to_string(),
             },
             ui: UiConfig::default(),
+            search: SearchConfig::default(),
         };
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();

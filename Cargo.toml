@@ -23,6 +23,10 @@ thiserror = "2.0.18"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 dirs = "6"
+model2vec-rs = { version = "0.2", features = ["hf-hub"] }
+turbovec = "0.5"
+tantivy = "0.22"
+blas-src = { version = "0.10", features = ["accelerate"] }
 
 [dev-dependencies]
 tempfile = "3"

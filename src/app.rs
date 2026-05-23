@@ -6,6 +6,8 @@ use crate::git::store::CommitStore;
 use crate::git::tree::{is_binary_blob, read_blob, EntryKind};
 use crate::highlight::HighlightEngine;
 use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, SearchState, ViewState};
+use crate::search::modal::SemanticSearchModal;
+use crate::search::SearchEngine;
 use crate::theme::Palette;
 use crate::ui;
 use anyhow::Result;
@@ -27,6 +29,8 @@ pub struct App {
     pub theme_name: String,
     pub config: Config,
     pub saved_search: SearchState,
+    pub search_modal: SemanticSearchModal,
+    pub search_engine: Option<SearchEngine>,
 }
 
 impl App {
@@ -49,6 +53,8 @@ impl App {
             theme_name,
             config,
             saved_search: SearchState::Idle { query: None },
+            search_modal: SemanticSearchModal::new(),
+            search_engine: None,
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
@@ -60,6 +66,10 @@ impl App {
             Mode::Pick(_) => ui::pick::render_pick(frame, frame.area(), self),
             Mode::View(_) => ui::view::render_view(frame, frame.area(), self),
             Mode::Diff(_) => ui::diff::render_diff(frame, frame.area(), self),
+        }
+
+        if self.search_modal.is_open() {
+            ui::search_modal::render_search_modal(frame, self);
         }
 
         if self.debug_overlay {
@@ -109,6 +119,11 @@ impl App {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) {
+        if self.search_modal.is_open() {
+            self.handle_modal_key(code);
+            return;
+        }
+
         let is_searching = matches!(&self.mode, Mode::Pick(p) if matches!(p.search, crate::mode::SearchState::Active { .. }));
         if is_searching {
             self.handle_search_input(code);
@@ -148,6 +163,7 @@ impl App {
         match action {
             Action::Quit => self.should_quit = true,
             Action::Search => self.start_search(),
+            Action::SemanticSearch => self.open_semantic_search(),
             Action::MoveDown => self.move_down(),
             Action::MoveUp => self.move_up(),
             Action::Enter => self.enter(),
@@ -789,6 +805,114 @@ impl App {
                     raw: content,
                     highlighted,
                 };
+            }
+        }
+    }
+
+    fn open_semantic_search(&mut self) {
+        let repo_workdir = self
+            .repo
+            .repository()
+            .workdir()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf();
+        let index_dir = crate::search::indexer::index_dir_for(&repo_workdir);
+        if !index_dir.exists() {
+            self.search_modal.set_no_index();
+        } else {
+            if self.search_engine.is_none() {
+                if let Ok(engine) = SearchEngine::open(&index_dir) {
+                    self.search_engine = Some(engine);
+                }
+            }
+            self.search_modal.open();
+        }
+    }
+
+    fn handle_modal_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc => {
+                self.search_modal.close();
+            }
+            KeyCode::Backspace => {
+                self.search_modal.pop_char();
+                self.run_semantic_search();
+            }
+            KeyCode::Down => {
+                self.search_modal.move_down();
+            }
+            KeyCode::Up => {
+                self.search_modal.move_up();
+            }
+            KeyCode::Enter => {
+                self.select_search_result();
+            }
+            KeyCode::Char(c) => {
+                self.search_modal.push_char(c);
+                self.run_semantic_search();
+            }
+            _ => {}
+        }
+    }
+
+    fn run_semantic_search(&mut self) {
+        let query = self.search_modal.state.input().to_string();
+        if query.is_empty() {
+            self.search_modal
+                .set_results(vec![]);
+            return;
+        }
+        if let Some(engine) = &self.search_engine {
+            let limit = self.config.search.result_limit;
+            match engine.search(&query, limit) {
+                Ok(results) => self.search_modal.set_results(results),
+                Err(_) => self.search_modal.set_results(vec![]),
+            }
+        }
+    }
+
+    fn select_search_result(&mut self) {
+        use crate::search::DocKind;
+        let result = self
+            .search_modal
+            .results()
+            .get(self.search_modal.selected)
+            .cloned();
+        let Some(result) = result else { return };
+        self.search_modal.close();
+
+        match result.meta.kind {
+            DocKind::Commit => {
+                let oid = result.meta.commit_oid.clone();
+                if let Ok(git_oid) = git2::Oid::from_str(&oid) {
+                    if let Some(idx) = self.store.loaded.iter().position(|c| c.id == git_oid) {
+                        if let Mode::Pick(ref mut state) = self.mode {
+                            let filtered_idx = state.filtered_indices.iter().position(|&i| i == idx);
+                            if let Some(fi) = filtered_idx {
+                                state.selected = fi;
+                            }
+                        }
+                    }
+                }
+            }
+            DocKind::File | DocKind::Symbol => {
+                let oid = result.meta.commit_oid.clone();
+                let path = result.meta.path.clone().unwrap_or_default();
+                let line = result.meta.line_start;
+                if let Ok(git_oid) = git2::Oid::from_str(&oid) {
+                    if let Some(idx) = self.store.loaded.iter().position(|c| c.id == git_oid) {
+                        let commit = self.store.loaded[idx].clone();
+                        let mut view_state = self.make_view_state(commit);
+                        if let Some(file_idx) = view_state.tree.iter().position(|e| e.path == path) {
+                            view_state.selected_file = file_idx;
+                        }
+                        if let Some(line_start) = line {
+                            view_state.scroll = line_start as usize;
+                        }
+                        self.mode = Mode::View(view_state);
+                        self.load_view_file();
+                    }
+                }
             }
         }
     }

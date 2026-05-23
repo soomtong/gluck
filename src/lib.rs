@@ -5,5 +5,6 @@ pub mod debug;
 pub mod git;
 pub mod highlight;
 pub mod mode;
+pub mod search;
 pub mod theme;
 pub mod ui;

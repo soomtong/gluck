@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use crossterm::event::{self, Event, KeyEventKind, KeyModifiers};
 use gluck::app::App;
-use gluck::cli::Cli;
+use gluck::cli::{Cli, Commands};
 use gluck::config::Config;
 use gluck::debug;
 use gluck::git::repo::GitRepo;
@@ -26,6 +26,18 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
+
+    if let Some(Commands::Index { force, batch_size, max_file_bytes }) = cli.command {
+        let opts = gluck::search::indexer::IndexOptions {
+            force,
+            batch_size,
+            max_file_bytes,
+        };
+        gluck::search::indexer::build_index(&repo, &path, &opts)
+            .map_err(|e| anyhow::anyhow!("index error: {}", e))?;
+        return Ok(());
+    }
+
     let config = Config::load().unwrap_or_default();
     let mut app = App::new(repo, config)?;
     if cli.debug {
