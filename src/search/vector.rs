@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 
 use turbovec::TurboQuantIndex;
@@ -21,8 +20,7 @@ impl std::fmt::Display for VectorError {
 
 pub struct VectorIndex {
     inner: TurboQuantIndex,
-    id_map: Vec<u64>,           // turbovec index → doc_id
-    id_reverse: HashMap<u64, usize>, // doc_id → turbovec index
+    id_map: Vec<u64>,   // turbovec index → doc_id
     dim: usize,
 }
 
@@ -35,7 +33,6 @@ impl VectorIndex {
         Self {
             inner: TurboQuantIndex::new(dim, Self::BIT_WIDTH),
             id_map: Vec::new(),
-            id_reverse: HashMap::new(),
             dim,
         }
     }
@@ -50,8 +47,7 @@ impl VectorIndex {
             });
         }
         let normalized = l2_normalize_batch(vectors, self.dim);
-        for (i, &id) in ids.iter().enumerate() {
-            self.id_reverse.insert(id, self.inner.len() + i);
+        for &id in ids {
             self.id_map.push(id);
         }
         self.inner.add(&normalized);
@@ -110,12 +106,7 @@ impl VectorIndex {
             })
             .collect();
 
-        let id_reverse: HashMap<u64, usize> = id_map.iter()
-            .enumerate()
-            .map(|(i, &id)| (id, i))
-            .collect();
-
-        Ok(Self { inner, id_map, id_reverse, dim })
+        Ok(Self { inner, id_map, dim })
     }
 
     pub fn dim(&self) -> usize {

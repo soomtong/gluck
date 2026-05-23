@@ -74,6 +74,8 @@ fn split_rust(
     use tree_sitter::Parser;
 
     let raw_fn = tree_sitter_rust::LANGUAGE.into_raw();
+    // SAFETY: tree-sitter 0.22 + tree-sitter-rust 0.23 ABI bridge;
+    // safe Into<Language> requires tree-sitter 0.24.
     let raw_ptr = unsafe { raw_fn() };
     let language = unsafe { tree_sitter::Language::from_raw(raw_ptr as *const _) };
 

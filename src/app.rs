@@ -45,7 +45,15 @@ impl App {
             .to_path_buf();
         let index_root = repo_path.join(".glc-index");
         let mut search_engine = SearchEngine::new(index_root);
-        let _ = search_engine.open();
+        search_engine.config = crate::search::SearchConfig {
+            bm25_top_k: config.search.bm25_top_k,
+            vector_top_k: config.search.vector_top_k,
+            rrf_k: config.search.rrf_k,
+            result_limit: config.search.result_limit,
+        };
+        if let Err(e) = search_engine.open() {
+            tracing::debug!("search index not loaded: {e}");
+        }
         let search_modal = SemanticSearchModal::new();
         let mut app = Self {
             mode: Mode::Pick(pick_state),

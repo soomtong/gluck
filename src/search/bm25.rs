@@ -8,6 +8,8 @@ use tantivy::{Index, IndexWriter, TantivyDocument};
 
 use super::{DocKind, DocMeta, SearchError};
 
+const TOKENIZER_NAME: &str = "bigram";
+
 // ── Bigram tokenizer (Korean + general CJK support) ──────────────────────────
 //
 // English/ASCII: whitespace-split + lowercase (standard BM25)
@@ -88,10 +90,20 @@ impl Tokenizer for BigramTokenizer {
 
 pub fn build_schema() -> Schema {
     let mut builder = Schema::builder();
-    builder.add_text_field("doc_id_str", STRING | STORED);  // doc_id.to_string()
-    builder.add_text_field("kind", STRING | STORED);        // "commit" | "file"
-    builder.add_text_field("title", TEXT | STORED);
-    builder.add_text_field("body", TEXT);
+
+    let bigram_indexing = TextFieldIndexing::default()
+        .set_tokenizer(TOKENIZER_NAME)
+        .set_index_option(IndexRecordOption::WithFreqsAndPositions);
+    let title_opts = TextOptions::default()
+        .set_indexing_options(bigram_indexing.clone())
+        .set_stored();
+    let body_opts = TextOptions::default()
+        .set_indexing_options(bigram_indexing);
+
+    builder.add_text_field("doc_id_str", STRING | STORED);
+    builder.add_text_field("kind", STRING | STORED);
+    builder.add_text_field("title", title_opts);
+    builder.add_text_field("body", body_opts);
     builder.add_text_field("path", STRING | STORED);
     builder.add_text_field("commit_oid", STRING | STORED);
     builder.build()
@@ -102,7 +114,6 @@ pub struct Bm25Index {
 }
 
 impl Bm25Index {
-    const TOKENIZER_NAME: &'static str = "bigram";
 
     pub fn build(index_path: &Path, chunks: &[super::chunk::Chunk]) -> tantivy::Result<()> {
         std::fs::create_dir_all(index_path).map_err(|e| {
@@ -215,7 +226,7 @@ impl Bm25Index {
     }
 
     fn register_tokenizer(index: &Index) {
-        index.tokenizers().register(Self::TOKENIZER_NAME, BigramTokenizer);
+        index.tokenizers().register(TOKENIZER_NAME, BigramTokenizer);
     }
 }
 
