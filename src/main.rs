@@ -2,17 +2,28 @@ use anyhow::Result;
 use clap::Parser;
 use crossterm::event::{self, Event, KeyEventKind, KeyModifiers};
 use gluck::app::App;
-use gluck::cli::Cli;
+use gluck::cli::{Cli, Commands};
 use gluck::config::Config;
 use gluck::debug;
 use gluck::git::repo::GitRepo;
+use gluck::search::indexer::{build_index, IndexConfig};
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-
     debug::init_logging(&cli.log_level);
 
+    match cli.command {
+        Some(Commands::Index { repo_path, batch_size, max_file_size, force }) => {
+            let output_path = repo_path.join(".glc-index");
+            let cfg = IndexConfig { batch_size, max_file_bytes: max_file_size, force };
+            build_index(&repo_path, &output_path, cfg)
+        }
+        None => run_tui(cli),
+    }
+}
+
+fn run_tui(cli: Cli) -> Result<()> {
     let path = cli
         .path
         .as_deref()
