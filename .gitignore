@@ -5,3 +5,5 @@ gluck.log
 *~
 *.swp
 *.swo
+.gluck-index/
+.gluck-pkg/
