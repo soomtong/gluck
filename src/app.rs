@@ -166,8 +166,8 @@ impl App {
         match code {
             KeyCode::Char('c') => self.should_quit = true,
             KeyCode::Char('d') => self.debug_overlay = !self.debug_overlay,
-            KeyCode::Char('p') => self.prev_commit(),
-            KeyCode::Char('n') => self.next_commit(),
+            KeyCode::Char('n') => self.prev_commit(),
+            KeyCode::Char('p') => self.next_commit(),
             KeyCode::Char('t') => self.next_theme(),
             _ => {}
         }
@@ -410,6 +410,10 @@ impl App {
     }
 
     fn next_commit(&mut self) {
+        if matches!(self.mode, Mode::Pick(_)) {
+            self.move_up();
+            return;
+        }
         let commits = self.store.loaded.clone();
         match &self.mode {
             Mode::View(s) => {
@@ -470,6 +474,10 @@ impl App {
     }
 
     fn prev_commit(&mut self) {
+        if matches!(self.mode, Mode::Pick(_)) {
+            self.move_down();
+            return;
+        }
         let commits = self.store.loaded.clone();
         match &self.mode {
             Mode::View(s) => {
@@ -1025,17 +1033,17 @@ mod tests {
     }
 
     #[test]
-    fn test_ctrl_n_next_commit_in_view() {
+    fn test_ctrl_p_next_commit_in_view() {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Enter);
-        app.handle_ctrl_key(KeyCode::Char('p'));
+        app.handle_ctrl_key(KeyCode::Char('n'));
         let Mode::View(s) = &app.mode else {
             panic!("expected view")
         };
         let older_id = s.commit.id;
         let _ = s;
 
-        app.handle_ctrl_key(KeyCode::Char('n'));
+        app.handle_ctrl_key(KeyCode::Char('p'));
         let Mode::View(s) = &app.mode else {
             panic!("expected view")
         };
@@ -1043,7 +1051,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ctrl_p_prev_commit_in_view() {
+    fn test_ctrl_n_prev_commit_in_view() {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Enter);
         let Mode::View(s) = &app.mode else {
@@ -1052,7 +1060,7 @@ mod tests {
         let first_id = s.commit.id;
         let _ = s;
 
-        app.handle_ctrl_key(KeyCode::Char('p'));
+        app.handle_ctrl_key(KeyCode::Char('n'));
         let Mode::View(s) = &app.mode else {
             panic!("expected view")
         };
@@ -1060,7 +1068,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ctrl_p_at_oldest_stays() {
+    fn test_ctrl_n_at_oldest_stays() {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Enter);
         let last_commit_id = app.store.loaded.last().unwrap().id;
@@ -1073,7 +1081,7 @@ mod tests {
                 break;
             }
             let _ = s;
-            app.handle_ctrl_key(KeyCode::Char('p'));
+            app.handle_ctrl_key(KeyCode::Char('n'));
         }
         let Mode::View(s) = &app.mode else {
             panic!("expected view")
@@ -1081,11 +1089,44 @@ mod tests {
         let id_before = s.commit.id;
         let _ = s;
 
-        app.handle_ctrl_key(KeyCode::Char('p'));
+        app.handle_ctrl_key(KeyCode::Char('n'));
         let Mode::View(s) = &app.mode else {
             panic!("expected view")
         };
         assert_eq!(s.commit.id, id_before, "should stay at oldest");
+    }
+
+    #[test]
+    fn test_ctrl_n_in_pick_moves_down() {
+        let (_dir, mut app) = test_app();
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.selected, 0);
+        let _ = s;
+
+        app.handle_ctrl_key(KeyCode::Char('n'));
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.selected, 1);
+    }
+
+    #[test]
+    fn test_ctrl_p_in_pick_moves_up() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('j'));
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.selected, 1);
+        let _ = s;
+
+        app.handle_ctrl_key(KeyCode::Char('p'));
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.selected, 0);
     }
 
     // ── Search flow tests ──
