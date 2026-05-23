@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.28"
-git2 = { version = "0.20", features = ["vendored-openssl"] }
+git2 = "0.20"
 clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

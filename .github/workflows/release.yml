@@ -22,12 +22,6 @@ jobs:
           - target: x86_64-apple-darwin
             os: macos-13
             os_name: darwin-x86_64
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            os_name: linux-x86_64
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            os_name: linux-aarch64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             os_name: windows-x86_64
@@ -45,28 +39,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-
-      - name: Install musl tools (Linux)
-        if: contains(matrix.target, 'musl')
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y musl-tools g++
-          if [[ "$CARGO_TARGET" == "aarch64-unknown-linux-musl" ]]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          fi
-
-      - name: Configure cross-compilation (Linux musl)
-        if: contains(matrix.target, 'musl')
-        run: |
-          mkdir -p ~/.cargo
-          if [[ "$CARGO_TARGET" == "aarch64-unknown-linux-musl" ]]; then
-            printf '[target.aarch64-unknown-linux-musl]\nlinker = "aarch64-linux-gnu-gcc"\n' >> ~/.cargo/config.toml
-            echo "CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-            echo "CXX_aarch64_unknown_linux_musl=aarch64-linux-gnu-g++" >> "$GITHUB_ENV"
-          else
-            echo "CC_x86_64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
-            echo "CXX_x86_64_unknown_linux_musl=g++" >> "$GITHUB_ENV"
-          fi
 
       - name: Build
         run: cargo build --release --locked --target "$CARGO_TARGET"
