@@ -6,6 +6,8 @@ use crate::git::store::CommitStore;
 use crate::git::tree::{is_binary_blob, read_blob, EntryKind};
 use crate::highlight::HighlightEngine;
 use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, SearchState, ViewState};
+use crate::search::modal::{ModalAction, SemanticSearchModal};
+use crate::search::SearchEngine;
 use crate::theme::Palette;
 use crate::ui;
 use anyhow::Result;
@@ -27,6 +29,8 @@ pub struct App {
     pub theme_name: String,
     pub config: Config,
     pub saved_search: SearchState,
+    pub search_engine: SearchEngine,
+    pub search_modal: SemanticSearchModal,
 }
 
 impl App {
@@ -35,6 +39,14 @@ impl App {
         let pick_state = PickState::new(store.loaded.clone());
         let theme_name = config.theme.name.clone();
         let palette = crate::theme::resolve_palette(Some(&theme_name));
+        let repo_path = repo.repository()
+            .workdir()
+            .unwrap_or_else(|| repo.repository().path())
+            .to_path_buf();
+        let index_root = repo_path.join(".glc-index");
+        let mut search_engine = SearchEngine::new(index_root);
+        let _ = search_engine.open();
+        let search_modal = SemanticSearchModal::new();
         let mut app = Self {
             mode: Mode::Pick(pick_state),
             repo,
@@ -49,6 +61,8 @@ impl App {
             theme_name,
             config,
             saved_search: SearchState::Idle { query: None },
+            search_engine,
+            search_modal,
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
@@ -64,6 +78,10 @@ impl App {
 
         if self.debug_overlay {
             self.render_debug_overlay(frame);
+        }
+
+        if self.search_modal.active {
+            ui::search_modal::render_search_modal(frame, frame.area(), &self.search_modal);
         }
     }
 
@@ -109,6 +127,18 @@ impl App {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) {
+        // Semantic search modal이 활성화된 경우 모든 키를 모달로 전달
+        if self.search_modal.active {
+            let engine = &self.search_engine;
+            let action = self.search_modal.handle_key(code, |q| {
+                engine.search(q).unwrap_or_default()
+            });
+            if let ModalAction::Navigate(result) = action {
+                self.navigate_to_search_result(result);
+            }
+            return;
+        }
+
         let is_searching = matches!(&self.mode, Mode::Pick(p) if matches!(p.search, crate::mode::SearchState::Active { .. }));
         if is_searching {
             self.handle_search_input(code);
@@ -159,6 +189,7 @@ impl App {
             Action::ToggleGitignore => self.toggle_gitignore(),
             Action::ScrollDown => self.scroll_down(),
             Action::ScrollUp => self.scroll_up(),
+            Action::SemanticSearch => self.open_semantic_search(),
         }
     }
 
@@ -805,6 +836,53 @@ impl App {
         self.highlight.set_theme(self.palette.to_highlight_map());
         self.config.theme.name = self.theme_name.clone();
         let _ = self.config.save();
+    }
+
+    fn open_semantic_search(&mut self) {
+        let head = self.current_head_oid();
+        let is_available = self.search_engine.is_available();
+        let is_stale = self.search_engine.is_stale(&head);
+        let is_incompatible = is_available && self.search_engine.read_meta()
+            .map(|m| m.verify_version().is_err())
+            .unwrap_or(false);
+        self.search_modal.open(is_available, is_stale, is_incompatible);
+    }
+
+    fn current_head_oid(&self) -> String {
+        self.repo.repository()
+            .head().ok()
+            .and_then(|h| h.target())
+            .map(|oid| oid.to_string())
+            .unwrap_or_default()
+    }
+
+    fn navigate_to_search_result(&mut self, result: crate::search::SearchResult) {
+        use crate::search::DocKind;
+        match result.kind {
+            DocKind::Commit => {
+                if let Some(oid_str) = &result.commit_oid {
+                    if let Some(idx) = self.store.loaded.iter().position(|c| c.id.to_string() == *oid_str) {
+                        let commit = self.store.loaded[idx].clone();
+                        let view_state = self.make_view_state(commit);
+                        self.mode = crate::mode::Mode::View(view_state);
+                        self.load_view_file();
+                    }
+                }
+            }
+            DocKind::File => {
+                if !self.store.loaded.is_empty() {
+                    let commit = self.store.loaded[0].clone();
+                    let mut view_state = self.make_view_state(commit);
+                    if let Some(path) = &result.path {
+                        if let Some(idx) = view_state.tree.iter().position(|e| &e.path == path) {
+                            view_state.selected_file = idx;
+                        }
+                    }
+                    self.mode = crate::mode::Mode::View(view_state);
+                    self.load_view_file();
+                }
+            }
+        }
     }
 }
 
@@ -1514,5 +1592,44 @@ mod tests {
             panic!("expected view")
         };
         assert!(!s.tree.is_empty());
+    }
+
+    // ── Semantic search integration tests ──
+
+    #[test]
+    fn test_s_key_opens_search_modal() {
+        let (_dir, mut app) = test_app();
+        assert!(!app.search_modal.active);
+        app.handle_key(KeyCode::Char('S'));
+        assert!(app.search_modal.active);
+    }
+
+    #[test]
+    fn test_modal_esc_closes() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('S'));
+        assert!(app.search_modal.active);
+        app.handle_key(KeyCode::Esc);
+        assert!(!app.search_modal.active);
+    }
+
+    #[test]
+    fn test_modal_typing_when_no_index_does_not_panic() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('S'));
+        // Typing should not panic even with no index
+        app.handle_key(KeyCode::Char('e'));
+        app.handle_key(KeyCode::Char('r'));
+        assert_eq!(app.search_modal.input, "er");
+    }
+
+    #[test]
+    fn test_modal_keys_not_propagated_to_app() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('S'));
+        assert!(app.search_modal.active);
+        // 'q' would quit the app, but modal intercepts it
+        app.handle_key(KeyCode::Char('q'));
+        assert!(!app.should_quit, "modal should intercept 'q'");
     }
 }

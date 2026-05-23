@@ -172,6 +172,7 @@ pub enum Action {
     ToggleGitignore,
     ScrollDown,
     ScrollUp,
+    SemanticSearch,
 }
 
 #[derive(Debug, Clone)]
@@ -202,6 +203,7 @@ impl KeyBindings {
         bindings.insert(KeyCode::Char('.'), Action::ToggleGitignore);
         bindings.insert(KeyCode::Char('u'), Action::ScrollUp);
         bindings.insert(KeyCode::Char('d'), Action::ScrollDown);
+        bindings.insert(KeyCode::Char('S'), Action::SemanticSearch);
         Self { bindings }
     }
 
