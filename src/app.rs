@@ -1348,12 +1348,16 @@ mod tests {
     fn test_tab_in_pick_diff_shows_current_commit() {
         let (_dir, mut app) = test_app();
         let commit_id = {
-            let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+            let Mode::Pick(s) = &app.mode else {
+                panic!("expected pick")
+            };
             let &idx = s.filtered_indices.get(s.selected).unwrap();
             s.commits[idx].id
         };
         app.handle_key(KeyCode::Tab);
-        let Mode::Diff(s) = &app.mode else { panic!("expected diff") };
+        let Mode::Diff(s) = &app.mode else {
+            panic!("expected diff")
+        };
         assert_eq!(s.to.id, commit_id);
     }
 
@@ -1362,13 +1366,17 @@ mod tests {
         let (_dir, mut app) = test_app();
         app.handle_key(KeyCode::Char('j'));
         let selected_idx = {
-            let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+            let Mode::Pick(s) = &app.mode else {
+                panic!("expected pick")
+            };
             s.selected
         };
         app.handle_key(KeyCode::Tab);
         assert!(matches!(app.mode, Mode::Diff(_)));
         app.handle_key(KeyCode::Esc);
-        let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
         assert_eq!(s.selected, selected_idx);
     }
 
