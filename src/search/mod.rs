@@ -89,8 +89,7 @@ impl SearchEngine {
 
         let bm25 = bm25::Bm25Index::open(index_dir.join("bm25"))?;
         let vector = vector::VectorIndex::load(index_dir.join("vectors").join("index.tvim"))?;
-        let model_dir = index_dir.join("model");
-        let embedding = embedding::EmbeddingModel::load(model_dir)?;
+        let embedding = embedding::EmbeddingModel::load()?;
         let doc_store = bm25.scan_doc_store()?;
 
         Ok(Self {

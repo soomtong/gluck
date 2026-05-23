@@ -65,9 +65,8 @@ pub fn build_index(
 
     std::fs::create_dir_all(&index_dir)?;
 
-    let model_dir = index_dir.join("model");
     eprintln!("Loading embedding model...");
-    let model = EmbeddingModel::load_or_download(&model_dir)?;
+    let model = EmbeddingModel::load()?;
 
     let bm25_dir = index_dir.join("bm25");
     let bm25 = Bm25Index::create(&bm25_dir)?;
