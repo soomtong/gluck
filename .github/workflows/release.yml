@@ -8,25 +8,28 @@ on:
 jobs:
   build:
     name: Build (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: aarch64-apple-darwin
-            runner: macos-latest
+            os: macos-latest
             os_name: darwin-aarch64
           - target: x86_64-apple-darwin
-            runner: macos-13
+            os: macos-13
             os_name: darwin-x86_64
           - target: x86_64-unknown-linux-musl
-            runner: ubuntu-latest
+            os: ubuntu-latest
             os_name: linux-x86_64
           - target: aarch64-unknown-linux-musl
-            runner: ubuntu-latest
+            os: ubuntu-latest
             os_name: linux-aarch64
           - target: x86_64-pc-windows-msvc
-            runner: windows-latest
+            os: windows-latest
             os_name: windows-x86_64
     env:
       TAG_NAME: ${{ github.ref_name }}
@@ -52,14 +55,11 @@ jobs:
             sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
 
-      - name: Configure cross-compilation (Linux aarch64)
+      - name: Configure cross linker (Linux aarch64 musl)
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
           mkdir -p ~/.cargo
-          cat >> ~/.cargo/config.toml << 'EOF'
-[target.aarch64-unknown-linux-musl]
-linker = "aarch64-linux-gnu-gcc"
-EOF
+          printf '[target.aarch64-unknown-linux-musl]\nlinker = "aarch64-linux-gnu-gcc"\n' >> ~/.cargo/config.toml
 
       - name: Build
         run: cargo build --release --locked --target "$CARGO_TARGET"
@@ -74,7 +74,6 @@ EOF
 
       - name: Create archive (Windows)
         if: runner.os == 'Windows'
-        shell: bash
         run: |
           VERSION="${TAG_NAME#v}"
           mkdir -p dist
@@ -138,24 +137,24 @@ EOF
           git clone --depth=1 --branch "$BRANCH" \
             "https://${TAP_TOKEN}@github.com/${TAP_REPO}.git" tap-repo
 
-          cat > tap-repo/Formula/glc.rb << EOF
-class Glc < Formula
-  desc "Git history file viewer - TUI for exploring files from git history"
-  homepage "https://github.com/soomtong/gluck"
-  url "https://github.com/soomtong/gluck/releases/download/${TAG_NAME}/glc-${VERSION}-darwin-aarch64.tar.gz"
-  version "${VERSION}"
-  sha256 "${SHA256}"
-  license "MIT"
-
-  def install
-    bin.install "glc"
-  end
-
-  test do
-    system "#{bin}/glc", "--help"
-  end
-end
-EOF
+          {
+            echo "class Glc < Formula"
+            echo "  desc \"Git history file viewer - TUI for exploring files from git history\""
+            echo "  homepage \"https://github.com/soomtong/gluck\""
+            echo "  url \"https://github.com/soomtong/gluck/releases/download/${TAG_NAME}/glc-${VERSION}-darwin-aarch64.tar.gz\""
+            echo "  version \"${VERSION}\""
+            echo "  sha256 \"${SHA256}\""
+            echo "  license \"MIT\""
+            echo ""
+            echo "  def install"
+            echo "    bin.install \"glc\""
+            echo "  end"
+            echo ""
+            echo "  test do"
+            echo "    system \"#{bin}/glc\", \"--help\""
+            echo "  end"
+            echo "end"
+          } > tap-repo/Formula/glc.rb
 
           cd tap-repo
           git config user.name "gluck-bot"

@@ -205,8 +205,8 @@ mod tests {
         let commits = list_commits(&git_repo).unwrap();
         let mut cache = TreeCache::new(5);
 
-        for i in 0..5 {
-            cache.get_or_compute(&git_repo, &commits[i]).unwrap();
+        for commit in commits.iter().take(5) {
+            cache.get_or_compute(&git_repo, commit).unwrap();
         }
         assert_eq!(cache.entries.len(), 5);
 
