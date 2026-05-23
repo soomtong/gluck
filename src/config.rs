@@ -8,6 +8,8 @@ pub struct Config {
     pub theme: ThemeConfig,
     #[serde(default)]
     pub ui: UiConfig,
+    #[serde(default)]
+    pub search: SearchConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +71,26 @@ fn config_path() -> PathBuf {
     base.join("gluck").join("config.toml")
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchConfig {
+    pub rrf_k: f32,
+    pub bm25_top_k: usize,
+    pub vector_top_k: usize,
+    pub result_limit: usize,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            rrf_k: 60.0,
+            bm25_top_k: 50,
+            vector_top_k: 50,
+            result_limit: 20,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,6 +108,7 @@ mod tests {
                 name: "nord".to_string(),
             },
             ui: UiConfig::default(),
+            search: SearchConfig::default(),
         };
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
