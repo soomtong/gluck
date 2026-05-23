@@ -353,6 +353,7 @@ impl App {
                 }
 
                 self.mode = Mode::Pick(pick);
+                self.update_pick_diff();
             }
             Mode::Pick(_) => {}
         }
