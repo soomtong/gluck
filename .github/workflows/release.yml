@@ -57,7 +57,7 @@ jobs:
           7z a "glc-${VERSION}-${OS_NAME}.zip" ./dist/glc.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: glc-${{ matrix.os_name }}
           path: |
@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
