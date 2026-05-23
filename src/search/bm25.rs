@@ -3,7 +3,7 @@ use std::path::Path;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
-use tantivy::tokenizer::{BoxTokenStream, Token, TokenStream, Tokenizer};
+use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 use tantivy::{Index, IndexWriter, TantivyDocument};
 
 use super::{DocKind, DocMeta, SearchError};
