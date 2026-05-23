@@ -405,7 +405,33 @@ impl App {
                     self.load_view_file();
                 }
             }
-            Mode::Pick(_) => {}
+            Mode::Pick(state) => {
+                let Some(&idx) = state.filtered_indices.get(state.selected) else {
+                    return;
+                };
+                let commit = state.commits[idx].clone();
+                let saved_search = state.search.clone();
+                let parent_info = {
+                    let repository = self.repo.repository();
+                    repository
+                        .find_commit(commit.id)
+                        .ok()
+                        .and_then(|c| c.parent(0).ok())
+                        .map(|p| CommitInfo::from_git_commit(&p))
+                };
+                let Some(parent_info) = parent_info else {
+                    return;
+                };
+                drop(commits);
+                let diff_result = self
+                    .diff_cache
+                    .get_or_compute(&self.repo, &parent_info, &commit)
+                    .cloned();
+                if let Ok(diff_result) = diff_result {
+                    self.saved_search = saved_search;
+                    self.mode = Mode::Diff(DiffState::new(parent_info, commit, diff_result));
+                }
+            }
         }
     }
 
@@ -1311,11 +1337,39 @@ mod tests {
     }
 
     #[test]
-    fn test_tab_in_pick_does_nothing() {
+    fn test_tab_in_pick_goes_to_diff() {
         let (_dir, mut app) = test_app();
         assert!(matches!(app.mode, Mode::Pick(_)));
         app.handle_key(KeyCode::Tab);
-        assert!(matches!(app.mode, Mode::Pick(_)));
+        assert!(matches!(app.mode, Mode::Diff(_)));
+    }
+
+    #[test]
+    fn test_tab_in_pick_diff_shows_current_commit() {
+        let (_dir, mut app) = test_app();
+        let commit_id = {
+            let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+            let &idx = s.filtered_indices.get(s.selected).unwrap();
+            s.commits[idx].id
+        };
+        app.handle_key(KeyCode::Tab);
+        let Mode::Diff(s) = &app.mode else { panic!("expected diff") };
+        assert_eq!(s.to.id, commit_id);
+    }
+
+    #[test]
+    fn test_tab_pick_to_diff_esc_back_to_pick() {
+        let (_dir, mut app) = test_app();
+        app.handle_key(KeyCode::Char('j'));
+        let selected_idx = {
+            let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+            s.selected
+        };
+        app.handle_key(KeyCode::Tab);
+        assert!(matches!(app.mode, Mode::Diff(_)));
+        app.handle_key(KeyCode::Esc);
+        let Mode::Pick(s) = &app.mode else { panic!("expected pick") };
+        assert_eq!(s.selected, selected_idx);
     }
 
     // ── Commits cached ──
