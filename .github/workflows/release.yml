@@ -19,9 +19,6 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             os_name: darwin-aarch64
-          - target: x86_64-apple-darwin
-            os: macos-13
-            os_name: darwin-x86_64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             os_name: windows-x86_64

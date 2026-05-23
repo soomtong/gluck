@@ -21,7 +21,10 @@
 cargo install --git https://github.com/soomtong/gluck
 ```
 
-### Homebrew (macOS)
+### Homebrew (macOS, Apple Silicon)
+
+> Intel Mac(x86_64)용 바이너리는 GitHub Actions 지원 중단으로 제공하지 않습니다.
+> Intel Mac 사용자는 아래 Cargo 설치 방법을 이용해 주세요.
 
 ```bash
 brew tap soomtong/tap
