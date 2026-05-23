@@ -434,6 +434,7 @@ impl App {
                     return;
                 }
                 let prev_file = s.selected_file;
+                let prev_side_by_side = s.side_by_side;
                 let prev_file_path = s
                     .diff_result
                     .files
@@ -449,6 +450,7 @@ impl App {
                     .cloned();
                 if let Ok(diff_result) = diff_result {
                     let mut state = DiffState::new(from, to, diff_result);
+                    state.side_by_side = prev_side_by_side;
                     state.prev_view_file = prev_file;
                     if let Some(ref path) = prev_file_path {
                         if let Some(pos) = state.diff_result.files.iter().position(|f| {
@@ -492,6 +494,7 @@ impl App {
                     return;
                 }
                 let prev_file = s.selected_file;
+                let prev_side_by_side = s.side_by_side;
                 let prev_file_path = s
                     .diff_result
                     .files
@@ -507,6 +510,7 @@ impl App {
                     .cloned();
                 if let Ok(diff_result) = diff_result {
                     let mut state = DiffState::new(from, to, diff_result);
+                    state.side_by_side = prev_side_by_side;
                     state.prev_view_file = prev_file;
                     if let Some(ref path) = prev_file_path {
                         if let Some(pos) = state.diff_result.files.iter().position(|f| {
