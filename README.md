@@ -28,6 +28,23 @@ brew tap soomtong/tap
 brew install glc
 ```
 
+### Linux (직접 빌드)
+
+Linux용 바이너리는 별도로 제공되지 않습니다. Rust 툴체인이 설치되어 있다면 직접 빌드할 수 있습니다.
+
+```bash
+cargo install --git https://github.com/soomtong/gluck
+```
+
+또는 소스를 받아 빌드:
+
+```bash
+git clone https://github.com/soomtong/gluck
+cd gluck
+cargo build --release
+# 빌드 결과: ./target/release/glc
+```
+
 ## 사용법
 
 ```bash
