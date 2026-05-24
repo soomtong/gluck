@@ -146,6 +146,9 @@ impl App {
             } else if matches!(code, KeyCode::Char('I') | KeyCode::Char('i')) {
                 self.force_rebuild_index();
             }
+            if self.search_modal.is_open() {
+                self.run_semantic_search();
+            }
             return;
         }
 
@@ -1062,7 +1065,8 @@ impl App {
         use crate::search::indexer::IndexStatus;
         match crate::search::indexer::index_status(&index_dir) {
             IndexStatus::Missing => {
-                self.search_modal.set_loading("No index found. Press I to build, Esc to close.");
+                self.search_modal
+                    .set_loading("No index found. Press I to build, Esc to close.");
                 return;
             }
             IndexStatus::SchemaOutdated => {
@@ -1769,10 +1773,7 @@ mod tests {
         assert!(!app.search_modal.is_open());
         app.handle_key(KeyCode::Char('I'));
         assert!(app.search_modal.is_open());
-        assert!(matches!(
-            app.search_modal.state,
-            ModalState::Loading { .. }
-        ));
+        assert!(matches!(app.search_modal.state, ModalState::Loading { .. }));
     }
 
     // ── Commits cached ──

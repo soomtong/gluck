@@ -68,13 +68,11 @@ impl SemanticSearchModal {
     pub fn handle_key(&mut self, code: KeyCode) -> bool {
         match &self.state {
             ModalState::Closed => return false,
-            ModalState::Loading { .. } => {
-                match code {
-                    KeyCode::Esc => self.close(),
-                    KeyCode::Char('I') | KeyCode::Char('i') => {}
-                    _ => return false,
-                }
-            }
+            ModalState::Loading { .. } => match code {
+                KeyCode::Esc => self.close(),
+                KeyCode::Char('I') | KeyCode::Char('i') => {}
+                _ => return false,
+            },
             _ => {}
         }
         match code {
