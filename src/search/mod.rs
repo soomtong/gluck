@@ -10,14 +10,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DocKind {
     Commit,
     File,
     Symbol,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DocMeta {
     pub doc_id: u64,
     pub kind: DocKind,
@@ -124,7 +124,7 @@ impl SearchEngine {
     }
 }
 
-pub const INDEX_VERSION: u32 = 2;
+pub const INDEX_VERSION: u32 = 3;
 pub const INDEX_DIR_NAME: &str = ".glc-index";
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

@@ -16,6 +16,7 @@ pub struct Bm25Fields {
     pub doc_id: Field,
     pub title: Field,
     pub body: Field,
+    pub meta_json: Field,
 }
 
 pub struct Bm25Index {
@@ -44,8 +45,15 @@ fn make_schema() -> (Schema, Bm25Fields) {
     );
     let body = builder.add_text_field("body", body_opts);
 
+    let meta_json = builder.add_text_field("meta_json", STORED);
+
     let schema = builder.build();
-    let fields = Bm25Fields { doc_id, title, body };
+    let fields = Bm25Fields {
+        doc_id,
+        title,
+        body,
+        meta_json,
+    };
     (schema, fields)
 }
 
@@ -80,11 +88,13 @@ impl Bm25Index {
         doc_id: u64,
         title: &str,
         body: &str,
+        meta_json: &str,
     ) -> Result<(), TantivyError> {
         writer.add_document(doc!(
-            self.fields.doc_id => doc_id.to_string(),
-            self.fields.title  => title,
-            self.fields.body   => body,
+            self.fields.doc_id    => doc_id.to_string(),
+            self.fields.title     => title,
+            self.fields.body      => body,
+            self.fields.meta_json => meta_json,
         ))?;
         Ok(())
     }
@@ -125,30 +135,26 @@ impl Bm25Index {
         let mut store = HashMap::new();
         for (_score, doc_addr) in top_docs {
             let doc: tantivy::TantivyDocument = searcher.doc(doc_addr)?;
-            let id_str = match doc.get_first(self.fields.doc_id) {
-                Some(tantivy::schema::OwnedValue::Str(s)) => s.clone(),
+            let meta_str = match doc.get_first(self.fields.meta_json) {
+                Some(tantivy::schema::OwnedValue::Str(s)) => s,
                 _ => continue,
             };
-            let title = match doc.get_first(self.fields.title) {
-                Some(tantivy::schema::OwnedValue::Str(s)) => s.clone(),
-                _ => String::new(),
+            let Ok(meta) = serde_json::from_str::<DocMeta>(meta_str) else {
+                continue;
             };
-            if let Ok(doc_id) = id_str.parse::<u64>() {
-                store.insert(
-                    doc_id,
-                    DocMeta {
-                        doc_id,
-                        kind: DocKind::Commit,
-                        title,
-                        commit_oid: String::new(),
-                        path: None,
-                        line_start: None,
-                        line_end: None,
-                    },
-                );
-            }
+            store.insert(meta.doc_id, meta);
         }
         Ok(store)
+    }
+}
+
+impl DocKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DocKind::Commit => "commit",
+            DocKind::File => "file",
+            DocKind::Symbol => "symbol",
+        }
     }
 }
 
@@ -163,11 +169,24 @@ mod tests {
         (dir, idx)
     }
 
+    fn meta_json(doc_id: u64, title: &str) -> String {
+        let m = DocMeta {
+            doc_id,
+            kind: DocKind::Commit,
+            title: title.to_string(),
+            commit_oid: format!("{:040x}", doc_id),
+            path: None,
+            line_start: None,
+            line_end: None,
+        };
+        serde_json::to_string(&m).unwrap()
+    }
+
     #[test]
     fn test_create_and_search_basic() {
         let (_dir, idx) = tmp_index();
         let mut w = idx.writer().unwrap();
-        idx.add_doc(&mut w, 1, "hello world", "greeting text")
+        idx.add_doc(&mut w, 1, "hello world", "greeting text", &meta_json(1, "hello world"))
             .unwrap();
         idx.commit(w).unwrap();
         // "he" is a direct bigram from "hello" — single-term query avoids phrase matching edge cases
@@ -180,7 +199,7 @@ mod tests {
     fn test_search_no_results() {
         let (_dir, idx) = tmp_index();
         let mut w = idx.writer().unwrap();
-        idx.add_doc(&mut w, 1, "rust programming", "systems language")
+        idx.add_doc(&mut w, 1, "rust programming", "systems language", &meta_json(1, "rust"))
             .unwrap();
         idx.commit(w).unwrap();
         let results = idx.search("가나다라", 10).unwrap();
@@ -191,11 +210,42 @@ mod tests {
     fn test_korean_bigram_search() {
         let (_dir, idx) = tmp_index();
         let mut w = idx.writer().unwrap();
-        idx.add_doc(&mut w, 42, "에러 처리", "에러 처리 방법에 대한 설명")
-            .unwrap();
+        idx.add_doc(
+            &mut w,
+            42,
+            "에러 처리",
+            "에러 처리 방법에 대한 설명",
+            &meta_json(42, "에러 처리"),
+        )
+        .unwrap();
         idx.commit(w).unwrap();
         let results = idx.search("에러", 10).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].0, 42);
+    }
+
+    #[test]
+    fn test_scan_doc_store_preserves_metadata() {
+        let (_dir, idx) = tmp_index();
+        let mut w = idx.writer().unwrap();
+        let oid = "abcdef1234567890abcdef1234567890abcdef12";
+        let meta = DocMeta {
+            doc_id: 7,
+            kind: DocKind::File,
+            title: "src/foo.rs".into(),
+            commit_oid: oid.into(),
+            path: Some("src/foo.rs".into()),
+            line_start: Some(10),
+            line_end: Some(20),
+        };
+        idx.add_doc(&mut w, 7, "src/foo.rs", "fn foo() {}", &serde_json::to_string(&meta).unwrap())
+            .unwrap();
+        idx.commit(w).unwrap();
+        let store = idx.scan_doc_store().unwrap();
+        let got = store.get(&7).expect("doc 7 exists");
+        assert_eq!(got.commit_oid, oid);
+        assert_eq!(got.kind, DocKind::File);
+        assert_eq!(got.path.as_deref(), Some("src/foo.rs"));
+        assert_eq!(got.line_start, Some(10));
     }
 }

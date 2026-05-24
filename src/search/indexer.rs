@@ -9,7 +9,8 @@ use crate::search::chunk::{split_file, Chunk};
 use crate::search::embedding::EmbeddingModel;
 use crate::search::vector::VectorIndex;
 use crate::search::{
-    Bm25Meta, EmbeddingMeta, IndexMeta, SearchError, VectorMeta, INDEX_DIR_NAME, INDEX_VERSION,
+    Bm25Meta, DocKind, DocMeta, EmbeddingMeta, IndexMeta, SearchError, VectorMeta,
+    INDEX_DIR_NAME, INDEX_VERSION,
 };
 
 pub struct IndexOptions {
@@ -32,6 +33,27 @@ pub fn index_dir_for(repo_path: &Path) -> PathBuf {
     repo_path.join(INDEX_DIR_NAME)
 }
 
+pub fn index_status(index_dir: &Path) -> IndexStatus {
+    let meta_path = index_dir.join("meta.toml");
+    if !meta_path.exists() {
+        return IndexStatus::Missing;
+    }
+    match std::fs::read_to_string(&meta_path)
+        .ok()
+        .and_then(|s| toml::from_str::<IndexMeta>(&s).ok())
+    {
+        Some(meta) if meta.version == INDEX_VERSION => IndexStatus::Ready,
+        _ => IndexStatus::SchemaOutdated,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexStatus {
+    Missing,
+    SchemaOutdated,
+    Ready,
+}
+
 pub fn build_index<F>(
     repo: &GitRepo,
     repo_path: &Path,
@@ -49,20 +71,26 @@ where
         } else {
             let meta_path = index_dir.join("meta.toml");
             if meta_path.exists() {
-                let s = std::fs::read_to_string(&meta_path)?;
-                let meta: IndexMeta = toml::from_str(&s)?;
-                if meta.version != INDEX_VERSION {
-                    return Err(SearchError::VersionMismatch {
-                        expected: INDEX_VERSION,
-                        found: meta.version,
-                    });
+                let stale = match std::fs::read_to_string(&meta_path)
+                    .ok()
+                    .and_then(|s| toml::from_str::<IndexMeta>(&s).ok())
+                {
+                    Some(meta) if meta.version == INDEX_VERSION => {
+                        let current_oid = head_oid(repo)?;
+                        if meta.head_oid == current_oid {
+                            progress("Index is up to date.");
+                            return Ok(());
+                        }
+                        true
+                    }
+                    _ => {
+                        progress("Rebuilding index (schema upgrade)...");
+                        true
+                    }
+                };
+                if stale {
+                    std::fs::remove_dir_all(&index_dir)?;
                 }
-                let current_oid = head_oid(repo)?;
-                if meta.head_oid == current_oid {
-                    progress("Index is up to date.");
-                    return Ok(());
-                }
-                std::fs::remove_dir_all(&index_dir)?;
             }
         }
     }
@@ -149,11 +177,17 @@ where
             let doc_id = doc_counter;
             doc_counter += 1;
 
+            let meta = chunk_to_meta(doc_id, chunk);
+            let meta_json = serde_json::to_string(&meta).map_err(|e| {
+                SearchError::Io(std::io::Error::other(e.to_string()))
+            })?;
+
             bm25.add_doc(
                 &mut bm25_writer,
                 doc_id,
                 chunk.bm25_title(),
                 chunk.bm25_body(),
+                &meta_json,
             )
             .map_err(SearchError::Tantivy)?;
 
@@ -220,6 +254,46 @@ fn head_oid(repo: &GitRepo) -> Result<String, SearchError> {
     Ok(oid.to_string())
 }
 
+fn chunk_to_meta(doc_id: u64, chunk: &crate::search::chunk::Chunk) -> DocMeta {
+    use crate::search::chunk::Chunk;
+    match chunk {
+        Chunk::CommitMessage { oid, title, .. } => DocMeta {
+            doc_id,
+            kind: DocKind::Commit,
+            title: title.clone(),
+            commit_oid: oid.clone(),
+            path: None,
+            line_start: None,
+            line_end: None,
+        },
+        Chunk::WholeFile { commit_oid, path, .. } => DocMeta {
+            doc_id,
+            kind: DocKind::File,
+            title: path.clone(),
+            commit_oid: commit_oid.clone(),
+            path: Some(path.clone()),
+            line_start: None,
+            line_end: None,
+        },
+        Chunk::Symbol {
+            commit_oid,
+            path,
+            symbol_name,
+            line_start,
+            line_end,
+            ..
+        } => DocMeta {
+            doc_id,
+            kind: DocKind::Symbol,
+            title: format!("{} ({})", symbol_name, path),
+            commit_oid: commit_oid.clone(),
+            path: Some(path.clone()),
+            line_start: Some(*line_start),
+            line_end: Some(*line_end),
+        },
+    }
+}
+
 fn split_message(msg: &str) -> (String, String) {
     let mut lines = msg.splitn(2, '\n');
     let title = lines.next().unwrap_or("").trim().to_string();
@@ -234,4 +308,39 @@ fn chrono_now() -> String {
         .unwrap_or_default()
         .as_secs();
     format!("{}Z", secs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::git::repo::tests::{add_file_commit, init_test_repo};
+    use crate::search::SearchEngine;
+
+    #[test]
+    #[ignore] // Requires network/hf-hub on first run; run with `cargo test -- --ignored`
+    fn test_indexed_results_carry_commit_oid() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "alpha.rs", b"fn alpha() {}", "Add alpha");
+        add_file_commit(&repo, "beta.rs", b"fn beta() {}", "Add beta function");
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let opts = IndexOptions::default();
+        build_index(&git_repo, dir.path(), &opts, |_| {}).unwrap();
+
+        let index_dir = index_dir_for(dir.path());
+        let engine = SearchEngine::open(&index_dir).unwrap();
+
+        // Every doc must have a 40-char hex commit_oid (not the old empty string).
+        for meta in engine.doc_store.values() {
+            assert_eq!(
+                meta.commit_oid.len(),
+                40,
+                "expected 40-char oid, got {:?} for {:?}",
+                meta.commit_oid,
+                meta.title
+            );
+            git2::Oid::from_str(&meta.commit_oid).expect("valid oid");
+        }
+        assert!(!engine.doc_store.is_empty());
+    }
 }
