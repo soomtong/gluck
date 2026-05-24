@@ -4,6 +4,7 @@ pub mod embedding;
 pub mod indexer;
 pub mod modal;
 pub mod rrf;
+pub mod silence;
 pub mod vector;
 
 use std::collections::HashMap;
