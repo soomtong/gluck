@@ -876,9 +876,13 @@ impl App {
 
     fn force_rebuild_index(&mut self) {
         if self.index_rx.is_some() {
+            if !self.search_modal.is_open() {
+                self.search_modal.set_indexing("Indexing...");
+            }
             return;
         }
         self.engine_error = None;
+        self.engine_rx = None;
         let repo_workdir = self
             .repo
             .repository()
