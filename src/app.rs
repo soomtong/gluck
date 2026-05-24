@@ -31,6 +31,7 @@ pub struct App {
     pub saved_search: SearchState,
     pub search_modal: SemanticSearchModal,
     pub search_engine: Option<SearchEngine>,
+    pub needs_clear: bool,
 }
 
 impl App {
@@ -55,6 +56,7 @@ impl App {
             saved_search: SearchState::Idle { query: None },
             search_modal: SemanticSearchModal::new(),
             search_engine: None,
+            needs_clear: false,
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
@@ -179,6 +181,15 @@ impl App {
     }
 
     pub fn handle_ctrl_key(&mut self, code: KeyCode) {
+        if self.search_modal.is_open() {
+            match code {
+                KeyCode::Char('c') => self.should_quit = true,
+                KeyCode::Char('n') => self.search_modal.move_down(),
+                KeyCode::Char('p') => self.search_modal.move_up(),
+                _ => {}
+            }
+            return;
+        }
         match code {
             KeyCode::Char('c') => self.should_quit = true,
             KeyCode::Char('d') => self.debug_overlay = !self.debug_overlay,
@@ -824,6 +835,7 @@ impl App {
                 if let Ok(engine) = SearchEngine::open(&index_dir) {
                     self.search_engine = Some(engine);
                 }
+                self.needs_clear = true;
             }
             self.search_modal.open();
         }
@@ -871,6 +883,17 @@ impl App {
         }
     }
 
+    fn lookup_commit(&self, oid: git2::Oid) -> Option<CommitInfo> {
+        if let Some(c) = self.store.loaded.iter().find(|c| c.id == oid) {
+            return Some(c.clone());
+        }
+        let repository = self.repo.repository();
+        repository
+            .find_commit(oid)
+            .ok()
+            .map(|c| CommitInfo::from_git_commit(&c))
+    }
+
     fn select_search_result(&mut self) {
         use crate::search::DocKind;
         let result = self
@@ -881,38 +904,45 @@ impl App {
         let Some(result) = result else { return };
         self.search_modal.close();
 
+        let Ok(git_oid) = git2::Oid::from_str(&result.meta.commit_oid) else { return };
+        let Some(commit) = self.lookup_commit(git_oid) else { return };
+
         match result.meta.kind {
             DocKind::Commit => {
-                let oid = result.meta.commit_oid.clone();
-                if let Ok(git_oid) = git2::Oid::from_str(&oid) {
-                    if let Some(idx) = self.store.loaded.iter().position(|c| c.id == git_oid) {
-                        if let Mode::Pick(ref mut state) = self.mode {
-                            let filtered_idx = state.filtered_indices.iter().position(|&i| i == idx);
-                            if let Some(fi) = filtered_idx {
-                                state.selected = fi;
-                            }
-                        }
+                let parent_info = {
+                    let repository = self.repo.repository();
+                    repository
+                        .find_commit(commit.id)
+                        .ok()
+                        .and_then(|c| c.parent(0).ok())
+                        .map(|p| CommitInfo::from_git_commit(&p))
+                };
+                if let Some(parent) = parent_info {
+                    if let Ok(diff_result) = self
+                        .diff_cache
+                        .get_or_compute(&self.repo, &parent, &commit)
+                        .cloned()
+                    {
+                        self.mode = Mode::Diff(DiffState::new(parent, commit, diff_result));
                     }
+                } else {
+                    let view_state = self.make_view_state(commit);
+                    self.mode = Mode::View(view_state);
+                    self.load_view_file();
                 }
             }
             DocKind::File | DocKind::Symbol => {
-                let oid = result.meta.commit_oid.clone();
                 let path = result.meta.path.clone().unwrap_or_default();
                 let line = result.meta.line_start;
-                if let Ok(git_oid) = git2::Oid::from_str(&oid) {
-                    if let Some(idx) = self.store.loaded.iter().position(|c| c.id == git_oid) {
-                        let commit = self.store.loaded[idx].clone();
-                        let mut view_state = self.make_view_state(commit);
-                        if let Some(file_idx) = view_state.tree.iter().position(|e| e.path == path) {
-                            view_state.selected_file = file_idx;
-                        }
-                        if let Some(line_start) = line {
-                            view_state.scroll = line_start as usize;
-                        }
-                        self.mode = Mode::View(view_state);
-                        self.load_view_file();
-                    }
+                let mut view_state = self.make_view_state(commit);
+                if let Some(file_idx) = view_state.tree.iter().position(|e| e.path == path) {
+                    view_state.selected_file = file_idx;
                 }
+                if let Some(line_start) = line {
+                    view_state.scroll = line_start as usize;
+                }
+                self.mode = Mode::View(view_state);
+                self.load_view_file();
             }
         }
     }
