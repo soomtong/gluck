@@ -88,7 +88,7 @@ pub fn render_footer(
         .flat_map(|(key, desc)| {
             vec![
                 Span::styled(
-                    format!("{}", key),
+                    key.to_string(),
                     Style::new()
                         .fg(palette.warning)
                         .add_modifier(Modifier::BOLD),
@@ -106,4 +106,5 @@ pub fn render_search_bar(frame: &mut ratatui::Frame, area: Rect, palette: &Palet
         .style(Style::new().fg(palette.warning))
         .block(Block::bordered().border_style(Style::new().fg(palette.border)));
     frame.render_widget(search, area);
+    frame.set_cursor_position((area.x + 3 + query.len() as u16, area.y + 1));
 }

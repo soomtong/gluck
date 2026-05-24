@@ -5,3 +5,4 @@ gluck.log
 *~
 *.swp
 *.swo
+.glc-index/

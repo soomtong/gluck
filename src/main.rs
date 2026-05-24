@@ -2,11 +2,12 @@ use anyhow::Result;
 use clap::Parser;
 use crossterm::event::{self, Event, KeyEventKind, KeyModifiers};
 use gluck::app::App;
-use gluck::cli::Cli;
+use gluck::cli::{Cli, Commands};
 use gluck::config::Config;
 use gluck::debug;
 use gluck::git::repo::GitRepo;
 use std::path::PathBuf;
+use std::time::Duration;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -26,6 +27,23 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
+
+    if let Some(Commands::Index {
+        force,
+        batch_size,
+        max_file_bytes,
+    }) = cli.command
+    {
+        let opts = gluck::search::indexer::IndexOptions {
+            force,
+            batch_size,
+            max_file_bytes,
+        };
+        gluck::search::indexer::build_index(&repo, &path, &opts, |msg| eprintln!("{}", msg))
+            .map_err(|e| anyhow::anyhow!("index error: {}", e))?;
+        return Ok(());
+    }
+
     let config = Config::load().unwrap_or_default();
     let mut app = App::new(repo, config)?;
     if cli.debug {
@@ -40,22 +58,37 @@ fn main() -> Result<()> {
 
 fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     loop {
+        if app.needs_clear {
+            terminal.clear()?;
+            app.needs_clear = false;
+        }
         terminal.draw(|f| app.render(f))?;
 
-        match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => {
-                if key.modifiers.contains(KeyModifiers::CONTROL) {
-                    app.handle_ctrl_key(key.code);
-                } else {
-                    app.handle_key(key.code);
-                }
+        if app.is_indexing() {
+            app.drain_index_messages();
+            app.drain_engine_messages();
+            if event::poll(Duration::from_millis(80))? {
+                read_and_dispatch(app)?;
             }
-            Event::Resize(_, _) => {}
-            _ => {}
+        } else {
+            read_and_dispatch(app)?;
         }
 
         if app.should_quit {
             break;
+        }
+    }
+    Ok(())
+}
+
+fn read_and_dispatch(app: &mut App) -> Result<()> {
+    if let Event::Key(key) = event::read()? {
+        if key.kind == KeyEventKind::Press {
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                app.handle_ctrl_key(key.code);
+            } else {
+                app.handle_key(key.code);
+            }
         }
     }
     Ok(())

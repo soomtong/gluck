@@ -211,8 +211,12 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
     let hints = [
         ("[j/k]", "move"),
+        ("[d/u]", "scroll"),
+        ("[^f/b]", "page"),
         ("[Enter]", "view"),
+        ("[Tab]", "diff"),
         ("[/]", "search"),
+        ("[s]", "semantic"),
         ("[q]", "quit"),
     ];
     layout::render_footer(frame, footer, palette, &hints);

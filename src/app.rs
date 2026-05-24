@@ -6,12 +6,26 @@ use crate::git::store::CommitStore;
 use crate::git::tree::{is_binary_blob, read_blob, EntryKind};
 use crate::highlight::HighlightEngine;
 use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, SearchState, ViewState};
+use crate::search::modal::SemanticSearchModal;
+use crate::search::SearchEngine;
 use crate::theme::Palette;
 use crate::ui;
 use anyhow::Result;
 use crossterm::event::KeyCode;
 use ratatui::Frame;
 use std::collections::HashMap;
+use std::sync::mpsc;
+
+pub enum IndexMessage {
+    Progress(String),
+    Done(Result<(), String>),
+}
+
+pub enum EngineMessage {
+    Progress(String),
+    Ready(Box<SearchEngine>),
+    Failed(String),
+}
 
 pub struct App {
     pub mode: Mode,
@@ -27,6 +41,12 @@ pub struct App {
     pub theme_name: String,
     pub config: Config,
     pub saved_search: SearchState,
+    pub search_modal: SemanticSearchModal,
+    pub search_engine: Option<SearchEngine>,
+    pub engine_error: Option<String>,
+    pub needs_clear: bool,
+    pub index_rx: Option<mpsc::Receiver<IndexMessage>>,
+    pub engine_rx: Option<mpsc::Receiver<EngineMessage>>,
 }
 
 impl App {
@@ -49,9 +69,16 @@ impl App {
             theme_name,
             config,
             saved_search: SearchState::Idle { query: None },
+            search_modal: SemanticSearchModal::new(),
+            search_engine: None,
+            engine_error: None,
+            needs_clear: false,
+            index_rx: None,
+            engine_rx: None,
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
+        app.try_preload_engine();
         Ok(app)
     }
 
@@ -60,6 +87,10 @@ impl App {
             Mode::Pick(_) => ui::pick::render_pick(frame, frame.area(), self),
             Mode::View(_) => ui::view::render_view(frame, frame.area(), self),
             Mode::Diff(_) => ui::diff::render_diff(frame, frame.area(), self),
+        }
+
+        if self.search_modal.is_open() {
+            ui::search_modal::render_search_modal(frame, self);
         }
 
         if self.debug_overlay {
@@ -109,6 +140,11 @@ impl App {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) {
+        if self.search_modal.is_open() {
+            self.handle_modal_key(code);
+            return;
+        }
+
         let is_searching = matches!(&self.mode, Mode::Pick(p) if matches!(p.search, crate::mode::SearchState::Active { .. }));
         if is_searching {
             self.handle_search_input(code);
@@ -148,6 +184,8 @@ impl App {
         match action {
             Action::Quit => self.should_quit = true,
             Action::Search => self.start_search(),
+            Action::SemanticSearch => self.open_semantic_search(),
+            Action::ForceIndex => self.force_rebuild_index(),
             Action::MoveDown => self.move_down(),
             Action::MoveUp => self.move_up(),
             Action::Enter => self.enter(),
@@ -163,12 +201,23 @@ impl App {
     }
 
     pub fn handle_ctrl_key(&mut self, code: KeyCode) {
+        if self.search_modal.is_open() {
+            match code {
+                KeyCode::Char('c') => self.should_quit = true,
+                KeyCode::Char('n') => self.search_modal.move_down(),
+                KeyCode::Char('p') => self.search_modal.move_up(),
+                _ => {}
+            }
+            return;
+        }
         match code {
             KeyCode::Char('c') => self.should_quit = true,
             KeyCode::Char('d') => self.debug_overlay = !self.debug_overlay,
             KeyCode::Char('n') => self.prev_commit(),
             KeyCode::Char('p') => self.next_commit(),
             KeyCode::Char('t') => self.next_theme(),
+            KeyCode::Char('f') => self.pick_page_down(),
+            KeyCode::Char('b') => self.pick_page_up(),
             _ => {}
         }
     }
@@ -619,7 +668,14 @@ impl App {
                 let max_scroll = line_count.saturating_sub(1);
                 state.scroll = (state.scroll + n).min(max_scroll);
             }
-            _ => {}
+            Mode::Pick(state) => {
+                let max = state.filtered_indices.len().saturating_sub(1);
+                state.selected = (state.selected + n).min(max);
+            }
+        }
+        if matches!(&self.mode, Mode::Pick(_)) {
+            self.prefetch_if_near_end();
+            self.update_pick_diff();
         }
     }
 
@@ -632,7 +688,12 @@ impl App {
             Mode::Diff(state) => {
                 state.scroll = state.scroll.saturating_sub(n);
             }
-            _ => {}
+            Mode::Pick(state) => {
+                state.selected = state.selected.saturating_sub(n);
+            }
+        }
+        if matches!(&self.mode, Mode::Pick(_)) {
+            self.update_pick_diff();
         }
     }
 
@@ -660,6 +721,26 @@ impl App {
                 .unwrap_or(0);
             state.file_content = crate::mode::FileContent::NotLoaded;
             self.load_view_file();
+        }
+    }
+
+    fn pick_page_down(&mut self) {
+        if let Mode::Pick(state) = &mut self.mode {
+            let max = state.filtered_indices.len().saturating_sub(1);
+            state.selected = (state.selected + 20).min(max);
+        }
+        if matches!(&self.mode, Mode::Pick(_)) {
+            self.prefetch_if_near_end();
+            self.update_pick_diff();
+        }
+    }
+
+    fn pick_page_up(&mut self) {
+        if let Mode::Pick(state) = &mut self.mode {
+            state.selected = state.selected.saturating_sub(20);
+        }
+        if matches!(&self.mode, Mode::Pick(_)) {
+            self.update_pick_diff();
         }
     }
 
@@ -789,6 +870,348 @@ impl App {
                     raw: content,
                     highlighted,
                 };
+            }
+        }
+    }
+
+    fn force_rebuild_index(&mut self) {
+        if self.index_rx.is_some() {
+            if !self.search_modal.is_open() {
+                self.search_modal.set_indexing("Indexing...");
+            }
+            return;
+        }
+        self.engine_error = None;
+        self.engine_rx = None;
+        let repo_workdir = self
+            .repo
+            .repository()
+            .workdir()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf();
+        self.search_modal.set_indexing("Starting indexer...");
+        self.search_engine = None;
+
+        let (tx, rx) = mpsc::channel::<IndexMessage>();
+        self.index_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let opts = crate::search::indexer::IndexOptions {
+                force: true,
+                ..Default::default()
+            };
+            let repo = match crate::git::repo::GitRepo::open(&repo_workdir) {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = tx.send(IndexMessage::Done(Err(e.to_string())));
+                    return;
+                }
+            };
+            let progress_tx = tx.clone();
+            let result = crate::search::silence::with_silenced_stdio(|| {
+                crate::search::indexer::build_index(&repo, &repo_workdir, &opts, |msg| {
+                    let _ = progress_tx.send(IndexMessage::Progress(msg.to_string()));
+                })
+            });
+            let _ = tx.send(IndexMessage::Done(result.map_err(|e| e.to_string())));
+        });
+    }
+
+    pub fn is_indexing(&self) -> bool {
+        self.index_rx.is_some() || self.engine_rx.is_some()
+    }
+
+    pub fn drain_index_messages(&mut self) {
+        let Some(rx) = self.index_rx.as_ref() else {
+            return;
+        };
+        let mut done = false;
+        let mut failure: Option<String> = None;
+        loop {
+            match rx.try_recv() {
+                Ok(IndexMessage::Progress(msg)) => self.search_modal.set_indexing(msg),
+                Ok(IndexMessage::Done(Ok(()))) => {
+                    done = true;
+                    break;
+                }
+                Ok(IndexMessage::Done(Err(e))) => {
+                    done = true;
+                    failure = Some(e);
+                    break;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done = true;
+                    break;
+                }
+            }
+        }
+        if done {
+            self.index_rx = None;
+            self.search_engine = None;
+            if let Some(e) = failure {
+                self.search_modal
+                    .set_indexing(format!("Index build failed: {} (Esc)", e));
+            } else {
+                self.start_loading_engine();
+            }
+            self.needs_clear = true;
+        }
+    }
+
+    pub fn drain_engine_messages(&mut self) {
+        let Some(rx) = self.engine_rx.as_ref() else {
+            return;
+        };
+        let mut done = false;
+        let mut failure: Option<String> = None;
+        let modal_was_open = self.search_modal.is_open();
+        loop {
+            match rx.try_recv() {
+                Ok(EngineMessage::Progress(msg)) => {
+                    if modal_was_open {
+                        self.search_modal.set_indexing(msg);
+                    }
+                }
+                Ok(EngineMessage::Ready(engine)) => {
+                    self.search_engine = Some(*engine);
+                    done = true;
+                    break;
+                }
+                Ok(EngineMessage::Failed(msg)) => {
+                    done = true;
+                    failure = Some(msg);
+                    break;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done = true;
+                    break;
+                }
+            }
+        }
+        if done {
+            self.engine_rx = None;
+            self.needs_clear = true;
+            if let Some(e) = failure {
+                self.engine_error = Some(e.clone());
+                if modal_was_open {
+                    self.search_modal.set_indexing(format!(
+                        "Search engine failed: {} (Esc to close, I to rebuild)",
+                        e
+                    ));
+                }
+            } else if self.search_engine.is_some() {
+                self.engine_error = None;
+                if modal_was_open {
+                    self.search_modal.open();
+                }
+            } else if modal_was_open {
+                self.search_modal.close();
+            }
+        }
+    }
+
+    fn try_preload_engine(&mut self) {
+        let index_dir = self.index_dir();
+        if crate::search::indexer::index_status(&index_dir)
+            != crate::search::indexer::IndexStatus::Ready
+        {
+            return;
+        }
+        self.start_loading_engine();
+    }
+
+    fn index_dir(&self) -> std::path::PathBuf {
+        let repo_workdir = self
+            .repo
+            .repository()
+            .workdir()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf();
+        crate::search::indexer::index_dir_for(&repo_workdir)
+    }
+
+    fn start_loading_engine(&mut self) {
+        if self.engine_rx.is_some() || self.search_engine.is_some() {
+            return;
+        }
+        let index_dir = self.index_dir();
+        if crate::search::indexer::index_status(&index_dir)
+            != crate::search::indexer::IndexStatus::Ready
+        {
+            return;
+        }
+        let (tx, rx) = mpsc::channel::<EngineMessage>();
+        self.engine_rx = Some(rx);
+        std::thread::spawn(move || {
+            let _ = tx.send(EngineMessage::Progress(
+                "Loading embedding model...".to_string(),
+            ));
+            let result =
+                crate::search::silence::with_silenced_stdio(|| SearchEngine::open(&index_dir));
+            let msg = match result {
+                Ok(engine) => EngineMessage::Ready(Box::new(engine)),
+                Err(e) => EngineMessage::Failed(e.to_string()),
+            };
+            let _ = tx.send(msg);
+        });
+    }
+
+    fn open_semantic_search(&mut self) {
+        let index_dir = self.index_dir();
+        use crate::search::indexer::IndexStatus;
+        match crate::search::indexer::index_status(&index_dir) {
+            IndexStatus::Missing => {
+                self.search_modal.set_no_index();
+                return;
+            }
+            IndexStatus::SchemaOutdated => {
+                self.search_modal
+                    .set_indexing("Index schema outdated — rebuilding...");
+                self.force_rebuild_index();
+                return;
+            }
+            IndexStatus::Ready => {}
+        }
+        if self.search_engine.is_some() {
+            self.search_modal.open();
+            return;
+        }
+        if let Some(ref err) = self.engine_error {
+            let msg = format!(
+                "Model unavailable: {}. Press I to rebuild index, Esc to close.",
+                err
+            );
+            self.search_modal.set_indexing(msg);
+            return;
+        }
+        self.search_modal.set_indexing("Loading embedding model...");
+        self.start_loading_engine();
+    }
+
+    fn handle_modal_key(&mut self, code: KeyCode) {
+        use crate::search::modal::ModalState;
+        if matches!(self.search_modal.state, ModalState::NoIndex) {
+            match code {
+                KeyCode::Esc => self.search_modal.close(),
+                KeyCode::Char('I') => self.force_rebuild_index(),
+                _ => {}
+            }
+            return;
+        }
+        if matches!(self.search_modal.state, ModalState::Indexing { .. }) {
+            match code {
+                KeyCode::Esc => self.search_modal.close(),
+                KeyCode::Char('I') => self.force_rebuild_index(),
+                _ => {}
+            }
+            return;
+        }
+        match code {
+            KeyCode::Esc => {
+                self.search_modal.close();
+            }
+            KeyCode::Backspace => {
+                self.search_modal.pop_char();
+                self.run_semantic_search();
+            }
+            KeyCode::Down => {
+                self.search_modal.move_down();
+            }
+            KeyCode::Up => {
+                self.search_modal.move_up();
+            }
+            KeyCode::Enter => {
+                self.select_search_result();
+            }
+            KeyCode::Char(c) => {
+                self.search_modal.push_char(c);
+                self.run_semantic_search();
+            }
+            _ => {}
+        }
+    }
+
+    fn run_semantic_search(&mut self) {
+        let query = self.search_modal.state.input().to_string();
+        if query.is_empty() {
+            self.search_modal.set_results(vec![]);
+            return;
+        }
+        if let Some(engine) = &self.search_engine {
+            let limit = self.config.search.result_limit;
+            match engine.search(&query, limit) {
+                Ok(results) => self.search_modal.set_results(results),
+                Err(_) => self.search_modal.set_results(vec![]),
+            }
+        }
+    }
+
+    fn lookup_commit(&self, oid: git2::Oid) -> Option<CommitInfo> {
+        if let Some(c) = self.store.loaded.iter().find(|c| c.id == oid) {
+            return Some(c.clone());
+        }
+        let repository = self.repo.repository();
+        repository
+            .find_commit(oid)
+            .ok()
+            .map(|c| CommitInfo::from_git_commit(&c))
+    }
+
+    fn select_search_result(&mut self) {
+        use crate::search::DocKind;
+        let result = self
+            .search_modal
+            .results()
+            .get(self.search_modal.selected)
+            .cloned();
+        let Some(result) = result else { return };
+        self.search_modal.close();
+
+        let Ok(git_oid) = git2::Oid::from_str(&result.meta.commit_oid) else {
+            return;
+        };
+        let Some(commit) = self.lookup_commit(git_oid) else {
+            return;
+        };
+
+        match result.meta.kind {
+            DocKind::Commit => {
+                let parent_info = {
+                    let repository = self.repo.repository();
+                    repository
+                        .find_commit(commit.id)
+                        .ok()
+                        .and_then(|c| c.parent(0).ok())
+                        .map(|p| CommitInfo::from_git_commit(&p))
+                };
+                if let Some(parent) = parent_info {
+                    if let Ok(diff_result) = self
+                        .diff_cache
+                        .get_or_compute(&self.repo, &parent, &commit)
+                        .cloned()
+                    {
+                        self.mode = Mode::Diff(DiffState::new(parent, commit, diff_result));
+                    }
+                } else {
+                    let view_state = self.make_view_state(commit);
+                    self.mode = Mode::View(view_state);
+                    self.load_view_file();
+                }
+            }
+            DocKind::File | DocKind::Symbol => {
+                let path = result.meta.path.clone().unwrap_or_default();
+                let line = result.meta.line_start;
+                let mut view_state = self.make_view_state(commit);
+                if let Some(file_idx) = view_state.tree.iter().position(|e| e.path == path) {
+                    view_state.selected_file = file_idx;
+                }
+                if let Some(line_start) = line {
+                    view_state.scroll = line_start as usize;
+                }
+                self.mode = Mode::View(view_state);
+                self.load_view_file();
             }
         }
     }
@@ -1225,7 +1648,7 @@ mod tests {
         let initial = s.side_by_side;
         let _ = s;
 
-        app.handle_key(KeyCode::Char('s'));
+        app.handle_key(KeyCode::Char('v'));
         let Mode::Diff(s) = &app.mode else {
             panic!("expected diff")
         };
@@ -1236,7 +1659,7 @@ mod tests {
     fn test_toggle_view_in_pick_mode_does_nothing() {
         let (_dir, mut app) = test_app();
         assert!(matches!(app.mode, Mode::Pick(_)));
-        app.handle_key(KeyCode::Char('s'));
+        app.handle_key(KeyCode::Char('v'));
         assert!(matches!(app.mode, Mode::Pick(_)));
     }
 
@@ -1378,6 +1801,22 @@ mod tests {
             panic!("expected pick")
         };
         assert_eq!(s.selected, selected_idx);
+    }
+
+    // ── Force index / modal ──
+
+    #[test]
+    fn test_i_key_in_pick_opens_indexing_modal() {
+        use crate::search::modal::ModalState;
+        let (_dir, mut app) = test_app();
+        assert!(matches!(app.mode, Mode::Pick(_)));
+        assert!(!app.search_modal.is_open());
+        app.handle_key(KeyCode::Char('I'));
+        assert!(app.search_modal.is_open());
+        assert!(matches!(
+            app.search_modal.state,
+            ModalState::Indexing { .. }
+        ));
     }
 
     // ── Commits cached ──

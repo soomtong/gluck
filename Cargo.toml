@@ -1,6 +1,6 @@
 [package]
 name = "gluck"
-version = "0.5.13"
+version = "0.6.0"
 edition = "2021"
 
 [[bin]]
@@ -21,8 +21,18 @@ tree-sitter-rust = "0.23"
 tree-sitter-markdown-fork = "0.7.3"
 thiserror = "2.0.18"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "0.8"
+libc = "0.2"
 dirs = "6"
+model2vec-rs = { version = "0.2", features = ["hf-hub"] }
+turbovec = "0.5"
+tantivy = "0.22"
+[target.'cfg(target_os = "macos")'.dependencies]
+blas-src = { version = "0.10", features = ["accelerate"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+blas-src = { version = "0.10", features = ["openblas"] }
 
 [dev-dependencies]
 tempfile = "3"
