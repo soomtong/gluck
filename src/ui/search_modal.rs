@@ -18,19 +18,24 @@ pub fn render_search_modal(frame: &mut Frame, app: &App) {
     frame.render_widget(Clear, area);
 
     match &modal.state {
-        ModalState::Idle => {}
-        ModalState::NoIndex => render_no_index(frame, area, app),
-        ModalState::Indexing { message } => render_indexing(frame, area, message, app),
-        ModalState::Typing { input } | ModalState::Loading { input } => {
-            render_input(frame, area, input.as_str(), app)
+        ModalState::Closed => {}
+        ModalState::Loading { input, message } => {
+            if input.is_empty() {
+                render_loading(frame, area, message.as_str(), app);
+            } else {
+                render_input(frame, area, input.as_str(), app);
+            }
+        }
+        ModalState::Typing { input } => {
+            render_input(frame, area, input.as_str(), app);
         }
         ModalState::Results { input, results } => {
-            render_results(frame, area, input.as_str(), results, modal.selected, app)
+            render_results(frame, area, input.as_str(), results, modal.selected, app);
         }
     }
 }
 
-fn render_indexing(frame: &mut Frame, area: Rect, message: &str, app: &App) {
+fn render_loading(frame: &mut Frame, area: Rect, message: &str, app: &App) {
     let title = if message.starts_with("Loading") {
         " Preparing search "
     } else {
@@ -46,24 +51,6 @@ fn render_indexing(frame: &mut Frame, area: Rect, message: &str, app: &App) {
         Line::from(""),
         Line::from(Span::styled(
             "  Please wait... (Esc to dismiss)",
-            Style::default().fg(app.palette.dim),
-        )),
-    ])
-    .block(block);
-    frame.render_widget(msg, area);
-}
-
-fn render_no_index(frame: &mut Frame, area: Rect, app: &App) {
-    let block = Block::default()
-        .title(" No index found ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.palette.accent));
-    let msg = Paragraph::new(vec![
-        Line::from(""),
-        Line::from("  Press I to build the search index, or run `glc index`."),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  Press Esc to close",
             Style::default().fg(app.palette.dim),
         )),
     ])
