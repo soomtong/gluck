@@ -81,8 +81,9 @@ fn render_input(frame: &mut Frame, area: Rect, input: &str, app: &App) {
         .title(" Semantic Search (S) ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.palette.accent));
-    let input_widget = Paragraph::new(format!("> {}_", input)).block(input_block);
+    let input_widget = Paragraph::new(format!("> {}", input)).block(input_block);
     frame.render_widget(input_widget, chunks[0]);
+    frame.set_cursor_position((chunks[0].x + 3 + input.len() as u16, chunks[0].y + 1));
 
     let hint_block = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
@@ -114,6 +115,7 @@ fn render_results(
         .border_style(Style::default().fg(app.palette.accent));
     let input_widget = Paragraph::new(format!("> {}", input)).block(input_block);
     frame.render_widget(input_widget, chunks[0]);
+    frame.set_cursor_position((chunks[0].x + 3 + input.len() as u16, chunks[0].y + 1));
 
     let items: Vec<ListItem> = results
         .iter()
