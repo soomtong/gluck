@@ -1,9 +1,9 @@
 use crate::theme::Palette;
 use ratatui::layout::{Constraint, Layout, Rect};
-use unicode_width::UnicodeWidthStr;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
+use unicode_width::UnicodeWidthStr;
 
 pub fn app_layout(area: Rect) -> (Rect, Rect, Rect) {
     let [header, body, footer] = Layout::vertical([
