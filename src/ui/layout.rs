@@ -88,7 +88,7 @@ pub fn render_footer(
         .flat_map(|(key, desc)| {
             vec![
                 Span::styled(
-                    format!("{}", key),
+                    key.to_string(),
                     Style::new()
                         .fg(palette.warning)
                         .add_modifier(Modifier::BOLD),

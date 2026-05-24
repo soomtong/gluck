@@ -102,7 +102,7 @@ impl SemanticSearchModal {
     }
 
     pub fn is_open(&self) -> bool {
-        !matches!(self.state, ModalState::Idle { .. })
+        !matches!(self.state, ModalState::Idle)
     }
 
     pub fn results(&self) -> &[SearchResult] {
