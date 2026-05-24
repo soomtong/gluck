@@ -1349,7 +1349,7 @@ mod tests {
         let initial = s.side_by_side;
         let _ = s;
 
-        app.handle_key(KeyCode::Char('s'));
+        app.handle_key(KeyCode::Char('v'));
         let Mode::Diff(s) = &app.mode else {
             panic!("expected diff")
         };
@@ -1360,7 +1360,7 @@ mod tests {
     fn test_toggle_view_in_pick_mode_does_nothing() {
         let (_dir, mut app) = test_app();
         assert!(matches!(app.mode, Mode::Pick(_)));
-        app.handle_key(KeyCode::Char('s'));
+        app.handle_key(KeyCode::Char('v'));
         assert!(matches!(app.mode, Mode::Pick(_)));
     }
 

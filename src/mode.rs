@@ -196,14 +196,14 @@ impl KeyBindings {
         bindings.insert(KeyCode::Char('h'), Action::Back);
         bindings.insert(KeyCode::Char('/'), Action::Search);
         bindings.insert(KeyCode::Char('q'), Action::Quit);
-        bindings.insert(KeyCode::Char('s'), Action::ToggleView);
+        bindings.insert(KeyCode::Char('v'), Action::ToggleView);
         bindings.insert(KeyCode::Tab, Action::SwitchMode);
         bindings.insert(KeyCode::Char('K'), Action::PageUp);
         bindings.insert(KeyCode::Char('J'), Action::PageDown);
         bindings.insert(KeyCode::Char('.'), Action::ToggleGitignore);
         bindings.insert(KeyCode::Char('u'), Action::ScrollUp);
         bindings.insert(KeyCode::Char('d'), Action::ScrollDown);
-        bindings.insert(KeyCode::Char('S'), Action::SemanticSearch);
+        bindings.insert(KeyCode::Char('s'), Action::SemanticSearch);
         Self { bindings }
     }
 
