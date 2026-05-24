@@ -165,6 +165,7 @@ pub enum Action {
     Back,
     Search,
     SemanticSearch,
+    ForceIndex,
     Quit,
     ToggleView,
     SwitchMode,
@@ -204,6 +205,7 @@ impl KeyBindings {
         bindings.insert(KeyCode::Char('u'), Action::ScrollUp);
         bindings.insert(KeyCode::Char('d'), Action::ScrollDown);
         bindings.insert(KeyCode::Char('s'), Action::SemanticSearch);
+        bindings.insert(KeyCode::Char('I'), Action::ForceIndex);
         Self { bindings }
     }
 

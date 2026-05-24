@@ -20,6 +20,7 @@ pub fn render_search_modal(frame: &mut Frame, app: &App) {
     match &modal.state {
         ModalState::Idle => {}
         ModalState::NoIndex => render_no_index(frame, area, app),
+        ModalState::Indexing { message } => render_indexing(frame, area, message, app),
         ModalState::Typing { input } | ModalState::Loading { input } => {
             render_input(frame, area, input.as_str(), app)
         }
@@ -27,6 +28,24 @@ pub fn render_search_modal(frame: &mut Frame, app: &App) {
             render_results(frame, area, input.as_str(), results, modal.selected, app)
         }
     }
+}
+
+fn render_indexing(frame: &mut Frame, area: Rect, message: &str, app: &App) {
+    let block = Block::default()
+        .title(" Indexing ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(app.palette.accent));
+    let msg = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(format!("  {}", message)),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Please wait...",
+            Style::default().fg(app.palette.dim),
+        )),
+    ])
+    .block(block);
+    frame.render_widget(msg, area);
 }
 
 fn render_no_index(frame: &mut Frame, area: Rect, app: &App) {

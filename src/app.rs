@@ -14,6 +14,12 @@ use anyhow::Result;
 use crossterm::event::KeyCode;
 use ratatui::Frame;
 use std::collections::HashMap;
+use std::sync::mpsc;
+
+pub enum IndexMessage {
+    Progress(String),
+    Done(Result<(), String>),
+}
 
 pub struct App {
     pub mode: Mode,
@@ -32,6 +38,7 @@ pub struct App {
     pub search_modal: SemanticSearchModal,
     pub search_engine: Option<SearchEngine>,
     pub needs_clear: bool,
+    pub index_rx: Option<mpsc::Receiver<IndexMessage>>,
 }
 
 impl App {
@@ -57,6 +64,7 @@ impl App {
             search_modal: SemanticSearchModal::new(),
             search_engine: None,
             needs_clear: false,
+            index_rx: None,
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
@@ -166,6 +174,7 @@ impl App {
             Action::Quit => self.should_quit = true,
             Action::Search => self.start_search(),
             Action::SemanticSearch => self.open_semantic_search(),
+            Action::ForceIndex => self.force_rebuild_index(),
             Action::MoveDown => self.move_down(),
             Action::MoveUp => self.move_up(),
             Action::Enter => self.enter(),
@@ -817,6 +826,88 @@ impl App {
                     highlighted,
                 };
             }
+        }
+    }
+
+    fn force_rebuild_index(&mut self) {
+        if !matches!(self.mode, Mode::Pick(_)) {
+            return;
+        }
+        if self.index_rx.is_some() {
+            return;
+        }
+        let repo_workdir = self
+            .repo
+            .repository()
+            .workdir()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf();
+        self.search_modal.set_indexing("Starting indexer...");
+        self.search_engine = None;
+
+        let (tx, rx) = mpsc::channel::<IndexMessage>();
+        self.index_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let opts = crate::search::indexer::IndexOptions {
+                force: true,
+                ..Default::default()
+            };
+            let repo = match crate::git::repo::GitRepo::open(&repo_workdir) {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = tx.send(IndexMessage::Done(Err(e.to_string())));
+                    return;
+                }
+            };
+            let progress_tx = tx.clone();
+            let result = crate::search::indexer::build_index(
+                &repo,
+                &repo_workdir,
+                &opts,
+                |msg| {
+                    let _ = progress_tx.send(IndexMessage::Progress(msg.to_string()));
+                },
+            );
+            let _ = tx.send(IndexMessage::Done(result.map_err(|e| e.to_string())));
+        });
+    }
+
+    pub fn is_indexing(&self) -> bool {
+        self.index_rx.is_some()
+    }
+
+    pub fn drain_index_messages(&mut self) {
+        let Some(rx) = self.index_rx.as_ref() else { return };
+        let mut done = false;
+        loop {
+            match rx.try_recv() {
+                Ok(IndexMessage::Progress(msg)) => self.search_modal.set_indexing(msg),
+                Ok(IndexMessage::Done(_result)) => {
+                    done = true;
+                    break;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done = true;
+                    break;
+                }
+            }
+        }
+        if done {
+            self.index_rx = None;
+            let repo_workdir = self
+                .repo
+                .repository()
+                .workdir()
+                .unwrap_or(std::path::Path::new("."))
+                .to_path_buf();
+            let index_dir = crate::search::indexer::index_dir_for(&repo_workdir);
+            if let Ok(engine) = SearchEngine::open(&index_dir) {
+                self.search_engine = Some(engine);
+            }
+            self.search_modal.close();
+            self.needs_clear = true;
         }
     }
 

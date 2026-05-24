@@ -32,11 +32,15 @@ pub fn index_dir_for(repo_path: &Path) -> PathBuf {
     repo_path.join(INDEX_DIR_NAME)
 }
 
-pub fn build_index(
+pub fn build_index<F>(
     repo: &GitRepo,
     repo_path: &Path,
     opts: &IndexOptions,
-) -> Result<(), SearchError> {
+    progress: F,
+) -> Result<(), SearchError>
+where
+    F: Fn(&str),
+{
     let index_dir = index_dir_for(repo_path);
 
     if index_dir.exists() {
@@ -55,7 +59,7 @@ pub fn build_index(
                 }
                 let current_oid = head_oid(repo)?;
                 if meta.head_oid == current_oid {
-                    eprintln!("Index is up to date.");
+                    progress("Index is up to date.");
                     return Ok(());
                 }
                 std::fs::remove_dir_all(&index_dir)?;
@@ -65,7 +69,7 @@ pub fn build_index(
 
     std::fs::create_dir_all(&index_dir)?;
 
-    eprintln!("Loading embedding model...");
+    progress("Loading embedding model...");
     let model = EmbeddingModel::load()?;
 
     let bm25_dir = index_dir.join("bm25");
@@ -77,7 +81,7 @@ pub fn build_index(
 
     let mut doc_counter: u64 = 0;
 
-    eprintln!("Indexing commit messages...");
+    progress("Indexing commit messages...");
     let commits = collect_commits(repo)?;
     let mut chunks: Vec<Chunk> = commits
         .iter()
@@ -96,7 +100,7 @@ pub fn build_index(
         })
         .collect();
 
-    eprintln!("Indexing HEAD files...");
+    progress("Indexing HEAD files...");
     let head_oid_str = head_oid(repo)?;
     let head_commit = {
         let rep = repo.repository();
@@ -129,7 +133,11 @@ pub fn build_index(
         chunks.extend(file_chunks);
     }
 
-    eprintln!("Embedding {} chunks in batches of {}...", chunks.len(), opts.batch_size);
+    progress(&format!(
+        "Embedding {} chunks in batches of {}...",
+        chunks.len(),
+        opts.batch_size
+    ));
     let mut all_ids: Vec<u64> = Vec::new();
     let mut all_vecs: Vec<Vec<f32>> = Vec::new();
 
@@ -179,7 +187,7 @@ pub fn build_index(
 
     let meta_str = toml::to_string_pretty(&meta)?;
     std::fs::write(index_dir.join("meta.toml"), meta_str)?;
-    eprintln!("Indexed {} documents.", doc_counter);
+    progress(&format!("Indexed {} documents.", doc_counter));
     Ok(())
 }
 

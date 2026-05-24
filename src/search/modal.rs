@@ -7,6 +7,7 @@ pub enum ModalState {
     Loading { input: String },
     Results { input: String, results: Vec<SearchResult> },
     NoIndex,
+    Indexing { message: String },
 }
 
 impl ModalState {
@@ -72,6 +73,12 @@ impl SemanticSearchModal {
 
     pub fn set_no_index(&mut self) {
         self.state = ModalState::NoIndex;
+    }
+
+    pub fn set_indexing(&mut self, message: impl Into<String>) {
+        self.state = ModalState::Indexing {
+            message: message.into(),
+        };
     }
 
     pub fn move_down(&mut self) {

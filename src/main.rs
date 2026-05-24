@@ -7,6 +7,7 @@ use gluck::config::Config;
 use gluck::debug;
 use gluck::git::repo::GitRepo;
 use std::path::PathBuf;
+use std::time::Duration;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -33,7 +34,7 @@ fn main() -> Result<()> {
             batch_size,
             max_file_bytes,
         };
-        gluck::search::indexer::build_index(&repo, &path, &opts)
+        gluck::search::indexer::build_index(&repo, &path, &opts, |msg| eprintln!("{}", msg))
             .map_err(|e| anyhow::anyhow!("index error: {}", e))?;
         return Ok(());
     }
@@ -58,20 +59,30 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
         }
         terminal.draw(|f| app.render(f))?;
 
-        match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => {
-                if key.modifiers.contains(KeyModifiers::CONTROL) {
-                    app.handle_ctrl_key(key.code);
-                } else {
-                    app.handle_key(key.code);
-                }
+        if app.is_indexing() {
+            app.drain_index_messages();
+            if event::poll(Duration::from_millis(80))? {
+                read_and_dispatch(app)?;
             }
-            Event::Resize(_, _) => {}
-            _ => {}
+        } else {
+            read_and_dispatch(app)?;
         }
 
         if app.should_quit {
             break;
+        }
+    }
+    Ok(())
+}
+
+fn read_and_dispatch(app: &mut App) -> Result<()> {
+    if let Event::Key(key) = event::read()? {
+        if key.kind == KeyEventKind::Press {
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                app.handle_ctrl_key(key.code);
+            } else {
+                app.handle_key(key.code);
+            }
         }
     }
     Ok(())
