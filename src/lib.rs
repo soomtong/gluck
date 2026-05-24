@@ -4,6 +4,7 @@ pub mod config;
 pub mod debug;
 pub mod git;
 pub mod highlight;
+pub mod lang;
 pub mod mode;
 pub mod search;
 pub mod theme;

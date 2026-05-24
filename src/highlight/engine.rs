@@ -110,28 +110,9 @@ impl HighlightEngine {
     }
 
     fn detect_language(path: &str) -> String {
-        let ext = std::path::Path::new(path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-        match ext {
-            "rs" => "rust",
-            "py" => "python",
-            "js" | "mjs" => "javascript",
-            "ts" => "typescript",
-            "go" => "go",
-            "c" | "h" => "c",
-            "cpp" | "cc" | "cxx" | "hpp" => "cpp",
-            "java" => "java",
-            "sh" | "bash" => "bash",
-            "toml" => "toml",
-            "json" => "json",
-            "md" => "markdown",
-            "html" => "html",
-            "css" => "css",
-            _ => ext,
-        }
-        .to_string()
+        crate::lang::Language::from_path(path)
+            .map(|l| l.as_str().to_string())
+            .unwrap_or_default()
     }
 
     fn register_languages(&mut self) {
