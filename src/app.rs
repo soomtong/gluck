@@ -1798,6 +1798,19 @@ mod tests {
         assert_eq!(s.selected, selected_idx);
     }
 
+    // ── Force index / modal ──
+
+    #[test]
+    fn test_i_key_in_pick_opens_indexing_modal() {
+        use crate::search::modal::ModalState;
+        let (_dir, mut app) = test_app();
+        assert!(matches!(app.mode, Mode::Pick(_)));
+        assert!(!app.search_modal.is_open());
+        app.handle_key(KeyCode::Char('I'));
+        assert!(app.search_modal.is_open());
+        assert!(matches!(app.search_modal.state, ModalState::Indexing { .. }));
+    }
+
     // ── Commits cached ──
 
     #[test]

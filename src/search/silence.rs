@@ -1,9 +1,24 @@
-//! Redirect stdout/stderr to /dev/null around a closure so that noisy
-//! third-party libraries (e.g. hf-hub progress bars) do not corrupt the
+//! Redirect stderr to /dev/null around a closure so that noisy third-party
+//! libraries (e.g. hf-hub/indicatif progress bars) do not corrupt the
 //! ratatui alternate-screen during a long-running operation.
+//!
+//! stdout is intentionally left alone: the TUI renders through fd 1, and
+//! dup2-ing it from a background thread would race with the main thread's
+//! terminal.draw() calls, making modal updates invisible to the user.
 
 use std::fs::OpenOptions;
 use std::os::unix::io::AsRawFd;
+
+struct RestoreStderr(libc::c_int);
+
+impl Drop for RestoreStderr {
+    fn drop(&mut self) {
+        unsafe {
+            libc::dup2(self.0, libc::STDERR_FILENO);
+            libc::close(self.0);
+        }
+    }
+}
 
 pub fn with_silenced_stdio<F, R>(f: F) -> R
 where
@@ -15,31 +30,16 @@ where
     };
     let dn = devnull.as_raw_fd();
 
-    let saved_out = unsafe { libc::dup(libc::STDOUT_FILENO) };
     let saved_err = unsafe { libc::dup(libc::STDERR_FILENO) };
-    if saved_out < 0 || saved_err < 0 {
-        if saved_out >= 0 {
-            unsafe { libc::close(saved_out) };
-        }
-        if saved_err >= 0 {
-            unsafe { libc::close(saved_err) };
-        }
+    if saved_err < 0 {
         return f();
     }
 
+    let _guard = RestoreStderr(saved_err);
+
     unsafe {
-        libc::dup2(dn, libc::STDOUT_FILENO);
         libc::dup2(dn, libc::STDERR_FILENO);
     }
 
-    let result = f();
-
-    unsafe {
-        libc::dup2(saved_out, libc::STDOUT_FILENO);
-        libc::dup2(saved_err, libc::STDERR_FILENO);
-        libc::close(saved_out);
-        libc::close(saved_err);
-    }
-
-    result
+    f()
 }
