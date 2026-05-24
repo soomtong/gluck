@@ -21,6 +21,12 @@ pub enum IndexMessage {
     Done(Result<(), String>),
 }
 
+pub enum EngineMessage {
+    Progress(String),
+    Ready(Box<SearchEngine>),
+    Failed(String),
+}
+
 pub struct App {
     pub mode: Mode,
     pub repo: GitRepo,
@@ -39,6 +45,7 @@ pub struct App {
     pub search_engine: Option<SearchEngine>,
     pub needs_clear: bool,
     pub index_rx: Option<mpsc::Receiver<IndexMessage>>,
+    pub engine_rx: Option<mpsc::Receiver<EngineMessage>>,
 }
 
 impl App {
@@ -65,9 +72,11 @@ impl App {
             search_engine: None,
             needs_clear: false,
             index_rx: None,
+            engine_rx: None,
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
+        app.try_preload_engine();
         Ok(app)
     }
 
@@ -830,9 +839,6 @@ impl App {
     }
 
     fn force_rebuild_index(&mut self) {
-        if !matches!(self.mode, Mode::Pick(_)) {
-            return;
-        }
         if self.index_rx.is_some() {
             return;
         }
@@ -861,30 +867,38 @@ impl App {
                 }
             };
             let progress_tx = tx.clone();
-            let result = crate::search::indexer::build_index(
-                &repo,
-                &repo_workdir,
-                &opts,
-                |msg| {
-                    let _ = progress_tx.send(IndexMessage::Progress(msg.to_string()));
-                },
-            );
+            let result = crate::search::silence::with_silenced_stdio(|| {
+                crate::search::indexer::build_index(
+                    &repo,
+                    &repo_workdir,
+                    &opts,
+                    |msg| {
+                        let _ = progress_tx.send(IndexMessage::Progress(msg.to_string()));
+                    },
+                )
+            });
             let _ = tx.send(IndexMessage::Done(result.map_err(|e| e.to_string())));
         });
     }
 
     pub fn is_indexing(&self) -> bool {
-        self.index_rx.is_some()
+        self.index_rx.is_some() || self.engine_rx.is_some()
     }
 
     pub fn drain_index_messages(&mut self) {
         let Some(rx) = self.index_rx.as_ref() else { return };
         let mut done = false;
+        let mut failure: Option<String> = None;
         loop {
             match rx.try_recv() {
                 Ok(IndexMessage::Progress(msg)) => self.search_modal.set_indexing(msg),
-                Ok(IndexMessage::Done(_result)) => {
+                Ok(IndexMessage::Done(Ok(()))) => {
                     done = true;
+                    break;
+                }
+                Ok(IndexMessage::Done(Err(e))) => {
+                    done = true;
+                    failure = Some(e);
                     break;
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
@@ -896,43 +910,150 @@ impl App {
         }
         if done {
             self.index_rx = None;
-            let repo_workdir = self
-                .repo
-                .repository()
-                .workdir()
-                .unwrap_or(std::path::Path::new("."))
-                .to_path_buf();
-            let index_dir = crate::search::indexer::index_dir_for(&repo_workdir);
-            if let Ok(engine) = SearchEngine::open(&index_dir) {
-                self.search_engine = Some(engine);
+            self.search_engine = None;
+            if let Some(e) = failure {
+                self.search_modal
+                    .set_indexing(format!("Index build failed: {} (Esc)", e));
+            } else {
+                self.start_loading_engine();
             }
-            self.search_modal.close();
             self.needs_clear = true;
         }
     }
 
-    fn open_semantic_search(&mut self) {
+    pub fn drain_engine_messages(&mut self) {
+        let Some(rx) = self.engine_rx.as_ref() else { return };
+        let mut done = false;
+        let mut failure: Option<String> = None;
+        let modal_was_open = self.search_modal.is_open();
+        loop {
+            match rx.try_recv() {
+                Ok(EngineMessage::Progress(msg)) => {
+                    if modal_was_open {
+                        self.search_modal.set_indexing(msg);
+                    }
+                }
+                Ok(EngineMessage::Ready(engine)) => {
+                    self.search_engine = Some(*engine);
+                    done = true;
+                    break;
+                }
+                Ok(EngineMessage::Failed(msg)) => {
+                    done = true;
+                    failure = Some(msg);
+                    break;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    done = true;
+                    break;
+                }
+            }
+        }
+        if done {
+            self.engine_rx = None;
+            self.needs_clear = true;
+            if modal_was_open {
+                if self.search_engine.is_some() {
+                    self.search_modal.open();
+                } else if let Some(e) = failure {
+                    self.search_modal
+                        .set_indexing(format!("Search engine failed: {} (Esc)", e));
+                } else {
+                    self.search_modal.close();
+                }
+            }
+        }
+    }
+
+    fn try_preload_engine(&mut self) {
+        let index_dir = self.index_dir();
+        if crate::search::indexer::index_status(&index_dir)
+            != crate::search::indexer::IndexStatus::Ready
+        {
+            return;
+        }
+        self.start_loading_engine();
+    }
+
+    fn index_dir(&self) -> std::path::PathBuf {
         let repo_workdir = self
             .repo
             .repository()
             .workdir()
             .unwrap_or(std::path::Path::new("."))
             .to_path_buf();
-        let index_dir = crate::search::indexer::index_dir_for(&repo_workdir);
-        if !index_dir.exists() {
-            self.search_modal.set_no_index();
-        } else {
-            if self.search_engine.is_none() {
-                if let Ok(engine) = SearchEngine::open(&index_dir) {
-                    self.search_engine = Some(engine);
-                }
-                self.needs_clear = true;
-            }
-            self.search_modal.open();
+        crate::search::indexer::index_dir_for(&repo_workdir)
+    }
+
+    fn start_loading_engine(&mut self) {
+        if self.engine_rx.is_some() || self.search_engine.is_some() {
+            return;
         }
+        let index_dir = self.index_dir();
+        if crate::search::indexer::index_status(&index_dir)
+            != crate::search::indexer::IndexStatus::Ready
+        {
+            return;
+        }
+        let (tx, rx) = mpsc::channel::<EngineMessage>();
+        self.engine_rx = Some(rx);
+        std::thread::spawn(move || {
+            let _ = tx.send(EngineMessage::Progress(
+                "Loading embedding model...".to_string(),
+            ));
+            let result = crate::search::silence::with_silenced_stdio(|| {
+                SearchEngine::open(&index_dir)
+            });
+            let msg = match result {
+                Ok(engine) => EngineMessage::Ready(Box::new(engine)),
+                Err(e) => EngineMessage::Failed(e.to_string()),
+            };
+            let _ = tx.send(msg);
+        });
+    }
+
+    fn open_semantic_search(&mut self) {
+        let index_dir = self.index_dir();
+        use crate::search::indexer::IndexStatus;
+        match crate::search::indexer::index_status(&index_dir) {
+            IndexStatus::Missing => {
+                self.search_modal.set_no_index();
+                return;
+            }
+            IndexStatus::SchemaOutdated => {
+                self.search_modal
+                    .set_indexing("Index schema outdated — rebuilding...");
+                self.force_rebuild_index();
+                return;
+            }
+            IndexStatus::Ready => {}
+        }
+        if self.search_engine.is_some() {
+            self.search_modal.open();
+            return;
+        }
+        self.search_modal
+            .set_indexing("Loading embedding model...");
+        self.start_loading_engine();
     }
 
     fn handle_modal_key(&mut self, code: KeyCode) {
+        use crate::search::modal::ModalState;
+        if matches!(self.search_modal.state, ModalState::NoIndex) {
+            match code {
+                KeyCode::Esc => self.search_modal.close(),
+                KeyCode::Char('I') => self.force_rebuild_index(),
+                _ => {}
+            }
+            return;
+        }
+        if matches!(self.search_modal.state, ModalState::Indexing { .. }) {
+            if code == KeyCode::Esc {
+                self.search_modal.close();
+            }
+            return;
+        }
         match code {
             KeyCode::Esc => {
                 self.search_modal.close();

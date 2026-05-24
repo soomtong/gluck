@@ -31,8 +31,13 @@ pub fn render_search_modal(frame: &mut Frame, app: &App) {
 }
 
 fn render_indexing(frame: &mut Frame, area: Rect, message: &str, app: &App) {
+    let title = if message.starts_with("Loading") {
+        " Preparing search "
+    } else {
+        " Indexing "
+    };
     let block = Block::default()
-        .title(" Indexing ")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.palette.accent));
     let msg = Paragraph::new(vec![
@@ -40,7 +45,7 @@ fn render_indexing(frame: &mut Frame, area: Rect, message: &str, app: &App) {
         Line::from(format!("  {}", message)),
         Line::from(""),
         Line::from(Span::styled(
-            "  Please wait...",
+            "  Please wait... (Esc to dismiss)",
             Style::default().fg(app.palette.dim),
         )),
     ])
@@ -55,7 +60,7 @@ fn render_no_index(frame: &mut Frame, area: Rect, app: &App) {
         .border_style(Style::default().fg(app.palette.accent));
     let msg = Paragraph::new(vec![
         Line::from(""),
-        Line::from("  Run `glc index` to build the search index."),
+        Line::from("  Press I to build the search index, or run `glc index`."),
         Line::from(""),
         Line::from(Span::styled(
             "  Press Esc to close",

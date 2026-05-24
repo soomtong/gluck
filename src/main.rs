@@ -61,6 +61,7 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
 
         if app.is_indexing() {
             app.drain_index_messages();
+            app.drain_engine_messages();
             if event::poll(Duration::from_millis(80))? {
                 read_and_dispatch(app)?;
             }
