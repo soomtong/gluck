@@ -214,8 +214,13 @@ impl App {
     }
 
     pub fn handle_ctrl_key(&mut self, code: KeyCode) {
-        if code == KeyCode::Char('c') && self.search_modal.is_open() {
-            self.search_modal.close();
+        if self.search_modal.is_open() {
+            match code {
+                KeyCode::Char('c') => self.search_modal.close(),
+                KeyCode::Char('n') => self.search_modal.move_down(),
+                KeyCode::Char('p') => self.search_modal.move_up(),
+                _ => {}
+            }
             return;
         }
         match code {
@@ -1542,6 +1547,107 @@ mod tests {
             panic!("expected pick")
         };
         assert_eq!(s.selected, 0);
+    }
+
+    #[test]
+    fn test_ctrl_c_closes_search_modal() {
+        let (_dir, mut app) = test_app();
+        app.search_modal.open();
+        assert!(app.search_modal.is_open());
+        app.handle_ctrl_key(KeyCode::Char('c'));
+        assert!(!app.search_modal.is_open());
+        assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn test_ctrl_n_in_modal_moves_down() {
+        use crate::search::modal::ModalState;
+        use crate::search::{DocKind, DocMeta, SearchResult};
+        let (_dir, mut app) = test_app();
+        let results: Vec<SearchResult> = (0..5)
+            .map(|i| SearchResult {
+                score: 0.0,
+                meta: DocMeta {
+                    doc_id: i,
+                    kind: DocKind::File,
+                    title: format!("file{}.rs", i),
+                    commit_oid: String::new(),
+                    path: None,
+                    line_start: None,
+                    line_end: None,
+                },
+            })
+            .collect();
+        app.search_modal.state = ModalState::Results {
+            input: "test".into(),
+            results,
+        };
+        assert_eq!(app.search_modal.selected, 0);
+        app.handle_ctrl_key(KeyCode::Char('n'));
+        assert_eq!(app.search_modal.selected, 1);
+    }
+
+    #[test]
+    fn test_ctrl_p_in_modal_moves_up() {
+        use crate::search::modal::ModalState;
+        use crate::search::{DocKind, DocMeta, SearchResult};
+        let (_dir, mut app) = test_app();
+        let results: Vec<SearchResult> = (0..5)
+            .map(|i| SearchResult {
+                score: 0.0,
+                meta: DocMeta {
+                    doc_id: i,
+                    kind: DocKind::File,
+                    title: format!("file{}.rs", i),
+                    commit_oid: String::new(),
+                    path: None,
+                    line_start: None,
+                    line_end: None,
+                },
+            })
+            .collect();
+        app.search_modal.state = ModalState::Results {
+            input: "test".into(),
+            results,
+        };
+        app.search_modal.selected = 2;
+        app.handle_ctrl_key(KeyCode::Char('p'));
+        assert_eq!(app.search_modal.selected, 1);
+    }
+
+    #[test]
+    fn test_ctrl_n_in_modal_does_not_move_pick() {
+        use crate::search::modal::ModalState;
+        use crate::search::{DocKind, DocMeta, SearchResult};
+        let (_dir, mut app) = test_app();
+        let results: Vec<SearchResult> = (0..3)
+            .map(|i| SearchResult {
+                score: 0.0,
+                meta: DocMeta {
+                    doc_id: i,
+                    kind: DocKind::File,
+                    title: format!("file{}.rs", i),
+                    commit_oid: String::new(),
+                    path: None,
+                    line_start: None,
+                    line_end: None,
+                },
+            })
+            .collect();
+        app.search_modal.state = ModalState::Results {
+            input: "test".into(),
+            results,
+        };
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.selected, 0);
+        let _ = s;
+        app.handle_ctrl_key(KeyCode::Char('n'));
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.selected, 0, "pick mode cursor should not move");
     }
 
     // ── Search flow tests ──
