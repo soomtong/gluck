@@ -2,39 +2,29 @@ use crate::search::SearchResult;
 
 #[derive(Debug, Clone)]
 pub enum ModalState {
-    Idle,
+    Closed,
     Typing {
         input: String,
     },
     Loading {
         input: String,
+        message: String,
     },
     Results {
         input: String,
         results: Vec<SearchResult>,
-    },
-    NoIndex,
-    Indexing {
-        message: String,
     },
 }
 
 impl ModalState {
     pub fn input(&self) -> &str {
         match self {
-            ModalState::Typing { input } => input,
-            ModalState::Loading { input } => input,
-            ModalState::Results { input, .. } => input,
-            _ => "",
+            ModalState::Typing { input }
+            | ModalState::Loading { input, .. }
+            | ModalState::Results { input, .. } => input,
+            ModalState::Closed => "",
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum ModalAction {
-    Close,
-    SelectResult(usize),
-    OpenBuildIndex,
 }
 
 pub struct SemanticSearchModal {
@@ -45,7 +35,7 @@ pub struct SemanticSearchModal {
 impl SemanticSearchModal {
     pub fn new() -> Self {
         Self {
-            state: ModalState::Idle,
+            state: ModalState::Closed,
             selected: 0,
         }
     }
@@ -58,7 +48,7 @@ impl SemanticSearchModal {
     }
 
     pub fn close(&mut self) {
-        self.state = ModalState::Idle;
+        self.state = ModalState::Closed;
         self.selected = 0;
     }
 
@@ -80,12 +70,10 @@ impl SemanticSearchModal {
         self.selected = 0;
     }
 
-    pub fn set_no_index(&mut self) {
-        self.state = ModalState::NoIndex;
-    }
-
-    pub fn set_indexing(&mut self, message: impl Into<String>) {
-        self.state = ModalState::Indexing {
+    pub fn set_loading(&mut self, message: impl Into<String>) {
+        let input = self.state.input().to_string();
+        self.state = ModalState::Loading {
+            input,
             message: message.into(),
         };
     }
@@ -102,7 +90,7 @@ impl SemanticSearchModal {
     }
 
     pub fn is_open(&self) -> bool {
-        !matches!(self.state, ModalState::Idle)
+        !matches!(self.state, ModalState::Closed)
     }
 
     pub fn results(&self) -> &[SearchResult] {
@@ -127,10 +115,13 @@ mod tests {
     #[test]
     fn test_modal_open_close() {
         let mut m = SemanticSearchModal::new();
+        assert!(matches!(m.state, ModalState::Closed));
         assert!(!m.is_open());
         m.open();
+        assert!(matches!(m.state, ModalState::Typing { .. }));
         assert!(m.is_open());
         m.close();
+        assert!(matches!(m.state, ModalState::Closed));
         assert!(!m.is_open());
     }
 
@@ -143,5 +134,18 @@ mod tests {
         assert_eq!(m.state.input(), "ab");
         m.pop_char();
         assert_eq!(m.state.input(), "a");
+    }
+
+    #[test]
+    fn test_set_loading_preserves_input() {
+        let mut m = SemanticSearchModal::new();
+        m.open();
+        m.push_char('t');
+        m.push_char('e');
+        m.push_char('s');
+        m.push_char('t');
+        m.set_loading("Indexing...");
+        assert!(matches!(m.state, ModalState::Loading { .. }));
+        assert_eq!(m.state.input(), "test");
     }
 }
