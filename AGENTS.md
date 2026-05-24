@@ -242,6 +242,17 @@ These are **completely separate** systems:
 - The `silence.rs` module is Unix-only. CI runs on Ubuntu. If targeting Windows, this module would need a no-op fallback.
 - Commit messages are in Korean but code identifiers and comments are in English.
 
+### Pick mode scroll behavior
+
+- Pick 모드 커밋 리스트는 ratatui `List` 위젯의 `scroll_padding(3)` (src/ui/pick.rs:201)에 스크롤을 위임한다.
+- ratatui는 선택 아이템 기준 **상하 양쪽**에 동시에 N개 패딩을 유지한다. 방향별 비대칭 마진(아래로 내려갈 땐 하단만, 위로 올라갈 땐 상단만)은 ratatui에서 지원하지 않는다.
+- `2026-05-24`: 커스텀 스크롤 마진 구현을 시도했으나 d/u, Ctrl+F/B 등 배치 이동과의 상호작용이 까다로워 롤백. `normalize_pick_scroll(prev)` + 수동 window slicing 접근이 작동했지만, ratatui 기본 동작의 단순함을 유지하기로 결정.
+- 향후 재시도 시 참고할 접근법:
+  - `PickState.scroll` 필드를 수동 오프셋으로 활용
+  - 렌더링: `skip(scroll).take(visible_height)` 로 직접 윈도우 슬라이싱
+  - 이동: `normalize_pick_scroll(prev_selected)` 하나로 모든 move 연산 후 scroll 재계산
+  - `term_height` 추적용 `Event::Resize` 핸들링, `scroll_margin` config 필드 필요
+
 ## Planning artifacts
 
 - **Design docs** → `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
