@@ -877,7 +877,7 @@ impl App {
     fn force_rebuild_index(&mut self) {
         if self.index_rx.is_some() {
             if !self.search_modal.is_open() {
-                self.search_modal.set_indexing("Indexing...");
+                self.search_modal.set_loading("Indexing...");
             }
             return;
         }
@@ -889,7 +889,7 @@ impl App {
             .workdir()
             .unwrap_or(std::path::Path::new("."))
             .to_path_buf();
-        self.search_modal.set_indexing("Starting indexer...");
+        self.search_modal.set_loading("Starting indexer...");
         self.search_engine = None;
 
         let (tx, rx) = mpsc::channel::<IndexMessage>();
@@ -929,7 +929,7 @@ impl App {
         let mut failure: Option<String> = None;
         loop {
             match rx.try_recv() {
-                Ok(IndexMessage::Progress(msg)) => self.search_modal.set_indexing(msg),
+                Ok(IndexMessage::Progress(msg)) => self.search_modal.set_loading(msg),
                 Ok(IndexMessage::Done(Ok(()))) => {
                     done = true;
                     break;
@@ -951,7 +951,7 @@ impl App {
             self.search_engine = None;
             if let Some(e) = failure {
                 self.search_modal
-                    .set_indexing(format!("Index build failed: {} (Esc)", e));
+                    .set_loading(format!("Index build failed: {} (Esc)", e));
             } else {
                 self.start_loading_engine();
             }
@@ -970,7 +970,7 @@ impl App {
             match rx.try_recv() {
                 Ok(EngineMessage::Progress(msg)) => {
                     if modal_was_open {
-                        self.search_modal.set_indexing(msg);
+                        self.search_modal.set_loading(msg);
                     }
                 }
                 Ok(EngineMessage::Ready(engine)) => {
@@ -996,7 +996,7 @@ impl App {
             if let Some(e) = failure {
                 self.engine_error = Some(e.clone());
                 if modal_was_open {
-                    self.search_modal.set_indexing(format!(
+                    self.search_modal.set_loading(format!(
                         "Search engine failed: {} (Esc to close, I to rebuild)",
                         e
                     ));
@@ -1063,12 +1063,12 @@ impl App {
         use crate::search::indexer::IndexStatus;
         match crate::search::indexer::index_status(&index_dir) {
             IndexStatus::Missing => {
-                self.search_modal.set_no_index();
+                self.search_modal.set_loading("No index found. Press I to build, Esc to close.");
                 return;
             }
             IndexStatus::SchemaOutdated => {
                 self.search_modal
-                    .set_indexing("Index schema outdated — rebuilding...");
+                    .set_loading("Index schema outdated — rebuilding...");
                 self.force_rebuild_index();
                 return;
             }
@@ -1083,10 +1083,10 @@ impl App {
                 "Model unavailable: {}. Press I to rebuild index, Esc to close.",
                 err
             );
-            self.search_modal.set_indexing(msg);
+            self.search_modal.set_loading(msg);
             return;
         }
-        self.search_modal.set_indexing("Loading embedding model...");
+        self.search_modal.set_loading("Loading embedding model...");
         self.start_loading_engine();
     }
 
