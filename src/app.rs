@@ -140,10 +140,16 @@ impl App {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) {
+        // 'i'/'I' should only trigger reindex while the modal is in Loading state
+        // (per the modal state machine). Capture this before handle_key advances state.
+        let was_loading = matches!(
+            self.search_modal.state,
+            crate::search::modal::ModalState::Loading { .. }
+        );
         if self.search_modal.handle_key(code) {
             if code == KeyCode::Enter {
                 self.select_search_result();
-            } else if matches!(code, KeyCode::Char('I') | KeyCode::Char('i')) {
+            } else if was_loading && matches!(code, KeyCode::Char('I') | KeyCode::Char('i')) {
                 self.force_rebuild_index();
             }
             if self.search_modal.is_open() {
@@ -1774,6 +1780,26 @@ mod tests {
         app.handle_key(KeyCode::Char('I'));
         assert!(app.search_modal.is_open());
         assert!(matches!(app.search_modal.state, ModalState::Loading { .. }));
+    }
+
+    #[test]
+    fn test_typing_i_in_search_modal_does_not_trigger_reindex() {
+        use crate::search::modal::ModalState;
+        let (_dir, mut app) = test_app();
+        app.search_modal.open();
+        assert!(matches!(app.search_modal.state, ModalState::Typing { .. }));
+
+        app.handle_key(KeyCode::Char('h'));
+        assert!(matches!(app.search_modal.state, ModalState::Typing { .. }));
+        assert_eq!(app.search_modal.state.input(), "h");
+
+        app.handle_key(KeyCode::Char('i'));
+        assert!(
+            !matches!(app.search_modal.state, ModalState::Loading { .. }),
+            "typing 'i' in Typing state must not trigger reindex (Loading state)",
+        );
+        assert_eq!(app.search_modal.state.input(), "hi");
+        assert!(app.index_rx.is_none(), "no indexing thread should be spawned");
     }
 
     // ── Commits cached ──
