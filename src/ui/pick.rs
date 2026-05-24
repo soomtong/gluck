@@ -211,6 +211,8 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
     let hints = [
         ("[j/k]", "move"),
+        ("[d/u]", "scroll"),
+        ("[^f/b]", "page"),
         ("[Enter]", "view"),
         ("[/]", "search"),
         ("[q]", "quit"),

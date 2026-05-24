@@ -43,6 +43,7 @@ pub struct App {
     pub saved_search: SearchState,
     pub search_modal: SemanticSearchModal,
     pub search_engine: Option<SearchEngine>,
+    pub engine_error: Option<String>,
     pub needs_clear: bool,
     pub index_rx: Option<mpsc::Receiver<IndexMessage>>,
     pub engine_rx: Option<mpsc::Receiver<EngineMessage>>,
@@ -70,6 +71,7 @@ impl App {
             saved_search: SearchState::Idle { query: None },
             search_modal: SemanticSearchModal::new(),
             search_engine: None,
+            engine_error: None,
             needs_clear: false,
             index_rx: None,
             engine_rx: None,
@@ -214,6 +216,8 @@ impl App {
             KeyCode::Char('n') => self.prev_commit(),
             KeyCode::Char('p') => self.next_commit(),
             KeyCode::Char('t') => self.next_theme(),
+            KeyCode::Char('f') => self.pick_page_down(),
+            KeyCode::Char('b') => self.pick_page_up(),
             _ => {}
         }
     }
@@ -664,7 +668,14 @@ impl App {
                 let max_scroll = line_count.saturating_sub(1);
                 state.scroll = (state.scroll + n).min(max_scroll);
             }
-            _ => {}
+            Mode::Pick(state) => {
+                let max = state.filtered_indices.len().saturating_sub(1);
+                state.selected = (state.selected + n).min(max);
+            }
+        }
+        if matches!(&self.mode, Mode::Pick(_)) {
+            self.prefetch_if_near_end();
+            self.update_pick_diff();
         }
     }
 
@@ -677,7 +688,12 @@ impl App {
             Mode::Diff(state) => {
                 state.scroll = state.scroll.saturating_sub(n);
             }
-            _ => {}
+            Mode::Pick(state) => {
+                state.selected = state.selected.saturating_sub(n);
+            }
+        }
+        if matches!(&self.mode, Mode::Pick(_)) {
+            self.update_pick_diff();
         }
     }
 
@@ -705,6 +721,26 @@ impl App {
                 .unwrap_or(0);
             state.file_content = crate::mode::FileContent::NotLoaded;
             self.load_view_file();
+        }
+    }
+
+    fn pick_page_down(&mut self) {
+        if let Mode::Pick(state) = &mut self.mode {
+            let max = state.filtered_indices.len().saturating_sub(1);
+            state.selected = (state.selected + 20).min(max);
+        }
+        if matches!(&self.mode, Mode::Pick(_)) {
+            self.prefetch_if_near_end();
+            self.update_pick_diff();
+        }
+    }
+
+    fn pick_page_up(&mut self) {
+        if let Mode::Pick(state) = &mut self.mode {
+            state.selected = state.selected.saturating_sub(20);
+        }
+        if matches!(&self.mode, Mode::Pick(_)) {
+            self.update_pick_diff();
         }
     }
 
@@ -842,6 +878,7 @@ impl App {
         if self.index_rx.is_some() {
             return;
         }
+        self.engine_error = None;
         let repo_workdir = self
             .repo
             .repository()
@@ -953,15 +990,19 @@ impl App {
         if done {
             self.engine_rx = None;
             self.needs_clear = true;
-            if modal_was_open {
-                if self.search_engine.is_some() {
-                    self.search_modal.open();
-                } else if let Some(e) = failure {
+            if let Some(e) = failure {
+                self.engine_error = Some(e.clone());
+                if modal_was_open {
                     self.search_modal
-                        .set_indexing(format!("Search engine failed: {} (Esc)", e));
-                } else {
-                    self.search_modal.close();
+                        .set_indexing(format!("Search engine failed: {} (Esc to close, I to rebuild)", e));
                 }
+            } else if self.search_engine.is_some() {
+                self.engine_error = None;
+                if modal_was_open {
+                    self.search_modal.open();
+                }
+            } else if modal_was_open {
+                self.search_modal.close();
             }
         }
     }
@@ -1033,6 +1074,11 @@ impl App {
             self.search_modal.open();
             return;
         }
+        if let Some(ref err) = self.engine_error {
+            let msg = format!("Model unavailable: {}. Press I to rebuild index, Esc to close.", err);
+            self.search_modal.set_indexing(msg);
+            return;
+        }
         self.search_modal
             .set_indexing("Loading embedding model...");
         self.start_loading_engine();
@@ -1049,8 +1095,10 @@ impl App {
             return;
         }
         if matches!(self.search_modal.state, ModalState::Indexing { .. }) {
-            if code == KeyCode::Esc {
-                self.search_modal.close();
+            match code {
+                KeyCode::Esc => self.search_modal.close(),
+                KeyCode::Char('I') => self.force_rebuild_index(),
+                _ => {}
             }
             return;
         }
