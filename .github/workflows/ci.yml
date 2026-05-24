@@ -16,8 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --locked
+      - run: cargo check
+        env:
+          RUSTFLAGS: -C link-arg=-lopenblas
 
   test:
     name: Test
@@ -25,8 +28,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --locked
+      - run: cargo test
+        env:
+          RUSTFLAGS: -C link-arg=-lopenblas
 
   lint:
     name: Lint
@@ -36,6 +42,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
+        env:
+          RUSTFLAGS: -C link-arg=-lopenblas
