@@ -4,6 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
+use unicode_width::UnicodeWidthStr;
+
 use crate::app::App;
 use crate::search::modal::ModalState;
 use crate::search::DocKind;
@@ -70,7 +72,7 @@ fn render_input(frame: &mut Frame, area: Rect, input: &str, app: &App) {
         .border_style(Style::default().fg(app.palette.accent));
     let input_widget = Paragraph::new(format!("> {}", input)).block(input_block);
     frame.render_widget(input_widget, chunks[0]);
-    frame.set_cursor_position((chunks[0].x + 3 + input.len() as u16, chunks[0].y + 1));
+    frame.set_cursor_position((chunks[0].x + 3 + input.width() as u16, chunks[0].y + 1));
 
     let hint_block = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
@@ -102,7 +104,7 @@ fn render_results(
         .border_style(Style::default().fg(app.palette.accent));
     let input_widget = Paragraph::new(format!("> {}", input)).block(input_block);
     frame.render_widget(input_widget, chunks[0]);
-    frame.set_cursor_position((chunks[0].x + 3 + input.len() as u16, chunks[0].y + 1));
+    frame.set_cursor_position((chunks[0].x + 3 + input.width() as u16, chunks[0].y + 1));
 
     let items: Vec<ListItem> = results
         .iter()

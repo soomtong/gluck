@@ -1,5 +1,6 @@
 use crate::theme::Palette;
 use ratatui::layout::{Constraint, Layout, Rect};
+use unicode_width::UnicodeWidthStr;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
@@ -106,5 +107,5 @@ pub fn render_search_bar(frame: &mut ratatui::Frame, area: Rect, palette: &Palet
         .style(Style::new().fg(palette.warning))
         .block(Block::bordered().border_style(Style::new().fg(palette.border)));
     frame.render_widget(search, area);
-    frame.set_cursor_position((area.x + 3 + query.len() as u16, area.y + 1));
+    frame.set_cursor_position((area.x + 3 + query.width() as u16, area.y + 1));
 }

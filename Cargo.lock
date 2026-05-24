@@ -1093,6 +1093,7 @@ dependencies = [
  "tree-sitter-rust",
  "tree-sitter-typescript",
  "turbovec",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
