@@ -1799,7 +1799,10 @@ mod tests {
             "typing 'i' in Typing state must not trigger reindex (Loading state)",
         );
         assert_eq!(app.search_modal.state.input(), "hi");
-        assert!(app.index_rx.is_none(), "no indexing thread should be spawned");
+        assert!(
+            app.index_rx.is_none(),
+            "no indexing thread should be spawned"
+        );
     }
 
     // ── Commits cached ──

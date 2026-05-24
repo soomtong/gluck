@@ -25,19 +25,18 @@ pub struct SymbolSpan {
     pub byte_end: usize,
 }
 
-pub fn extract_symbols(
-    source: &str,
-    language: Language,
-) -> Result<Vec<SymbolSpan>, ChunkError> {
+pub fn extract_symbols(source: &str, language: Language) -> Result<Vec<SymbolSpan>, ChunkError> {
     let Some((ts_lang, query)) = lang_and_query(language) else {
         return Ok(Vec::new());
     };
 
     let mut parser = Parser::new();
-    parser.set_language(ts_lang).map_err(|e| ChunkError::Parse {
-        language: language.as_str(),
-        message: e.to_string(),
-    })?;
+    parser
+        .set_language(ts_lang)
+        .map_err(|e| ChunkError::Parse {
+            language: language.as_str(),
+            message: e.to_string(),
+        })?;
     let tree = parser
         .parse(source.as_bytes(), None)
         .ok_or_else(|| ChunkError::Parse {
@@ -333,7 +332,10 @@ trait Greet {
             .filter(|s| s.kind == SymbolKind::Method)
             .map(|s| s.name.as_str())
             .collect();
-        assert!(methods.contains(&"hello"), "default method should be extracted");
+        assert!(
+            methods.contains(&"hello"),
+            "default method should be extracted"
+        );
     }
 
     #[test]

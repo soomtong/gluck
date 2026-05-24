@@ -65,12 +65,7 @@ impl Language {
     pub fn supports_symbol_chunking(&self) -> bool {
         matches!(
             self,
-            Self::Rust
-                | Self::Python
-                | Self::JavaScript
-                | Self::TypeScript
-                | Self::Tsx
-                | Self::Go
+            Self::Rust | Self::Python | Self::JavaScript | Self::TypeScript | Self::Tsx | Self::Go
         )
     }
 }
