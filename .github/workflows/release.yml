@@ -38,6 +38,8 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
+        env:
+          CRT_STATIC: 1
         run: cargo build --release --locked --target "$CARGO_TARGET"
 
       - name: Create archive (Unix)
