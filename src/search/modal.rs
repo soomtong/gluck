@@ -1,4 +1,5 @@
 use crate::search::SearchResult;
+use crossterm::event::KeyCode;
 
 #[derive(Debug, Clone)]
 pub enum ModalState {
@@ -62,6 +63,38 @@ impl SemanticSearchModal {
         if let ModalState::Typing { input } | ModalState::Results { input, .. } = &mut self.state {
             input.pop();
         }
+    }
+
+    pub fn handle_key(&mut self, code: KeyCode) -> bool {
+        match &self.state {
+            ModalState::Closed => return false,
+            ModalState::Loading { .. } => {
+                match code {
+                    KeyCode::Esc => self.close(),
+                    KeyCode::Char('I') | KeyCode::Char('i') => {}
+                    _ => return false,
+                }
+            }
+            _ => {}
+        }
+        match code {
+            KeyCode::Esc => self.close(),
+            KeyCode::Backspace => {
+                self.pop_char();
+            }
+            KeyCode::Down => {
+                self.move_down();
+            }
+            KeyCode::Up => {
+                self.move_up();
+            }
+            KeyCode::Enter => {}
+            KeyCode::Char(c) => {
+                self.push_char(c);
+            }
+            _ => return false,
+        }
+        true
     }
 
     pub fn set_results(&mut self, results: Vec<SearchResult>) {
@@ -147,5 +180,41 @@ mod tests {
         m.set_loading("Indexing...");
         assert!(matches!(m.state, ModalState::Loading { .. }));
         assert_eq!(m.state.input(), "test");
+    }
+
+    #[test]
+    fn test_handle_key_closed_returns_false() {
+        let mut m = SemanticSearchModal::new();
+        assert!(!m.handle_key(KeyCode::Esc));
+        assert!(!m.handle_key(KeyCode::Char('a')));
+        assert!(!m.handle_key(KeyCode::Enter));
+        assert!(!m.handle_key(KeyCode::Down));
+    }
+
+    #[test]
+    fn test_handle_key_typing() {
+        let mut m = SemanticSearchModal::new();
+        m.open();
+        assert!(m.handle_key(KeyCode::Char('h')));
+        assert!(m.handle_key(KeyCode::Char('i')));
+        assert_eq!(m.state.input(), "hi");
+        assert!(m.handle_key(KeyCode::Backspace));
+        assert_eq!(m.state.input(), "h");
+        assert!(m.handle_key(KeyCode::Esc));
+        assert!(matches!(m.state, ModalState::Closed));
+    }
+
+    #[test]
+    fn test_handle_key_loading_only_esc_and_i() {
+        let mut m = SemanticSearchModal::new();
+        m.set_loading("Loading...");
+        assert!(m.handle_key(KeyCode::Esc));
+        assert!(matches!(m.state, ModalState::Closed));
+
+        m.set_loading("Loading...");
+        assert!(m.handle_key(KeyCode::Char('I')));
+        assert!(m.handle_key(KeyCode::Char('i')));
+        assert!(!m.handle_key(KeyCode::Char('x')));
+        assert!(!m.handle_key(KeyCode::Down));
     }
 }
