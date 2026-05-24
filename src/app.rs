@@ -140,8 +140,12 @@ impl App {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) {
-        if self.search_modal.is_open() {
-            self.handle_modal_key(code);
+        if self.search_modal.handle_key(code) {
+            if code == KeyCode::Enter {
+                self.select_search_result();
+            } else if matches!(code, KeyCode::Char('I') | KeyCode::Char('i')) {
+                self.force_rebuild_index();
+            }
             return;
         }
 
@@ -201,13 +205,8 @@ impl App {
     }
 
     pub fn handle_ctrl_key(&mut self, code: KeyCode) {
-        if self.search_modal.is_open() {
-            match code {
-                KeyCode::Char('c') => self.should_quit = true,
-                KeyCode::Char('n') => self.search_modal.move_down(),
-                KeyCode::Char('p') => self.search_modal.move_up(),
-                _ => {}
-            }
+        if code == KeyCode::Char('c') && self.search_modal.is_open() {
+            self.search_modal.close();
             return;
         }
         match code {
@@ -1090,49 +1089,6 @@ impl App {
         self.start_loading_engine();
     }
 
-    fn handle_modal_key(&mut self, code: KeyCode) {
-        use crate::search::modal::ModalState;
-        if matches!(self.search_modal.state, ModalState::NoIndex) {
-            match code {
-                KeyCode::Esc => self.search_modal.close(),
-                KeyCode::Char('I') => self.force_rebuild_index(),
-                _ => {}
-            }
-            return;
-        }
-        if matches!(self.search_modal.state, ModalState::Indexing { .. }) {
-            match code {
-                KeyCode::Esc => self.search_modal.close(),
-                KeyCode::Char('I') => self.force_rebuild_index(),
-                _ => {}
-            }
-            return;
-        }
-        match code {
-            KeyCode::Esc => {
-                self.search_modal.close();
-            }
-            KeyCode::Backspace => {
-                self.search_modal.pop_char();
-                self.run_semantic_search();
-            }
-            KeyCode::Down => {
-                self.search_modal.move_down();
-            }
-            KeyCode::Up => {
-                self.search_modal.move_up();
-            }
-            KeyCode::Enter => {
-                self.select_search_result();
-            }
-            KeyCode::Char(c) => {
-                self.search_modal.push_char(c);
-                self.run_semantic_search();
-            }
-            _ => {}
-        }
-    }
-
     fn run_semantic_search(&mut self) {
         let query = self.search_modal.state.input().to_string();
         if query.is_empty() {
@@ -1815,7 +1771,7 @@ mod tests {
         assert!(app.search_modal.is_open());
         assert!(matches!(
             app.search_modal.state,
-            ModalState::Indexing { .. }
+            ModalState::Loading { .. }
         ));
     }
 
