@@ -1,11 +1,10 @@
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use crate::git::commit::CommitInfo;
 use crate::git::repo::GitRepo;
 use crate::git::tree::{is_binary_blob, read_blob};
 use crate::search::bm25::Bm25Index;
-use crate::search::chunk::{split_file, Chunk};
+use crate::search::chunk::{commit_to_chunk, split_file, Chunk};
 use crate::search::embedding::EmbeddingModel;
 use crate::search::vector::VectorIndex;
 use crate::search::{
@@ -111,22 +110,7 @@ where
 
     progress("Indexing commit messages...");
     let commits = collect_commits(repo)?;
-    let mut chunks: Vec<Chunk> = commits
-        .iter()
-        .map(|c| {
-            let (title, body) = split_message(&c.message);
-            Chunk::CommitMessage {
-                oid: c.id.to_string(),
-                title,
-                body,
-                author_time: c
-                    .date
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64,
-            }
-        })
-        .collect();
+    let mut chunks: Vec<Chunk> = commits.iter().map(commit_to_chunk).collect();
 
     progress("Indexing HEAD files...");
     let head_oid_str = head_oid(repo)?;
@@ -293,13 +277,6 @@ fn chunk_to_meta(doc_id: u64, chunk: &crate::search::chunk::Chunk) -> DocMeta {
             line_end: Some(*line_end),
         },
     }
-}
-
-fn split_message(msg: &str) -> (String, String) {
-    let mut lines = msg.splitn(2, '\n');
-    let title = lines.next().unwrap_or("").trim().to_string();
-    let body = lines.next().unwrap_or("").trim().to_string();
-    (title, body)
 }
 
 fn chrono_now() -> String {
