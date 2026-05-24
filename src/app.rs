@@ -909,14 +909,9 @@ impl App {
             };
             let progress_tx = tx.clone();
             let result = crate::search::silence::with_silenced_stdio(|| {
-                crate::search::indexer::build_index(
-                    &repo,
-                    &repo_workdir,
-                    &opts,
-                    |msg| {
-                        let _ = progress_tx.send(IndexMessage::Progress(msg.to_string()));
-                    },
-                )
+                crate::search::indexer::build_index(&repo, &repo_workdir, &opts, |msg| {
+                    let _ = progress_tx.send(IndexMessage::Progress(msg.to_string()));
+                })
             });
             let _ = tx.send(IndexMessage::Done(result.map_err(|e| e.to_string())));
         });
@@ -927,7 +922,9 @@ impl App {
     }
 
     pub fn drain_index_messages(&mut self) {
-        let Some(rx) = self.index_rx.as_ref() else { return };
+        let Some(rx) = self.index_rx.as_ref() else {
+            return;
+        };
         let mut done = false;
         let mut failure: Option<String> = None;
         loop {
@@ -963,7 +960,9 @@ impl App {
     }
 
     pub fn drain_engine_messages(&mut self) {
-        let Some(rx) = self.engine_rx.as_ref() else { return };
+        let Some(rx) = self.engine_rx.as_ref() else {
+            return;
+        };
         let mut done = false;
         let mut failure: Option<String> = None;
         let modal_was_open = self.search_modal.is_open();
@@ -997,8 +996,10 @@ impl App {
             if let Some(e) = failure {
                 self.engine_error = Some(e.clone());
                 if modal_was_open {
-                    self.search_modal
-                        .set_indexing(format!("Search engine failed: {} (Esc to close, I to rebuild)", e));
+                    self.search_modal.set_indexing(format!(
+                        "Search engine failed: {} (Esc to close, I to rebuild)",
+                        e
+                    ));
                 }
             } else if self.search_engine.is_some() {
                 self.engine_error = None;
@@ -1047,9 +1048,8 @@ impl App {
             let _ = tx.send(EngineMessage::Progress(
                 "Loading embedding model...".to_string(),
             ));
-            let result = crate::search::silence::with_silenced_stdio(|| {
-                SearchEngine::open(&index_dir)
-            });
+            let result =
+                crate::search::silence::with_silenced_stdio(|| SearchEngine::open(&index_dir));
             let msg = match result {
                 Ok(engine) => EngineMessage::Ready(Box::new(engine)),
                 Err(e) => EngineMessage::Failed(e.to_string()),
@@ -1079,12 +1079,14 @@ impl App {
             return;
         }
         if let Some(ref err) = self.engine_error {
-            let msg = format!("Model unavailable: {}. Press I to rebuild index, Esc to close.", err);
+            let msg = format!(
+                "Model unavailable: {}. Press I to rebuild index, Esc to close.",
+                err
+            );
             self.search_modal.set_indexing(msg);
             return;
         }
-        self.search_modal
-            .set_indexing("Loading embedding model...");
+        self.search_modal.set_indexing("Loading embedding model...");
         self.start_loading_engine();
     }
 
@@ -1134,8 +1136,7 @@ impl App {
     fn run_semantic_search(&mut self) {
         let query = self.search_modal.state.input().to_string();
         if query.is_empty() {
-            self.search_modal
-                .set_results(vec![]);
+            self.search_modal.set_results(vec![]);
             return;
         }
         if let Some(engine) = &self.search_engine {
@@ -1168,8 +1169,12 @@ impl App {
         let Some(result) = result else { return };
         self.search_modal.close();
 
-        let Ok(git_oid) = git2::Oid::from_str(&result.meta.commit_oid) else { return };
-        let Some(commit) = self.lookup_commit(git_oid) else { return };
+        let Ok(git_oid) = git2::Oid::from_str(&result.meta.commit_oid) else {
+            return;
+        };
+        let Some(commit) = self.lookup_commit(git_oid) else {
+            return;
+        };
 
         match result.meta.kind {
             DocKind::Commit => {
@@ -1808,7 +1813,10 @@ mod tests {
         assert!(!app.search_modal.is_open());
         app.handle_key(KeyCode::Char('I'));
         assert!(app.search_modal.is_open());
-        assert!(matches!(app.search_modal.state, ModalState::Indexing { .. }));
+        assert!(matches!(
+            app.search_modal.state,
+            ModalState::Indexing { .. }
+        ));
     }
 
     // ── Commits cached ──

@@ -28,7 +28,12 @@ fn main() -> Result<()> {
         }
     };
 
-    if let Some(Commands::Index { force, batch_size, max_file_bytes }) = cli.command {
+    if let Some(Commands::Index {
+        force,
+        batch_size,
+        max_file_bytes,
+    }) = cli.command
+    {
         let opts = gluck::search::indexer::IndexOptions {
             force,
             batch_size,

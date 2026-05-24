@@ -1,12 +1,7 @@
-use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 
-pub fn rrf_fuse(
-    bm25: &[(u64, f32)],
-    vec: &[(u64, f32)],
-    k: f32,
-    limit: usize,
-) -> Vec<(u64, f32)> {
+pub fn rrf_fuse(bm25: &[(u64, f32)], vec: &[(u64, f32)], k: f32, limit: usize) -> Vec<(u64, f32)> {
     let mut scores: HashMap<u64, f32> = HashMap::new();
     for (rank, (id, _)) in bm25.iter().enumerate() {
         *scores.entry(*id).or_insert(0.0) += 1.0 / (k + rank as f32 + 1.0);
@@ -45,7 +40,10 @@ mod tests {
         let result = rrf_fuse(&bm25, &vec_hits, 60.0, 10);
         let id1 = result.iter().find(|(id, _)| *id == 1).unwrap();
         let id2 = result.iter().find(|(id, _)| *id == 2).unwrap();
-        assert!(id1.1 > id2.1, "id 1 appears in both lists, should score higher");
+        assert!(
+            id1.1 > id2.1,
+            "id 1 appears in both lists, should score higher"
+        );
     }
 
     #[test]

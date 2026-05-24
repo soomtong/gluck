@@ -9,8 +9,8 @@ use crate::search::chunk::{split_file, Chunk};
 use crate::search::embedding::EmbeddingModel;
 use crate::search::vector::VectorIndex;
 use crate::search::{
-    Bm25Meta, DocKind, DocMeta, EmbeddingMeta, IndexMeta, SearchError, VectorMeta,
-    INDEX_DIR_NAME, INDEX_VERSION,
+    Bm25Meta, DocKind, DocMeta, EmbeddingMeta, IndexMeta, SearchError, VectorMeta, INDEX_DIR_NAME,
+    INDEX_VERSION,
 };
 
 pub struct IndexOptions {
@@ -178,9 +178,8 @@ where
             doc_counter += 1;
 
             let meta = chunk_to_meta(doc_id, chunk);
-            let meta_json = serde_json::to_string(&meta).map_err(|e| {
-                SearchError::Io(std::io::Error::other(e.to_string()))
-            })?;
+            let meta_json = serde_json::to_string(&meta)
+                .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
 
             bm25.add_doc(
                 &mut bm25_writer,
@@ -266,7 +265,9 @@ fn chunk_to_meta(doc_id: u64, chunk: &crate::search::chunk::Chunk) -> DocMeta {
             line_start: None,
             line_end: None,
         },
-        Chunk::WholeFile { commit_oid, path, .. } => DocMeta {
+        Chunk::WholeFile {
+            commit_oid, path, ..
+        } => DocMeta {
             doc_id,
             kind: DocKind::File,
             title: path.clone(),

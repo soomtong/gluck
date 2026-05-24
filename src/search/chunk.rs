@@ -124,12 +124,7 @@ fn detect_tree_sitter_language(path: &str) -> Option<Language> {
     }
 }
 
-fn extract_symbols(
-    commit_oid: &str,
-    path: &str,
-    content: &str,
-    lang: Language,
-) -> Vec<Chunk> {
+fn extract_symbols(commit_oid: &str, path: &str, content: &str, lang: Language) -> Vec<Chunk> {
     let mut parser = Parser::new();
     if parser.set_language(&lang).is_err() {
         return vec![];
@@ -145,13 +140,7 @@ fn extract_symbols(
     chunks
 }
 
-fn collect_symbols(
-    node: Node,
-    source: &str,
-    commit_oid: &str,
-    path: &str,
-    out: &mut Vec<Chunk>,
-) {
+fn collect_symbols(node: Node, source: &str, commit_oid: &str, path: &str, out: &mut Vec<Chunk>) {
     let kind = node.kind();
     let sym_kind = match kind {
         "function_item" => Some(SymbolKind::Function),

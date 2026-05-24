@@ -3,11 +3,20 @@ use crate::search::SearchResult;
 #[derive(Debug, Clone)]
 pub enum ModalState {
     Idle,
-    Typing { input: String },
-    Loading { input: String },
-    Results { input: String, results: Vec<SearchResult> },
+    Typing {
+        input: String,
+    },
+    Loading {
+        input: String,
+    },
+    Results {
+        input: String,
+        results: Vec<SearchResult>,
+    },
     NoIndex,
-    Indexing { message: String },
+    Indexing {
+        message: String,
+    },
 }
 
 impl ModalState {

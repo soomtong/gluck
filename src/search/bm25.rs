@@ -186,8 +186,14 @@ mod tests {
     fn test_create_and_search_basic() {
         let (_dir, idx) = tmp_index();
         let mut w = idx.writer().unwrap();
-        idx.add_doc(&mut w, 1, "hello world", "greeting text", &meta_json(1, "hello world"))
-            .unwrap();
+        idx.add_doc(
+            &mut w,
+            1,
+            "hello world",
+            "greeting text",
+            &meta_json(1, "hello world"),
+        )
+        .unwrap();
         idx.commit(w).unwrap();
         // "he" is a direct bigram from "hello" — single-term query avoids phrase matching edge cases
         let results = idx.search("he", 10).unwrap();
@@ -199,8 +205,14 @@ mod tests {
     fn test_search_no_results() {
         let (_dir, idx) = tmp_index();
         let mut w = idx.writer().unwrap();
-        idx.add_doc(&mut w, 1, "rust programming", "systems language", &meta_json(1, "rust"))
-            .unwrap();
+        idx.add_doc(
+            &mut w,
+            1,
+            "rust programming",
+            "systems language",
+            &meta_json(1, "rust"),
+        )
+        .unwrap();
         idx.commit(w).unwrap();
         let results = idx.search("가나다라", 10).unwrap();
         assert!(results.is_empty());
@@ -238,8 +250,14 @@ mod tests {
             line_start: Some(10),
             line_end: Some(20),
         };
-        idx.add_doc(&mut w, 7, "src/foo.rs", "fn foo() {}", &serde_json::to_string(&meta).unwrap())
-            .unwrap();
+        idx.add_doc(
+            &mut w,
+            7,
+            "src/foo.rs",
+            "fn foo() {}",
+            &serde_json::to_string(&meta).unwrap(),
+        )
+        .unwrap();
         idx.commit(w).unwrap();
         let store = idx.scan_doc_store().unwrap();
         let got = store.get(&7).expect("doc 7 exists");
