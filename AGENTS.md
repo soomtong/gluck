@@ -69,3 +69,9 @@ rustfmt src/path/to/changed.rs
 - `cargo fmt --check` fails on many pre-existing files. Only format files you touch.
 - `.gitignore` ignores `target/`, `*.log`, `.DS_Store`.
 - No CI, no pre-commit hooks, no custom toolchain config.
+
+## Planning artifacts
+
+- **Design docs** → `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
+- **Implementation plans** → `docs/superpowers/plans/YYYY-MM-DD-<feature-name>.md`
+- Do NOT save to `.opencode/plans/` — that directory is for transient plans only.
