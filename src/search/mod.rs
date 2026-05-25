@@ -262,7 +262,10 @@ mod tests {
     fn extract_path_filter_with_trailing_terms() {
         assert_eq!(
             extract_path_filter("path:\"src/search/error.rs\" 에러 처리"),
-            (Some("src/search/error.rs".to_string()), "에러 처리".to_string())
+            (
+                Some("src/search/error.rs".to_string()),
+                "에러 처리".to_string()
+            )
         );
     }
 
@@ -291,7 +294,9 @@ mod tests {
         ];
         let filtered = apply_path_filter(hits, "src/search/error.rs", 10);
         assert_eq!(filtered.len(), 2);
-        assert!(filtered.iter().all(|r| r.meta.path.as_deref() == Some("src/search/error.rs")));
+        assert!(filtered
+            .iter()
+            .all(|r| r.meta.path.as_deref() == Some("src/search/error.rs")));
         // 정렬 순서(상대 점수 순) 유지
         assert_eq!(filtered[0].meta.doc_id, 1);
         assert_eq!(filtered[1].meta.doc_id, 3);
