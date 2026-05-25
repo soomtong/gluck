@@ -3,9 +3,11 @@ use std::path::{Path, PathBuf};
 
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
-use tantivy::schema::{Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, STORED};
+use tantivy::schema::{
+    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, STORED, STRING,
+};
 use tantivy::tokenizer::{LowerCaser, NgramTokenizer, TextAnalyzer};
-use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyError};
+use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyError};
 
 use crate::search::{DocKind, DocMeta, SearchError};
 
@@ -13,10 +15,14 @@ pub const TOKENIZER: &str = "ngram_2_2";
 const WRITER_HEAP: usize = 50_000_000;
 
 pub struct Bm25Fields {
-    pub doc_id: Field,
+    pub id: Field,
+    pub kind: Field,
     pub title: Field,
     pub body: Field,
-    pub meta_json: Field,
+    pub path: Field,
+    pub commit_oid: Field,
+    pub line_start: Field,
+    pub line_end: Field,
 }
 
 pub struct Bm25Index {
@@ -28,8 +34,6 @@ pub struct Bm25Index {
 fn make_schema() -> (Schema, Bm25Fields) {
     let mut builder = Schema::builder();
 
-    let doc_id = builder.add_text_field("doc_id", STORED);
-
     let text_opts = TextOptions::default()
         .set_indexing_options(
             TextFieldIndexing::default()
@@ -37,23 +41,31 @@ fn make_schema() -> (Schema, Bm25Fields) {
                 .set_index_option(IndexRecordOption::WithFreqsAndPositions),
         )
         .set_stored();
-    let title = builder.add_text_field("title", text_opts);
-
     let body_opts = TextOptions::default().set_indexing_options(
         TextFieldIndexing::default()
             .set_tokenizer(TOKENIZER)
             .set_index_option(IndexRecordOption::WithFreqs),
     );
-    let body = builder.add_text_field("body", body_opts);
 
-    let meta_json = builder.add_text_field("meta_json", STORED);
+    let id = builder.add_u64_field("id", FAST | STORED);
+    let kind = builder.add_text_field("kind", STRING | STORED);
+    let title = builder.add_text_field("title", text_opts);
+    let body = builder.add_text_field("body", body_opts);
+    let path = builder.add_text_field("path", STRING | STORED);
+    let commit_oid = builder.add_text_field("commit_oid", STRING | STORED);
+    let line_start = builder.add_u64_field("line_start", STORED);
+    let line_end = builder.add_u64_field("line_end", STORED);
 
     let schema = builder.build();
     let fields = Bm25Fields {
-        doc_id,
+        id,
+        kind,
         title,
         body,
-        meta_json,
+        path,
+        commit_oid,
+        line_start,
+        line_end,
     };
     (schema, fields)
 }
@@ -105,17 +117,25 @@ impl Bm25Index {
     pub fn add_doc(
         &self,
         writer: &mut IndexWriter,
-        doc_id: u64,
-        title: &str,
+        meta: &DocMeta,
         body: &str,
-        meta_json: &str,
     ) -> Result<(), TantivyError> {
-        writer.add_document(doc!(
-            self.fields.doc_id    => doc_id.to_string(),
-            self.fields.title     => title,
-            self.fields.body      => body,
-            self.fields.meta_json => meta_json,
-        ))?;
+        let mut doc = tantivy::TantivyDocument::default();
+        doc.add_u64(self.fields.id, meta.doc_id);
+        doc.add_text(self.fields.kind, meta.kind.as_str());
+        doc.add_text(self.fields.title, &meta.title);
+        doc.add_text(self.fields.body, body);
+        doc.add_text(self.fields.commit_oid, &meta.commit_oid);
+        if let Some(p) = &meta.path {
+            doc.add_text(self.fields.path, p);
+        }
+        if let Some(ls) = meta.line_start {
+            doc.add_u64(self.fields.line_start, u64::from(ls));
+        }
+        if let Some(le) = meta.line_end {
+            doc.add_u64(self.fields.line_end, u64::from(le));
+        }
+        writer.add_document(doc)?;
         Ok(())
     }
 
@@ -136,12 +156,8 @@ impl Bm25Index {
         let mut results = Vec::new();
         for (score, doc_addr) in top_docs {
             let doc: tantivy::TantivyDocument = searcher.doc(doc_addr)?;
-            if let Some(tantivy::schema::OwnedValue::Str(id_str)) =
-                doc.get_first(self.fields.doc_id)
-            {
-                if let Ok(id) = id_str.parse::<u64>() {
-                    results.push((id, score));
-                }
+            if let Some(id) = doc.get_first(self.fields.id).and_then(value_as_u64) {
+                results.push((id, score));
             }
         }
         Ok(results)
@@ -154,16 +170,70 @@ impl Bm25Index {
         let mut store = HashMap::new();
         for (_score, doc_addr) in top_docs {
             let doc: tantivy::TantivyDocument = searcher.doc(doc_addr)?;
-            let meta_str = match doc.get_first(self.fields.meta_json) {
-                Some(tantivy::schema::OwnedValue::Str(s)) => s,
-                _ => continue,
-            };
-            let Ok(meta) = serde_json::from_str::<DocMeta>(meta_str) else {
+            let Some(doc_id) = doc.get_first(self.fields.id).and_then(value_as_u64) else {
                 continue;
             };
-            store.insert(meta.doc_id, meta);
+            let Some(kind) = doc
+                .get_first(self.fields.kind)
+                .and_then(value_as_str)
+                .and_then(DocKind::parse)
+            else {
+                continue;
+            };
+            let Some(title) = doc
+                .get_first(self.fields.title)
+                .and_then(value_as_str)
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            let Some(commit_oid) = doc
+                .get_first(self.fields.commit_oid)
+                .and_then(value_as_str)
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            let path = doc
+                .get_first(self.fields.path)
+                .and_then(value_as_str)
+                .map(str::to_owned);
+            let line_start = doc
+                .get_first(self.fields.line_start)
+                .and_then(value_as_u64)
+                .map(|v| v as u32);
+            let line_end = doc
+                .get_first(self.fields.line_end)
+                .and_then(value_as_u64)
+                .map(|v| v as u32);
+            store.insert(
+                doc_id,
+                DocMeta {
+                    doc_id,
+                    kind,
+                    title,
+                    commit_oid,
+                    path,
+                    line_start,
+                    line_end,
+                },
+            );
         }
         Ok(store)
+    }
+}
+
+fn value_as_u64(v: &tantivy::schema::OwnedValue) -> Option<u64> {
+    match v {
+        tantivy::schema::OwnedValue::U64(n) => Some(*n),
+        _ => None,
+    }
+}
+
+fn value_as_str(v: &tantivy::schema::OwnedValue) -> Option<&str> {
+    match v {
+        tantivy::schema::OwnedValue::Str(s) => Some(s.as_str()),
+        _ => None,
     }
 }
 
@@ -173,6 +243,15 @@ impl DocKind {
             DocKind::Commit => "commit",
             DocKind::File => "file",
             DocKind::Symbol => "symbol",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "commit" => Some(DocKind::Commit),
+            "file" => Some(DocKind::File),
+            "symbol" => Some(DocKind::Symbol),
+            _ => None,
         }
     }
 }
@@ -188,8 +267,8 @@ mod tests {
         (dir, idx)
     }
 
-    fn meta_json(doc_id: u64, title: &str) -> String {
-        let m = DocMeta {
+    fn commit_meta(doc_id: u64, title: &str) -> DocMeta {
+        DocMeta {
             doc_id,
             kind: DocKind::Commit,
             title: title.to_string(),
@@ -197,24 +276,16 @@ mod tests {
             path: None,
             line_start: None,
             line_end: None,
-        };
-        serde_json::to_string(&m).unwrap()
+        }
     }
 
     #[test]
     fn test_create_and_search_basic() {
         let (_dir, idx) = tmp_index();
         let mut w = idx.writer().unwrap();
-        idx.add_doc(
-            &mut w,
-            1,
-            "hello world",
-            "greeting text",
-            &meta_json(1, "hello world"),
-        )
-        .unwrap();
+        idx.add_doc(&mut w, &commit_meta(1, "hello world"), "greeting text")
+            .unwrap();
         idx.commit(w).unwrap();
-        // "he" is a direct bigram from "hello" — single-term query avoids phrase matching edge cases
         let results = idx.search("he", 10).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].0, 1);
@@ -226,10 +297,8 @@ mod tests {
         let mut w = idx.writer().unwrap();
         idx.add_doc(
             &mut w,
-            1,
-            "rust programming",
+            &commit_meta(1, "rust programming"),
             "systems language",
-            &meta_json(1, "rust"),
         )
         .unwrap();
         idx.commit(w).unwrap();
@@ -243,10 +312,8 @@ mod tests {
         let mut w = idx.writer().unwrap();
         idx.add_doc(
             &mut w,
-            42,
-            "에러 처리",
+            &commit_meta(42, "에러 처리"),
             "에러 처리 방법에 대한 설명",
-            &meta_json(42, "에러 처리"),
         )
         .unwrap();
         idx.commit(w).unwrap();
@@ -264,8 +331,7 @@ mod tests {
     fn test_uppercase_indexed_matches_lowercase_query() {
         let (_dir, idx) = tmp_index();
         let mut w = idx.writer().unwrap();
-        idx.add_doc(&mut w, 1, "Hello", "", &meta_json(1, "Hello"))
-            .unwrap();
+        idx.add_doc(&mut w, &commit_meta(1, "Hello"), "").unwrap();
         idx.commit(w).unwrap();
         let results = idx.search("he", 10).unwrap();
         assert!(
@@ -279,14 +345,14 @@ mod tests {
         let (_dir, idx) = tmp_index();
 
         let mut w = idx.writer().unwrap();
-        idx.add_doc(&mut w, 1, "first doc", "", &meta_json(1, "first doc"))
+        idx.add_doc(&mut w, &commit_meta(1, "first doc"), "")
             .unwrap();
         idx.commit(w).unwrap();
         let r1 = idx.search("fi", 10).unwrap();
         assert_eq!(r1.len(), 1, "first commit visible");
 
         let mut w = idx.writer().unwrap();
-        idx.add_doc(&mut w, 2, "second doc", "", &meta_json(2, "second doc"))
+        idx.add_doc(&mut w, &commit_meta(2, "second doc"), "")
             .unwrap();
         idx.commit(w).unwrap();
         let r2 = idx.search("se", 10).unwrap();
@@ -310,14 +376,7 @@ mod tests {
             line_start: Some(10),
             line_end: Some(20),
         };
-        idx.add_doc(
-            &mut w,
-            7,
-            "src/foo.rs",
-            "fn foo() {}",
-            &serde_json::to_string(&meta).unwrap(),
-        )
-        .unwrap();
+        idx.add_doc(&mut w, &meta, "fn foo() {}").unwrap();
         idx.commit(w).unwrap();
         let store = idx.scan_doc_store().unwrap();
         let got = store.get(&7).expect("doc 7 exists");
@@ -325,5 +384,42 @@ mod tests {
         assert_eq!(got.kind, DocKind::File);
         assert_eq!(got.path.as_deref(), Some("src/foo.rs"));
         assert_eq!(got.line_start, Some(10));
+        assert_eq!(got.line_end, Some(20));
+    }
+
+    #[test]
+    fn test_path_field_exact_match_query() {
+        let (_dir, idx) = tmp_index();
+        let mut w = idx.writer().unwrap();
+        let meta1 = DocMeta {
+            doc_id: 1,
+            kind: DocKind::File,
+            title: "src/search/error.rs".into(),
+            commit_oid: "a".repeat(40),
+            path: Some("src/search/error.rs".into()),
+            line_start: None,
+            line_end: None,
+        };
+        let meta2 = DocMeta {
+            doc_id: 2,
+            kind: DocKind::File,
+            title: "src/ui/view.rs".into(),
+            commit_oid: "b".repeat(40),
+            path: Some("src/ui/view.rs".into()),
+            line_start: None,
+            line_end: None,
+        };
+        idx.add_doc(&mut w, &meta1, "fn handle_error() {}").unwrap();
+        idx.add_doc(&mut w, &meta2, "fn render() {}").unwrap();
+        idx.commit(w).unwrap();
+
+        // Field-prefixed query targeting path STRING field.
+        let results = idx.search("path:\"src/search/error.rs\"", 10).unwrap();
+        assert_eq!(
+            results.len(),
+            1,
+            "only the matching path should be returned"
+        );
+        assert_eq!(results[0].0, 1);
     }
 }

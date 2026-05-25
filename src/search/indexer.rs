@@ -162,17 +162,8 @@ where
             doc_counter += 1;
 
             let meta = chunk_to_meta(doc_id, chunk);
-            let meta_json = serde_json::to_string(&meta)
-                .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
-
-            bm25.add_doc(
-                &mut bm25_writer,
-                doc_id,
-                &chunk.bm25_title(),
-                chunk.bm25_body(),
-                &meta_json,
-            )
-            .map_err(SearchError::Tantivy)?;
+            bm25.add_doc(&mut bm25_writer, &meta, chunk.bm25_body())
+                .map_err(SearchError::Tantivy)?;
 
             all_ids.push(doc_id);
             all_vecs.push(embedding.clone());
