@@ -41,6 +41,10 @@ pub enum SearchError {
     IndexNotFound(PathBuf),
     #[error("index version mismatch: expected {expected}, got {found}")]
     VersionMismatch { expected: u32, found: u32 },
+    #[error(
+        "BM25 tokenizer mismatch: expected '{expected}', found '{found}' — run `glc index --force`"
+    )]
+    IncompatibleTokenizer { expected: String, found: String },
     #[error("index is stale: HEAD moved to {current_oid}")]
     StaleIndex { current_oid: String },
     #[error("tantivy error: {0}")]
@@ -87,6 +91,12 @@ impl SearchEngine {
                 found: meta.version,
             });
         }
+        if meta.bm25.tokenizer != bm25::TOKENIZER {
+            return Err(SearchError::IncompatibleTokenizer {
+                expected: bm25::TOKENIZER.to_string(),
+                found: meta.bm25.tokenizer.clone(),
+            });
+        }
 
         let bm25 = bm25::Bm25Index::open(index_dir.join("bm25"))?;
         let vector = vector::VectorIndex::load(index_dir.join("vectors").join("index.tvim"))?;
@@ -127,6 +137,46 @@ impl SearchEngine {
 
 pub const INDEX_VERSION: u32 = 3;
 pub const INDEX_DIR_NAME: &str = ".glc-index";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn write_meta(dir: &TempDir, tokenizer: &str) {
+        let meta = IndexMeta {
+            version: INDEX_VERSION,
+            head_oid: "0".repeat(40),
+            doc_count: 0,
+            indexed_at: "0Z".to_string(),
+            embedding: EmbeddingMeta {
+                model: "test".to_string(),
+                dim: 256,
+            },
+            bm25: Bm25Meta {
+                tokenizer: tokenizer.to_string(),
+            },
+            vector: VectorMeta {
+                backend: "test".to_string(),
+            },
+        };
+        let s = toml::to_string_pretty(&meta).unwrap();
+        std::fs::write(dir.path().join("meta.toml"), s).unwrap();
+    }
+
+    #[test]
+    fn open_fails_on_tokenizer_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        write_meta(&dir, "stale_tokenizer");
+        match SearchEngine::open(dir.path()) {
+            Err(SearchError::IncompatibleTokenizer { expected, found }) => {
+                assert_eq!(expected, bm25::TOKENIZER);
+                assert_eq!(found, "stale_tokenizer");
+            }
+            other => panic!("expected IncompatibleTokenizer, got {:?}", other.err()),
+        }
+    }
+}
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct IndexMeta {
