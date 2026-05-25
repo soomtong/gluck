@@ -72,30 +72,32 @@ impl SemanticSearchModal {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) -> bool {
-        match &self.state {
-            ModalState::Closed => return false,
-            ModalState::Loading { .. } => match code {
-                KeyCode::Esc => self.close(),
-                KeyCode::Char('I') | KeyCode::Char('i') => {}
-                _ => return false,
-            },
-            _ => {}
+        // Closed: 어떤 키도 소비하지 않음.
+        if matches!(self.state, ModalState::Closed) {
+            return false;
         }
+
+        // Loading: Esc는 모달 닫기, I/i는 App이 재인덱스 트리거하도록 소비만,
+        //          그 외 키는 모두 무시(input/selected 변경 없음).
+        if matches!(self.state, ModalState::Loading { .. }) {
+            return match code {
+                KeyCode::Esc => {
+                    self.close();
+                    true
+                }
+                KeyCode::Char('I') | KeyCode::Char('i') => true,
+                _ => false,
+            };
+        }
+
+        // Typing / Results: 일반 입력·탐색 처리.
         match code {
             KeyCode::Esc => self.close(),
-            KeyCode::Backspace => {
-                self.pop_char();
-            }
-            KeyCode::Down => {
-                self.move_down();
-            }
-            KeyCode::Up => {
-                self.move_up();
-            }
+            KeyCode::Backspace => self.pop_char(),
+            KeyCode::Down => self.move_down(),
+            KeyCode::Up => self.move_up(),
             KeyCode::Enter => {}
-            KeyCode::Char(c) => {
-                self.push_char(c);
-            }
+            KeyCode::Char(c) => self.push_char(c),
             _ => return false,
         }
         true
@@ -268,5 +270,24 @@ mod tests {
         assert!(m.handle_key(KeyCode::Char('i')));
         assert!(!m.handle_key(KeyCode::Char('x')));
         assert!(!m.handle_key(KeyCode::Down));
+    }
+
+    #[test]
+    fn test_loading_state_ignores_text_input() {
+        // Loading 상태에서 임의 문자가 입력되어도 input이 변경되면 안 됨.
+        // 이전 구현은 push_char가 우연히 no-op이라 동작했음 — 명시적으로 검증.
+        let mut m = SemanticSearchModal::new();
+        m.open();
+        m.push_char('q');
+        m.set_loading("Loading...");
+        assert_eq!(m.state.input(), "q");
+
+        assert!(!m.handle_key(KeyCode::Char('x')));
+        assert!(!m.handle_key(KeyCode::Backspace));
+        assert_eq!(
+            m.state.input(),
+            "q",
+            "Loading 상태에서 문자·Backspace는 input을 건드리면 안 됨"
+        );
     }
 }
