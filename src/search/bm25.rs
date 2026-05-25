@@ -5,7 +5,7 @@ use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, STORED};
 use tantivy::tokenizer::{LowerCaser, NgramTokenizer, TextAnalyzer};
-use tantivy::{doc, Index, IndexWriter, TantivyError};
+use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyError};
 
 use crate::search::{DocKind, DocMeta, SearchError};
 
@@ -21,6 +21,7 @@ pub struct Bm25Fields {
 
 pub struct Bm25Index {
     index: Index,
+    reader: IndexReader,
     fields: Bm25Fields,
 }
 
@@ -71,14 +72,30 @@ impl Bm25Index {
         let (schema, fields) = make_schema();
         let index = Index::create_in_dir(dir, schema)?;
         register_tokenizer(&index);
-        Ok(Self { index, fields })
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        Ok(Self {
+            index,
+            reader,
+            fields,
+        })
     }
 
     pub fn open(dir: PathBuf) -> Result<Self, SearchError> {
         let index = Index::open_in_dir(&dir)?;
         let (_, fields) = make_schema();
         register_tokenizer(&index);
-        Ok(Self { index, fields })
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        Ok(Self {
+            index,
+            reader,
+            fields,
+        })
     }
 
     pub fn writer(&self) -> Result<IndexWriter, TantivyError> {
@@ -104,12 +121,12 @@ impl Bm25Index {
 
     pub fn commit(&self, mut writer: IndexWriter) -> Result<(), TantivyError> {
         writer.commit()?;
+        self.reader.reload()?;
         Ok(())
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<(u64, f32)>, SearchError> {
-        let reader = self.index.reader()?;
-        let searcher = reader.searcher();
+        let searcher = self.reader.searcher();
         let parser = QueryParser::for_index(&self.index, vec![self.fields.title, self.fields.body]);
         let tantivy_query = match parser.parse_query(query) {
             Ok(q) => q,
@@ -132,8 +149,7 @@ impl Bm25Index {
 
     pub fn scan_doc_store(&self) -> Result<HashMap<u64, DocMeta>, SearchError> {
         use tantivy::query::AllQuery;
-        let reader = self.index.reader()?;
-        let searcher = reader.searcher();
+        let searcher = self.reader.searcher();
         let top_docs = searcher.search(&AllQuery, &TopDocs::with_limit(1_000_000))?;
         let mut store = HashMap::new();
         for (_score, doc_addr) in top_docs {
@@ -255,6 +271,28 @@ mod tests {
         assert!(
             !results.is_empty(),
             "2-char lowercase query 'he' must match 'Hello' — requires LowerCaser on 'He'"
+        );
+    }
+
+    #[test]
+    fn test_cached_reader_sees_data_across_multiple_commits() {
+        let (_dir, idx) = tmp_index();
+
+        let mut w = idx.writer().unwrap();
+        idx.add_doc(&mut w, 1, "first doc", "", &meta_json(1, "first doc"))
+            .unwrap();
+        idx.commit(w).unwrap();
+        let r1 = idx.search("fi", 10).unwrap();
+        assert_eq!(r1.len(), 1, "first commit visible");
+
+        let mut w = idx.writer().unwrap();
+        idx.add_doc(&mut w, 2, "second doc", "", &meta_json(2, "second doc"))
+            .unwrap();
+        idx.commit(w).unwrap();
+        let r2 = idx.search("se", 10).unwrap();
+        assert!(
+            r2.iter().any(|(id, _)| *id == 2),
+            "second commit must be visible via cached reader"
         );
     }
 
