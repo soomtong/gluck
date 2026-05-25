@@ -67,7 +67,7 @@ fn render_input(frame: &mut Frame, area: Rect, input: &str, app: &App) {
         .split(area);
 
     let input_block = Block::default()
-        .title(" Semantic Search (S) ")
+        .title(" Semantic Search ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.palette.accent));
     let input_widget = Paragraph::new(format!("> {}", input)).block(input_block);
