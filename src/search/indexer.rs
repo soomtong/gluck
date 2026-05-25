@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::git::commit::CommitInfo;
 use crate::git::repo::GitRepo;
 use crate::git::tree::{is_binary_blob, read_blob};
-use crate::search::bm25::Bm25Index;
+use crate::search::bm25::{Bm25Index, TOKENIZER as BM25_TOKENIZER};
 use crate::search::chunk::{commit_to_chunk, split_file, Chunk};
 use crate::search::embedding::EmbeddingModel;
 use crate::search::vector::VectorIndex;
@@ -168,7 +168,7 @@ where
             bm25.add_doc(
                 &mut bm25_writer,
                 doc_id,
-                chunk.bm25_title(),
+                &chunk.bm25_title(),
                 chunk.bm25_body(),
                 &meta_json,
             )
@@ -195,7 +195,7 @@ where
             dim,
         },
         bm25: Bm25Meta {
-            tokenizer: "ngram_2_2".to_string(),
+            tokenizer: BM25_TOKENIZER.to_string(),
         },
         vector: VectorMeta {
             backend: "turboquant_4bit".to_string(),

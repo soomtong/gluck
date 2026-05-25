@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, STORED};
-use tantivy::tokenizer::NgramTokenizer;
+use tantivy::tokenizer::{LowerCaser, NgramTokenizer, TextAnalyzer};
 use tantivy::{doc, Index, IndexWriter, TantivyError};
 
 use crate::search::{DocKind, DocMeta, SearchError};
 
-const TOKENIZER: &str = "bigram";
+pub const TOKENIZER: &str = "ngram_2_2";
 const WRITER_HEAP: usize = 50_000_000;
 
 pub struct Bm25Fields {
@@ -58,7 +58,10 @@ fn make_schema() -> (Schema, Bm25Fields) {
 }
 
 fn register_tokenizer(index: &Index) {
-    let tokenizer = NgramTokenizer::new(2, 2, false).expect("valid ngram params");
+    let tokenizer =
+        TextAnalyzer::builder(NgramTokenizer::new(2, 2, false).expect("valid ngram params"))
+            .filter(LowerCaser)
+            .build();
     index.tokenizers().register(TOKENIZER, tokenizer);
 }
 
@@ -234,6 +237,25 @@ mod tests {
         let results = idx.search("에러", 10).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].0, 42);
+    }
+
+    #[test]
+    fn test_tokenizer_name_is_ngram_2_2() {
+        assert_eq!(TOKENIZER, "ngram_2_2");
+    }
+
+    #[test]
+    fn test_uppercase_indexed_matches_lowercase_query() {
+        let (_dir, idx) = tmp_index();
+        let mut w = idx.writer().unwrap();
+        idx.add_doc(&mut w, 1, "Hello", "", &meta_json(1, "Hello"))
+            .unwrap();
+        idx.commit(w).unwrap();
+        let results = idx.search("he", 10).unwrap();
+        assert!(
+            !results.is_empty(),
+            "2-char lowercase query 'he' must match 'Hello' — requires LowerCaser on 'He'"
+        );
     }
 
     #[test]

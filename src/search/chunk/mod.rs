@@ -57,11 +57,13 @@ impl Chunk {
         }
     }
 
-    pub fn bm25_title(&self) -> &str {
+    pub fn bm25_title(&self) -> String {
         match self {
-            Chunk::CommitMessage { title, .. } => title,
-            Chunk::WholeFile { path, .. } => path,
-            Chunk::Symbol { symbol_name, .. } => symbol_name,
+            Chunk::CommitMessage { title, .. } => title.clone(),
+            Chunk::WholeFile { path, .. } => path.clone(),
+            Chunk::Symbol {
+                path, symbol_name, ..
+            } => format!("{}::{}", path, symbol_name),
         }
     }
 
@@ -99,6 +101,28 @@ pub enum ChunkError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symbol_bm25_title_includes_path_and_name() {
+        let c = Chunk::Symbol {
+            commit_oid: "abc".into(),
+            path: "src/search/error.rs".into(),
+            symbol_name: "handle_io_error".into(),
+            kind: SymbolKind::Function,
+            line_start: 1,
+            line_end: 5,
+            content: "fn handle_io_error() {}".into(),
+        };
+        let title = c.bm25_title();
+        assert!(
+            title.contains("src/search/error.rs"),
+            "bm25_title must include path"
+        );
+        assert!(
+            title.contains("handle_io_error"),
+            "bm25_title must include symbol name"
+        );
+    }
 
     #[test]
     fn commit_embed_text_no_body() {
