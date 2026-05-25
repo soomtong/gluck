@@ -1018,6 +1018,9 @@ impl App {
                 self.engine_error = None;
                 if modal_was_open {
                     self.search_modal.open();
+                    if !self.search_modal.state.input().is_empty() {
+                        self.run_semantic_search();
+                    }
                 }
             } else if modal_was_open {
                 self.search_modal.close();
@@ -1090,6 +1093,9 @@ impl App {
         }
         if self.search_engine.is_some() {
             self.search_modal.open();
+            if !self.search_modal.state.input().is_empty() {
+                self.run_semantic_search();
+            }
             return;
         }
         if let Some(ref err) = self.engine_error {

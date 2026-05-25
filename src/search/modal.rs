@@ -31,6 +31,7 @@ impl ModalState {
 pub struct SemanticSearchModal {
     pub state: ModalState,
     pub selected: usize,
+    last_input: String,
 }
 
 impl SemanticSearchModal {
@@ -38,17 +39,22 @@ impl SemanticSearchModal {
         Self {
             state: ModalState::Closed,
             selected: 0,
+            last_input: String::new(),
         }
     }
 
     pub fn open(&mut self) {
         self.state = ModalState::Typing {
-            input: String::new(),
+            input: self.last_input.clone(),
         };
         self.selected = 0;
     }
 
     pub fn close(&mut self) {
+        let current = self.state.input().to_string();
+        if !current.is_empty() {
+            self.last_input = current;
+        }
         self.state = ModalState::Closed;
         self.selected = 0;
     }
@@ -200,6 +206,54 @@ mod tests {
         assert_eq!(m.state.input(), "h");
         assert!(m.handle_key(KeyCode::Esc));
         assert!(matches!(m.state, ModalState::Closed));
+    }
+
+    #[test]
+    fn test_reopen_restores_last_input() {
+        let mut m = SemanticSearchModal::new();
+        m.open();
+        m.push_char('에');
+        m.push_char('러');
+        assert_eq!(m.state.input(), "에러");
+
+        m.close();
+        assert!(matches!(m.state, ModalState::Closed));
+
+        m.open();
+        assert_eq!(
+            m.state.input(),
+            "에러",
+            "두 번째 open 시 직전 검색어가 복원되어야 함"
+        );
+    }
+
+    #[test]
+    fn test_first_open_has_empty_input() {
+        let mut m = SemanticSearchModal::new();
+        m.open();
+        assert_eq!(m.state.input(), "");
+    }
+
+    #[test]
+    fn test_reopen_after_empty_close_stays_empty() {
+        let mut m = SemanticSearchModal::new();
+        m.open();
+        m.close();
+        m.open();
+        assert_eq!(m.state.input(), "");
+    }
+
+    #[test]
+    fn test_reopen_after_results_restores_input() {
+        let mut m = SemanticSearchModal::new();
+        m.open();
+        m.push_char('f');
+        m.push_char('o');
+        m.push_char('o');
+        m.set_results(vec![]);
+        m.close();
+        m.open();
+        assert_eq!(m.state.input(), "foo");
     }
 
     #[test]
