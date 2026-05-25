@@ -7,7 +7,7 @@ use ratatui::Frame;
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
-use crate::search::modal::ModalState;
+use crate::search::modal_state::ModalState;
 use crate::search::DocKind;
 
 pub fn render_search_modal(frame: &mut Frame, app: &App) {
@@ -60,7 +60,9 @@ fn render_loading(frame: &mut Frame, area: Rect, message: &str, app: &App) {
     frame.render_widget(msg, area);
 }
 
-fn render_input(frame: &mut Frame, area: Rect, input: &str, app: &App) {
+/// 모달 영역을 상단 입력바(3줄)와 본문 영역으로 분할하고 입력바를 그린다.
+/// 반환값은 본문 Rect.
+fn draw_input_bar(frame: &mut Frame, area: Rect, input: &str, app: &App) -> Rect {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(1)])
@@ -74,6 +76,12 @@ fn render_input(frame: &mut Frame, area: Rect, input: &str, app: &App) {
     frame.render_widget(input_widget, chunks[0]);
     frame.set_cursor_position((chunks[0].x + 3 + input.width() as u16, chunks[0].y + 1));
 
+    chunks[1]
+}
+
+fn render_input(frame: &mut Frame, area: Rect, input: &str, app: &App) {
+    let body = draw_input_bar(frame, area, input, app);
+
     let hint_block = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
         .border_style(Style::default().fg(app.palette.accent));
@@ -82,7 +90,7 @@ fn render_input(frame: &mut Frame, area: Rect, input: &str, app: &App) {
         Style::default().fg(app.palette.dim),
     )))
     .block(hint_block);
-    frame.render_widget(hint, chunks[1]);
+    frame.render_widget(hint, body);
 }
 
 fn render_results(
@@ -93,18 +101,7 @@ fn render_results(
     selected: usize,
     app: &App,
 ) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(1)])
-        .split(area);
-
-    let input_block = Block::default()
-        .title(" Semantic Search ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.palette.accent));
-    let input_widget = Paragraph::new(format!("> {}", input)).block(input_block);
-    frame.render_widget(input_widget, chunks[0]);
-    frame.set_cursor_position((chunks[0].x + 3 + input.width() as u16, chunks[0].y + 1));
+    let body = draw_input_bar(frame, area, input, app);
 
     let items: Vec<ListItem> = results
         .iter()
@@ -130,7 +127,7 @@ fn render_results(
 
     let mut state = ListState::default();
     state.select(Some(selected));
-    frame.render_stateful_widget(list, chunks[1], &mut state);
+    frame.render_stateful_widget(list, body, &mut state);
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

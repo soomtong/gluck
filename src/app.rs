@@ -6,7 +6,7 @@ use crate::git::store::CommitStore;
 use crate::git::tree::{is_binary_blob, read_blob, EntryKind};
 use crate::highlight::HighlightEngine;
 use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, SearchState, ViewState};
-use crate::search::modal::SemanticSearchModal;
+use crate::search::modal_state::SemanticSearchModal;
 use crate::search::SearchEngine;
 use crate::theme::Palette;
 use crate::ui;
@@ -144,7 +144,7 @@ impl App {
         // (per the modal state machine). Capture this before handle_key advances state.
         let was_loading = matches!(
             self.search_modal.state,
-            crate::search::modal::ModalState::Loading { .. }
+            crate::search::modal_state::ModalState::Loading { .. }
         );
         if self.search_modal.handle_key(code) {
             if code == KeyCode::Enter {
@@ -1567,7 +1567,7 @@ mod tests {
 
     #[test]
     fn test_ctrl_n_in_modal_moves_down() {
-        use crate::search::modal::ModalState;
+        use crate::search::modal_state::ModalState;
         use crate::search::{DocKind, DocMeta, SearchResult};
         let (_dir, mut app) = test_app();
         let results: Vec<SearchResult> = (0..5)
@@ -1595,7 +1595,7 @@ mod tests {
 
     #[test]
     fn test_ctrl_p_in_modal_moves_up() {
-        use crate::search::modal::ModalState;
+        use crate::search::modal_state::ModalState;
         use crate::search::{DocKind, DocMeta, SearchResult};
         let (_dir, mut app) = test_app();
         let results: Vec<SearchResult> = (0..5)
@@ -1623,7 +1623,7 @@ mod tests {
 
     #[test]
     fn test_ctrl_n_in_modal_does_not_move_pick() {
-        use crate::search::modal::ModalState;
+        use crate::search::modal_state::ModalState;
         use crate::search::{DocKind, DocMeta, SearchResult};
         let (_dir, mut app) = test_app();
         let results: Vec<SearchResult> = (0..3)
@@ -1885,7 +1885,7 @@ mod tests {
 
     #[test]
     fn test_i_key_in_pick_opens_indexing_modal() {
-        use crate::search::modal::ModalState;
+        use crate::search::modal_state::ModalState;
         let (_dir, mut app) = test_app();
         assert!(matches!(app.mode, Mode::Pick(_)));
         assert!(!app.search_modal.is_open());
@@ -1896,7 +1896,7 @@ mod tests {
 
     #[test]
     fn test_typing_i_in_search_modal_does_not_trigger_reindex() {
-        use crate::search::modal::ModalState;
+        use crate::search::modal_state::ModalState;
         let (_dir, mut app) = test_app();
         app.search_modal.open();
         assert!(matches!(app.search_modal.state, ModalState::Typing { .. }));
