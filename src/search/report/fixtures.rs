@@ -131,4 +131,17 @@ expected = []
             other => panic!("expected EmptyExpected, got {other:?}"),
         }
     }
+
+    #[test]
+    fn loads_project_fixtures() {
+        let p = std::path::Path::new("tests/fixtures/search_queries.toml");
+        if p.exists() {
+            let set = load(p).expect("project fixtures must be valid");
+            assert!(
+                set.queries.len() >= 7,
+                "expected at least 7 queries, got {}",
+                set.queries.len()
+            );
+        }
+    }
 }
