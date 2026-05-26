@@ -2,6 +2,7 @@ use std::path::Path;
 
 use git2::{DiffOptions, Oid};
 
+use crate::git::commit::CommitInfo;
 use crate::git::repo::GitRepo;
 use crate::search::SearchError;
 
@@ -66,10 +67,47 @@ pub fn compute_file_changes(
     Ok(out)
 }
 
+pub fn commits_since(
+    repo: &GitRepo,
+    old_oid: &str,
+    new_oid: &str,
+) -> Result<Vec<CommitInfo>, SearchError> {
+    let r = repo.repository();
+    let new = Oid::from_str(new_oid).map_err(|e| SearchError::Git(e.to_string()))?;
+    let old = Oid::from_str(old_oid).map_err(|e| SearchError::Git(e.to_string()))?;
+    let mut revwalk = r.revwalk().map_err(|e| SearchError::Git(e.to_string()))?;
+    revwalk.push(new).map_err(|e| SearchError::Git(e.to_string()))?;
+    // hide old_oid — old_oid에 도달 가능한 커밋은 결과에서 제외
+    revwalk.hide(old).map_err(|e| SearchError::Git(e.to_string()))?;
+    let mut out = Vec::new();
+    for oid in revwalk.flatten() {
+        if let Ok(c) = r.find_commit(oid) {
+            out.push(CommitInfo::from_git_commit(&c));
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::git::repo::tests::{add_file_commit, init_test_repo};
+
+    #[test]
+    fn test_commits_since_excludes_old_and_includes_new() {
+        let (_dir, repo) = init_test_repo();
+        let c1 = add_file_commit(&repo, "a.txt", b"1", "first");
+        let c2 = add_file_commit(&repo, "b.txt", b"2", "second");
+        let c3 = add_file_commit(&repo, "c.txt", b"3", "third");
+
+        let gr = crate::git::repo::GitRepo::open(_dir.path()).unwrap();
+        let commits = commits_since(&gr, &c1.to_string(), &c3.to_string()).unwrap();
+        // old_oid(c1) 자체는 제외, c2/c3만 포함
+        let oids: Vec<String> = commits.iter().map(|c| c.id.to_string()).collect();
+        assert!(oids.contains(&c2.to_string()));
+        assert!(oids.contains(&c3.to_string()));
+        assert!(!oids.contains(&c1.to_string()));
+    }
 
     #[test]
     fn test_added_modified_deleted_classified() {
