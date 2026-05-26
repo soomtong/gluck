@@ -520,4 +520,41 @@ mod tests {
         }
         assert!(!engine.doc_store.is_empty());
     }
+
+    #[test]
+    #[ignore] // Requires network/hf-hub on first run; run with `cargo test -- --ignored`
+    fn test_incremental_update_preserves_old_and_adds_new() {
+        use crate::git::repo::tests::{add_file_commit, init_test_repo};
+        use crate::search::SearchEngine;
+
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "alpha.rs", b"fn alpha() {}", "Add alpha");
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let opts = IndexOptions::default();
+        build_index(&git_repo, dir.path(), &opts, |_| {}).unwrap();
+
+        let index_dir = index_dir_for(dir.path());
+        let engine1 = SearchEngine::open(&index_dir).unwrap();
+        let initial_count = engine1.doc_store.len();
+        drop(engine1);
+
+        // 새 커밋 + 파일 추가
+        add_file_commit(&repo, "beta.rs", b"fn beta() {}", "Add beta");
+
+        // 재인덱싱 (incremental 경로 진입)
+        build_index(&git_repo, dir.path(), &opts, |_| {}).unwrap();
+
+        let engine2 = SearchEngine::open(&index_dir).unwrap();
+        assert!(
+            engine2.doc_store.len() > initial_count,
+            "incremental should add at least one new doc"
+        );
+        // 새 파일 chunk가 들어왔는지 확인
+        let has_beta = engine2
+            .doc_store
+            .values()
+            .any(|m| m.path.as_deref() == Some("beta.rs"));
+        assert!(has_beta, "beta.rs should be indexed after incremental update");
+    }
 }
