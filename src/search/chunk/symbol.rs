@@ -125,56 +125,32 @@ fn lang_and_query(language: Language) -> Option<(&'static TsLanguage, &'static Q
 // Language와 Query는 immutable이므로 OnceLock으로 캐싱 — 파일마다 재컴파일 비용 제거.
 fn rust_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_rust::LANGUAGE.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_rust::LANGUAGE.into())
 }
 
 fn python_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_python::LANGUAGE.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_python::LANGUAGE.into())
 }
 
 fn javascript_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_javascript::LANGUAGE.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_javascript::LANGUAGE.into())
 }
 
 fn typescript_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
 }
 
 fn tsx_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_typescript::LANGUAGE_TSX.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_typescript::LANGUAGE_TSX.into())
 }
 
 fn go_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_go::LANGUAGE.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_go::LANGUAGE.into())
 }
 
 fn rust_query() -> &'static Query {

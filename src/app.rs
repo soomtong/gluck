@@ -8,6 +8,7 @@ use crate::highlight::HighlightEngine;
 use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, SearchState, ViewState};
 use crate::search::modal_state::SemanticSearchModal;
 use crate::search::SearchEngine;
+use crate::search::SearchResult;
 use crate::theme::Palette;
 use crate::ui;
 use anyhow::Result;
@@ -43,6 +44,9 @@ pub struct App {
     pub saved_search: SearchState,
     pub search_modal: SemanticSearchModal,
     pub search_engine: Option<SearchEngine>,
+    pub search_tx: Option<mpsc::Sender<String>>,
+    pub search_rx: Option<mpsc::Receiver<Vec<SearchResult>>>,
+    pub search_pending: bool,
     pub engine_error: Option<String>,
     pub needs_clear: bool,
     pub index_rx: Option<mpsc::Receiver<IndexMessage>>,
@@ -71,6 +75,9 @@ impl App {
             saved_search: SearchState::Idle { query: None },
             search_modal: SemanticSearchModal::new(),
             search_engine: None,
+            search_tx: None,
+            search_rx: None,
+            search_pending: false,
             engine_error: None,
             needs_clear: false,
             index_rx: None,
@@ -896,6 +903,10 @@ impl App {
         }
         self.engine_error = None;
         self.engine_rx = None;
+        self.search_tx = None;
+        self.search_rx = None;
+        self.search_pending = false;
+        self.search_engine = None;
         let repo_workdir = self
             .repo
             .repository()
@@ -903,7 +914,6 @@ impl App {
             .unwrap_or(std::path::Path::new("."))
             .to_path_buf();
         self.search_modal.set_loading("Starting indexer...");
-        self.search_engine = None;
 
         let (tx, rx) = mpsc::channel::<IndexMessage>();
         self.index_rx = Some(rx);
@@ -931,7 +941,7 @@ impl App {
     }
 
     pub fn is_indexing(&self) -> bool {
-        self.index_rx.is_some() || self.engine_rx.is_some()
+        self.index_rx.is_some() || self.engine_rx.is_some() || self.search_pending
     }
 
     pub fn drain_index_messages(&mut self) {
@@ -1015,6 +1025,9 @@ impl App {
                     ));
                 }
             } else if self.search_engine.is_some() {
+                if let Some(engine) = self.search_engine.take() {
+                    self.spawn_search_worker(engine);
+                }
                 self.engine_error = None;
                 if modal_was_open {
                     self.search_modal.open();
@@ -1049,7 +1062,7 @@ impl App {
     }
 
     fn start_loading_engine(&mut self) {
-        if self.engine_rx.is_some() || self.search_engine.is_some() {
+        if self.engine_rx.is_some() || self.search_rx.is_some() {
             return;
         }
         let index_dir = self.index_dir();
@@ -1074,6 +1087,25 @@ impl App {
         });
     }
 
+    fn spawn_search_worker(&mut self, engine: SearchEngine) {
+        self.search_engine = None;
+        let (stx, worker_rx) = mpsc::channel::<String>();
+        let (worker_tx, srx) = mpsc::channel::<Vec<SearchResult>>();
+        self.search_tx = Some(stx);
+        self.search_rx = Some(srx);
+        let limit = self.config.search.result_limit;
+        std::thread::spawn(move || {
+            while let Ok(query) = worker_rx.recv() {
+                if query.is_empty() {
+                    let _ = worker_tx.send(vec![]);
+                    continue;
+                }
+                let results = engine.search(&query, limit).unwrap_or_default();
+                let _ = worker_tx.send(results);
+            }
+        });
+    }
+
     fn open_semantic_search(&mut self) {
         let index_dir = self.index_dir();
         use crate::search::indexer::IndexStatus;
@@ -1091,7 +1123,7 @@ impl App {
             }
             IndexStatus::Ready => {}
         }
-        if self.search_engine.is_some() {
+        if self.search_rx.is_some() {
             self.search_modal.open();
             if !self.search_modal.state.input().is_empty() {
                 self.run_semantic_search();
@@ -1116,11 +1148,29 @@ impl App {
             self.search_modal.set_results(vec![]);
             return;
         }
-        if let Some(engine) = &self.search_engine {
-            let limit = self.config.search.result_limit;
-            match engine.search(&query, limit) {
-                Ok(results) => self.search_modal.set_results(results),
-                Err(_) => self.search_modal.set_results(vec![]),
+        if let Some(tx) = &self.search_tx {
+            self.search_pending = true;
+            let _ = tx.send(query);
+        }
+    }
+
+    pub fn drain_search_results(&mut self) {
+        let Some(rx) = self.search_rx.as_ref() else {
+            return;
+        };
+        loop {
+            match rx.try_recv() {
+                Ok(results) => {
+                    self.search_modal.set_results(results);
+                    self.search_pending = false;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.search_rx = None;
+                    self.search_tx = None;
+                    self.search_pending = false;
+                    break;
+                }
             }
         }
     }

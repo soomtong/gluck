@@ -1,7 +1,6 @@
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use std::collections::HashMap;
-use tree_sitter::Language;
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
 impl Default for HighlightEngine {
@@ -125,11 +124,8 @@ impl HighlightEngine {
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
-        let raw_fn = tree_sitter_rust::LANGUAGE.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        let language = unsafe { Language::from_raw(raw_ptr as *const _) };
         let mut config = HighlightConfiguration::new(
-            language,
+            tree_sitter_rust::LANGUAGE.into(),
             "rust",
             tree_sitter_rust::HIGHLIGHTS_QUERY,
             tree_sitter_rust::INJECTIONS_QUERY,

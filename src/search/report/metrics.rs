@@ -80,7 +80,7 @@ pub fn evaluate(query: &FixtureQuery, results: &[SearchResult]) -> QueryEval {
 
     let n_expected = query.expected.len().max(1);
     let recall_at_5 = (hit_count_at_5.min(query.expected.len()) as f32)
-        / (query.expected.len().clamp(1, 5) as f32);
+        / (n_expected as f32);
     let recall_at_10 = (hit_count_at_10.min(query.expected.len()) as f32) / (n_expected as f32);
 
     // IDCG@10: min(10, |expected|) 개 위치에 1.0이 이상적으로 배치된 경우.
