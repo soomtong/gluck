@@ -82,11 +82,17 @@ where
                             return Ok(());
                         }
                         let progress_dyn: &dyn Fn(&str) = &progress;
-                        let old_alive = git2::Oid::from_str(&meta.head_oid)
-                            .ok()
-                            .and_then(|o| repo.repository().find_commit(o).ok())
-                            .is_some();
-                        if old_alive {
+                        let old_is_ancestor = (|| -> Option<bool> {
+                            let old = git2::Oid::from_str(&meta.head_oid).ok()?;
+                            let new = git2::Oid::from_str(&current_oid).ok()?;
+                            let rep = repo.repository();
+                            // ensure commit exists
+                            rep.find_commit(old).ok()?;
+                            let base = rep.merge_base(old, new).ok()?;
+                            Some(base == old)
+                        })()
+                        .unwrap_or(false);
+                        if old_is_ancestor {
                             progress("Attempting incremental update...");
                             match build_index_incremental(
                                 repo,
@@ -104,7 +110,7 @@ where
                                 }
                             }
                         } else {
-                            progress("Old head not in repo; full rebuild required");
+                            progress("Old head not an ancestor of current HEAD; full rebuild required");
                         }
                         std::fs::remove_dir_all(&index_dir)?;
                     }
