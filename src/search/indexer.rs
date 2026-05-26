@@ -110,7 +110,9 @@ where
                                 }
                             }
                         } else {
-                            progress("Old head not an ancestor of current HEAD; full rebuild required");
+                            progress(
+                                "Old head not an ancestor of current HEAD; full rebuild required",
+                            );
                         }
                         std::fs::remove_dir_all(&index_dir)?;
                     }
@@ -272,8 +274,7 @@ fn build_index_incremental(
     // 신규 chunk 수집: 신규 커밋 메시지 + (added + modified) 파일
     let mut new_chunks: Vec<Chunk> = new_commits.iter().map(commit_to_chunk).collect();
 
-    let new_oid =
-        git2::Oid::from_str(current_oid).map_err(|e| SearchError::Git(e.to_string()))?;
+    let new_oid = git2::Oid::from_str(current_oid).map_err(|e| SearchError::Git(e.to_string()))?;
     let new_commit = {
         let rep = repo.repository();
         let c = rep
@@ -561,6 +562,9 @@ mod tests {
             .doc_store
             .values()
             .any(|m| m.path.as_deref() == Some("beta.rs"));
-        assert!(has_beta, "beta.rs should be indexed after incremental update");
+        assert!(
+            has_beta,
+            "beta.rs should be indexed after incremental update"
+        );
     }
 }

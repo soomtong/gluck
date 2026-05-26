@@ -76,9 +76,13 @@ pub fn commits_since(
     let new = Oid::from_str(new_oid).map_err(|e| SearchError::Git(e.to_string()))?;
     let old = Oid::from_str(old_oid).map_err(|e| SearchError::Git(e.to_string()))?;
     let mut revwalk = r.revwalk().map_err(|e| SearchError::Git(e.to_string()))?;
-    revwalk.push(new).map_err(|e| SearchError::Git(e.to_string()))?;
+    revwalk
+        .push(new)
+        .map_err(|e| SearchError::Git(e.to_string()))?;
     // hide old_oid — old_oid에 도달 가능한 커밋은 결과에서 제외
-    revwalk.hide(old).map_err(|e| SearchError::Git(e.to_string()))?;
+    revwalk
+        .hide(old)
+        .map_err(|e| SearchError::Git(e.to_string()))?;
     let mut out = Vec::new();
     for oid in revwalk.flatten() {
         if let Ok(c) = r.find_commit(oid) {
