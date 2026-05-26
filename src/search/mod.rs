@@ -1,5 +1,6 @@
 pub mod bm25;
 pub mod chunk;
+pub mod diff;
 pub mod embedding;
 pub mod indexer;
 pub mod modal_state;
