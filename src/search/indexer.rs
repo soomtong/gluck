@@ -279,11 +279,55 @@ fn chrono_now() -> String {
     format!("{}Z", secs)
 }
 
+pub(crate) fn collect_path_doc_ids(
+    store: &std::collections::HashMap<u64, DocMeta>,
+) -> std::collections::HashMap<String, Vec<u64>> {
+    let mut out: std::collections::HashMap<String, Vec<u64>> = std::collections::HashMap::new();
+    for meta in store.values() {
+        if let Some(p) = &meta.path {
+            out.entry(p.clone()).or_default().push(meta.doc_id);
+        }
+    }
+    out
+}
+
+pub(crate) fn max_doc_id(store: &std::collections::HashMap<u64, DocMeta>) -> u64 {
+    store.keys().copied().max().unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::git::repo::tests::{add_file_commit, init_test_repo};
     use crate::search::SearchEngine;
+
+    #[test]
+    fn test_collect_path_doc_ids_groups_by_path() {
+        use crate::search::bm25::Bm25Index;
+        use crate::search::{DocKind, DocMeta};
+
+        let dir = tempfile::tempdir().unwrap();
+        let idx = Bm25Index::create(dir.path()).unwrap();
+        let mut w = idx.writer().unwrap();
+        let mk = |id: u64, path: &str| DocMeta {
+            doc_id: id,
+            kind: DocKind::File,
+            title: path.to_string(),
+            commit_oid: "0".repeat(40),
+            path: Some(path.to_string()),
+            line_start: None,
+            line_end: None,
+        };
+        idx.add_doc(&mut w, &mk(1, "a.rs"), "").unwrap();
+        idx.add_doc(&mut w, &mk(2, "a.rs"), "").unwrap();
+        idx.add_doc(&mut w, &mk(3, "b.rs"), "").unwrap();
+        idx.commit(w).unwrap();
+
+        let store = idx.scan_doc_store().unwrap();
+        let map = collect_path_doc_ids(&store);
+        assert_eq!(map.get("a.rs").map(|v| v.len()), Some(2));
+        assert_eq!(map.get("b.rs").map(|v| v.len()), Some(1));
+    }
 
     #[test]
     #[ignore] // Requires network/hf-hub on first run; run with `cargo test -- --ignored`
