@@ -71,7 +71,7 @@ where
         } else {
             let meta_path = index_dir.join("meta.toml");
             if meta_path.exists() {
-                let stale = match std::fs::read_to_string(&meta_path)
+                match std::fs::read_to_string(&meta_path)
                     .ok()
                     .and_then(|s| toml::from_str::<IndexMeta>(&s).ok())
                 {
@@ -81,15 +81,37 @@ where
                             progress("Index is up to date.");
                             return Ok(());
                         }
-                        true
+                        let progress_dyn: &dyn Fn(&str) = &progress;
+                        let old_alive = git2::Oid::from_str(&meta.head_oid)
+                            .ok()
+                            .and_then(|o| repo.repository().find_commit(o).ok())
+                            .is_some();
+                        if old_alive {
+                            progress("Attempting incremental update...");
+                            match build_index_incremental(
+                                repo,
+                                &index_dir,
+                                &meta,
+                                &current_oid,
+                                opts,
+                                progress_dyn,
+                            ) {
+                                Ok(()) => return Ok(()),
+                                Err(e) => {
+                                    progress(&format!(
+                                        "Incremental update failed ({e}); falling back to full rebuild"
+                                    ));
+                                }
+                            }
+                        } else {
+                            progress("Old head not in repo; full rebuild required");
+                        }
+                        std::fs::remove_dir_all(&index_dir)?;
                     }
                     _ => {
                         progress("Rebuilding index (schema upgrade)...");
-                        true
+                        std::fs::remove_dir_all(&index_dir)?;
                     }
-                };
-                if stale {
-                    std::fs::remove_dir_all(&index_dir)?;
                 }
             }
         }
