@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{
-    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, STORED, STRING,
+    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, INDEXED, STORED,
+    STRING,
 };
 use tantivy::tokenizer::{LowerCaser, NgramTokenizer, TextAnalyzer};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyError};
@@ -47,7 +48,7 @@ fn make_schema() -> (Schema, Bm25Fields) {
             .set_index_option(IndexRecordOption::WithFreqs),
     );
 
-    let id = builder.add_u64_field("id", FAST | STORED);
+    let id = builder.add_u64_field("id", FAST | STORED | INDEXED);
     let kind = builder.add_text_field("kind", STRING | STORED);
     let title = builder.add_text_field("title", text_opts);
     let body = builder.add_text_field("body", body_opts);
@@ -137,6 +138,11 @@ impl Bm25Index {
         }
         writer.add_document(doc)?;
         Ok(())
+    }
+
+    pub fn delete_doc(&self, writer: &mut IndexWriter, doc_id: u64) {
+        let term = tantivy::Term::from_field_u64(self.fields.id, doc_id);
+        writer.delete_term(term);
     }
 
     pub fn commit(&self, mut writer: IndexWriter) -> Result<(), TantivyError> {
@@ -385,6 +391,25 @@ mod tests {
         assert_eq!(got.path.as_deref(), Some("src/foo.rs"));
         assert_eq!(got.line_start, Some(10));
         assert_eq!(got.line_end, Some(20));
+    }
+
+    #[test]
+    fn test_delete_doc_removes_from_search() {
+        let (_dir, idx) = tmp_index();
+        let mut w = idx.writer().unwrap();
+        idx.add_doc(&mut w, &commit_meta(1, "hello world"), "greeting")
+            .unwrap();
+        idx.add_doc(&mut w, &commit_meta(2, "hello again"), "second")
+            .unwrap();
+        idx.commit(w).unwrap();
+        assert_eq!(idx.search("he", 10).unwrap().len(), 2);
+
+        let mut w = idx.writer().unwrap();
+        idx.delete_doc(&mut w, 1);
+        idx.commit(w).unwrap();
+        let r = idx.search("he", 10).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].0, 2);
     }
 
     #[test]
