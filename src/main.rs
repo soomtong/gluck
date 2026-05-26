@@ -28,20 +28,52 @@ fn main() -> Result<()> {
         }
     };
 
-    if let Some(Commands::Index {
-        force,
-        batch_size,
-        max_file_bytes,
-    }) = cli.command
-    {
-        let opts = gluck::search::indexer::IndexOptions {
+    match cli.command {
+        Some(Commands::Index {
             force,
             batch_size,
             max_file_bytes,
-        };
-        gluck::search::indexer::build_index(&repo, &path, &opts, |msg| eprintln!("{}", msg))
-            .map_err(|e| anyhow::anyhow!("index error: {}", e))?;
-        return Ok(());
+        }) => {
+            let opts = gluck::search::indexer::IndexOptions {
+                force,
+                batch_size,
+                max_file_bytes,
+            };
+            gluck::search::indexer::build_index(&repo, &path, &opts, |msg| eprintln!("{}", msg))
+                .map_err(|e| anyhow::anyhow!("index error: {}", e))?;
+            return Ok(());
+        }
+        Some(Commands::Report {
+            fixtures,
+            out,
+            warmup,
+            iters,
+            limit,
+        }) => {
+            let opts = gluck::search::report::ReportOptions {
+                fixtures_path: PathBuf::from(fixtures),
+                out_markdown: out.map(PathBuf::from),
+                warmup,
+                iters,
+                limit,
+            };
+            match gluck::search::report::run(&repo, &path, &opts) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    eprintln!("report error: {}", e);
+                    if matches!(
+                        e,
+                        gluck::search::report::ReportError::Search(
+                            gluck::search::SearchError::IndexNotFound(_)
+                        )
+                    ) {
+                        eprintln!("hint: run `glc index` first");
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+        None => {}
     }
 
     let config = Config::load().unwrap_or_default();
