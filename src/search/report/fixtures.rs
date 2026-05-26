@@ -1,6 +1,6 @@
 //! Fixture TOML 로드.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
@@ -45,15 +45,10 @@ pub fn load(path: &Path) -> Result<FixtureSet, ReportError> {
     Ok(set)
 }
 
-// 디버깅용: PathBuf 인자를 받는 thin wrapper
-#[allow(clippy::ptr_arg)]
-pub fn load_path(p: &PathBuf) -> Result<FixtureSet, ReportError> {
-    load(p.as_path())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     fn write(dir: &tempfile::TempDir, body: &str) -> PathBuf {
