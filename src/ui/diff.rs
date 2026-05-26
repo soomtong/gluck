@@ -221,9 +221,16 @@ fn render_unified(
 
 #[derive(Debug)]
 enum AlignedLine<'a> {
-    Both { old: &'a DiffLine, new: &'a DiffLine },
-    OldOnly { old: &'a DiffLine },
-    NewOnly { new: &'a DiffLine },
+    Both {
+        old: &'a DiffLine,
+        new: &'a DiffLine,
+    },
+    OldOnly {
+        old: &'a DiffLine,
+    },
+    NewOnly {
+        new: &'a DiffLine,
+    },
 }
 
 fn align_diff_lines(lines: &[DiffLine]) -> Vec<AlignedLine<'_>> {
@@ -337,20 +344,16 @@ fn diff_line_span(dl: &DiffLine, palette: &crate::theme::Palette, is_new: bool) 
                 Span::styled(content.clone(), style),
             ])
         }
-        DiffLine::Removed { line_no, content } => {
-            Line::from(vec![
-                Span::styled("-", style),
-                Span::styled(format!(" {:>4} ", line_no), Style::new().fg(palette.dim)),
-                Span::styled(content.clone(), style),
-            ])
-        }
-        DiffLine::Added { line_no, content } => {
-            Line::from(vec![
-                Span::styled("+", style),
-                Span::styled(format!(" {:>4} ", line_no), Style::new().fg(palette.dim)),
-                Span::styled(content.clone(), style),
-            ])
-        }
+        DiffLine::Removed { line_no, content } => Line::from(vec![
+            Span::styled("-", style),
+            Span::styled(format!(" {:>4} ", line_no), Style::new().fg(palette.dim)),
+            Span::styled(content.clone(), style),
+        ]),
+        DiffLine::Added { line_no, content } => Line::from(vec![
+            Span::styled("+", style),
+            Span::styled(format!(" {:>4} ", line_no), Style::new().fg(palette.dim)),
+            Span::styled(content.clone(), style),
+        ]),
     }
 }
 
@@ -516,8 +519,16 @@ mod tests {
         let new_span = diff_line_span(&dl, &palette, true);
         let old_text: String = old_span.spans.iter().map(|s| s.content.as_ref()).collect();
         let new_text: String = new_span.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(old_text.contains("10"), "old side should use old_line_no: {}", old_text);
-        assert!(new_text.contains("20"), "new side should use new_line_no: {}", new_text);
+        assert!(
+            old_text.contains("10"),
+            "old side should use old_line_no: {}",
+            old_text
+        );
+        assert!(
+            new_text.contains("20"),
+            "new side should use new_line_no: {}",
+            new_text
+        );
     }
 
     #[test]
