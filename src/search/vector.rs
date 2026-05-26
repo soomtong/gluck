@@ -26,12 +26,15 @@ impl VectorIndex {
         }
     }
 
-    pub fn add(&mut self, ids: &[u64], vectors: &[Vec<f32>]) {
+    pub fn add(&mut self, ids: &[u64], vectors: &[Vec<f32>]) -> Result<(), SearchError> {
         if ids.is_empty() {
-            return;
+            return Ok(());
         }
         let flat: Vec<f32> = vectors.iter().flat_map(|v| l2_normalize(v)).collect();
-        let _ = self.inner.add_with_ids(&flat, ids);
+        self.inner
+            .add_with_ids(&flat, ids)
+            .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
+        Ok(())
     }
 
     pub fn search(&self, query: &[f32], k: usize) -> Vec<(u64, f32)> {
@@ -88,7 +91,8 @@ mod tests {
     fn test_add_and_search() {
         let dim = 16;
         let mut idx = VectorIndex::new(dim);
-        idx.add(&[1, 2], &[make_vec(1.0, dim), make_vec(0.1, dim)]);
+        idx.add(&[1, 2], &[make_vec(1.0, dim), make_vec(0.1, dim)])
+            .unwrap();
         let results = idx.search(&make_vec(1.0, dim), 2);
         assert!(!results.is_empty());
         assert_eq!(results[0].0, 1);
@@ -100,10 +104,19 @@ mod tests {
         let path = dir.path().join("index.tvim");
         let dim = 16;
         let mut idx = VectorIndex::new(dim);
-        idx.add(&[10], &[make_vec(0.5, dim)]);
+        idx.add(&[10], &[make_vec(0.5, dim)]).unwrap();
         idx.save(&path).unwrap();
         let loaded = VectorIndex::load(&path).unwrap();
         let results = loaded.search(&make_vec(0.5, dim), 1);
         assert_eq!(results[0].0, 10);
+    }
+
+    #[test]
+    fn test_add_duplicate_id_returns_error() {
+        let dim = 16;
+        let mut idx = VectorIndex::new(dim);
+        idx.add(&[42], &[make_vec(1.0, dim)]).unwrap();
+        let err = idx.add(&[42], &[make_vec(0.5, dim)]);
+        assert!(err.is_err(), "duplicate id should not be silently accepted");
     }
 }
