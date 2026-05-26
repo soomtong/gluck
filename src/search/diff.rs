@@ -18,23 +18,21 @@ pub fn compute_file_changes(
     new_oid: &str,
 ) -> Result<FileChanges, SearchError> {
     let r = repo.repository();
-    let old = Oid::from_str(old_oid)
-        .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
-    let new = Oid::from_str(new_oid)
-        .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
+    let old = Oid::from_str(old_oid).map_err(|e| SearchError::Git(e.to_string()))?;
+    let new = Oid::from_str(new_oid).map_err(|e| SearchError::Git(e.to_string()))?;
     let old_tree = r
         .find_commit(old)
         .and_then(|c| c.tree())
-        .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
+        .map_err(|e| SearchError::Git(e.to_string()))?;
     let new_tree = r
         .find_commit(new)
         .and_then(|c| c.tree())
-        .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
+        .map_err(|e| SearchError::Git(e.to_string()))?;
 
     let mut opts = DiffOptions::new();
     let diff = r
         .diff_tree_to_tree(Some(&old_tree), Some(&new_tree), Some(&mut opts))
-        .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
+        .map_err(|e| SearchError::Git(e.to_string()))?;
 
     let mut out = FileChanges::default();
     for delta in diff.deltas() {
@@ -98,6 +96,7 @@ mod tests {
         };
 
         let gr = crate::git::repo::GitRepo::open(_dir.path()).unwrap();
+        // c2를 baseline으로 사용 — c1 tree에는 drop.txt가 없어 c1→c3 diff로는 Deleted 감지 불가
         let changes = compute_file_changes(&gr, &c2.to_string(), &c3_oid).unwrap();
         assert!(changes.added.iter().any(|p| p == "new.txt"));
         assert!(changes.modified.iter().any(|p| p == "keep.txt"));

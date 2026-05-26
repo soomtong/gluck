@@ -56,6 +56,8 @@ pub enum SearchError {
     Embedding(String),
     #[error("toml error: {0}")]
     Toml(String),
+    #[error("git error: {0}")]
+    Git(String),
 }
 
 impl From<toml::de::Error> for SearchError {
