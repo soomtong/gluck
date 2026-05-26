@@ -199,6 +199,132 @@ where
     Ok(())
 }
 
+fn build_index_incremental(
+    repo: &GitRepo,
+    index_dir: &Path,
+    old_meta: &IndexMeta,
+    current_oid: &str,
+    opts: &IndexOptions,
+    progress: &dyn Fn(&str),
+) -> Result<(), SearchError> {
+    use crate::search::diff::{commits_since, compute_file_changes};
+
+    progress("Opening existing index...");
+    let bm25_dir = index_dir.join("bm25");
+    let bm25 = Bm25Index::open(bm25_dir.clone())?;
+    let vector_path = index_dir.join("vectors").join("index.tvim");
+    let mut vector = VectorIndex::load(&vector_path)?;
+
+    let store = bm25.scan_doc_store()?;
+    let path_map = collect_path_doc_ids(&store);
+    let mut doc_counter = max_doc_id(&store) + 1;
+
+    progress("Computing file changes...");
+    let changes = compute_file_changes(repo, &old_meta.head_oid, current_oid)?;
+    let new_commits = commits_since(repo, &old_meta.head_oid, current_oid)?;
+
+    let touched: Vec<String> = changes
+        .modified
+        .iter()
+        .chain(changes.deleted.iter())
+        .cloned()
+        .collect();
+
+    let mut writer = bm25.writer().map_err(SearchError::Tantivy)?;
+
+    // Stale 문서 제거: modified + deleted 파일의 모든 doc_id
+    for path in &touched {
+        if let Some(ids) = path_map.get(path) {
+            for id in ids {
+                bm25.delete_doc(&mut writer, *id);
+                vector.remove(*id);
+            }
+        }
+    }
+
+    // 신규 chunk 수집: 신규 커밋 메시지 + (added + modified) 파일
+    let mut new_chunks: Vec<Chunk> = new_commits.iter().map(commit_to_chunk).collect();
+
+    let new_oid =
+        git2::Oid::from_str(current_oid).map_err(|e| SearchError::Git(e.to_string()))?;
+    let new_commit = {
+        let rep = repo.repository();
+        let c = rep
+            .find_commit(new_oid)
+            .map_err(|e| SearchError::Git(e.to_string()))?;
+        CommitInfo::from_git_commit(&c)
+    };
+
+    for path in changes.added.iter().chain(changes.modified.iter()) {
+        if is_binary_blob(repo, &new_commit, path).unwrap_or(true) {
+            continue;
+        }
+        let Ok(content) = read_blob(repo, &new_commit, path) else {
+            continue;
+        };
+        if content.len() > opts.max_file_bytes {
+            continue;
+        }
+        new_chunks.extend(split_file(current_oid, path, &content));
+    }
+
+    progress(&format!(
+        "Embedding {} new chunks (delta from {} files)...",
+        new_chunks.len(),
+        changes.added.len() + changes.modified.len() + changes.deleted.len()
+    ));
+
+    let model = EmbeddingModel::load()?;
+    let dim = model.dim();
+    if dim != old_meta.embedding.dim {
+        return Err(SearchError::Embedding(format!(
+            "embedding dim changed: {} -> {}",
+            old_meta.embedding.dim, dim
+        )));
+    }
+
+    let mut all_ids: Vec<u64> = Vec::new();
+    let mut all_vecs: Vec<Vec<f32>> = Vec::new();
+
+    for chunk_batch in new_chunks.chunks(opts.batch_size) {
+        let texts: Vec<String> = chunk_batch.iter().map(|c| c.embed_text()).collect();
+        let embeddings = model.encode_batch(&texts)?;
+        for (chunk, embedding) in chunk_batch.iter().zip(embeddings.iter()) {
+            let doc_id = doc_counter;
+            doc_counter += 1;
+            let meta = chunk_to_meta(doc_id, chunk);
+            bm25.add_doc(&mut writer, &meta, chunk.bm25_body())
+                .map_err(SearchError::Tantivy)?;
+            all_ids.push(doc_id);
+            all_vecs.push(embedding.clone());
+        }
+    }
+
+    bm25.commit(writer).map_err(SearchError::Tantivy)?;
+    vector.add(&all_ids, &all_vecs)?;
+    vector.save(vector_path)?;
+
+    let meta = IndexMeta {
+        version: INDEX_VERSION,
+        head_oid: current_oid.to_string(),
+        doc_count: doc_counter,
+        indexed_at: chrono_now(),
+        embedding: old_meta.embedding.clone(),
+        bm25: old_meta.bm25.clone(),
+        vector: old_meta.vector.clone(),
+    };
+    let meta_str = toml::to_string_pretty(&meta)?;
+    std::fs::write(index_dir.join("meta.toml"), meta_str)?;
+    progress(&format!(
+        "Incremental update: +{} added, ~{} modified, -{} deleted, {} new commits",
+        changes.added.len(),
+        changes.modified.len(),
+        changes.deleted.len(),
+        new_commits.len()
+    ));
+    Ok(())
+}
+
 fn collect_commits(repo: &GitRepo) -> Result<Vec<CommitInfo>, SearchError> {
     let rep = repo.repository();
     let mut revwalk = rep

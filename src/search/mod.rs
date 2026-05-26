@@ -330,7 +330,7 @@ mod tests {
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IndexMeta {
     pub version: u32,
     pub head_oid: String,
@@ -341,18 +341,18 @@ pub struct IndexMeta {
     pub vector: VectorMeta,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EmbeddingMeta {
     pub model: String,
     pub dim: usize,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Bm25Meta {
     pub tokenizer: String,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VectorMeta {
     pub backend: String,
 }
