@@ -6,7 +6,6 @@ pub mod perf;
 pub mod render;
 
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use thiserror::Error;
 
@@ -89,12 +88,8 @@ impl Default for ReportOptions {
     }
 }
 
-fn now_epoch_string() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("{}Z", secs)
+fn now_iso8601() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 fn working_head_oid(repo: &GitRepo) -> Result<String, ReportError> {
@@ -179,7 +174,7 @@ pub fn run(repo: &GitRepo, repo_path: &Path, opts: &ReportOptions) -> Result<(),
     };
 
     let report = Report {
-        generated_at: now_epoch_string(),
+        generated_at: now_iso8601(),
         working_head_oid: head,
         head_mismatch,
         warmup: opts.warmup,

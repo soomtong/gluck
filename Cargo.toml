@@ -32,6 +32,7 @@ libc = "0.2"
 humansize = "2"
 unicode-width = "0.2"
 dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }
 model2vec-rs = { version = "0.2", features = ["hf-hub"] }
 turbovec = "0.5"
 tantivy = "0.22"
