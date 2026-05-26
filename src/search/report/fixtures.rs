@@ -4,8 +4,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::search::DocKind;
 use crate::search::report::ReportError;
+use crate::search::DocKind;
 
 #[derive(Debug, Deserialize)]
 pub struct FixtureSet {

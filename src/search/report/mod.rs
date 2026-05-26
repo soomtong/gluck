@@ -277,7 +277,10 @@ expected = [{ path = "a.rs" }]
         };
         let err = run(&git_repo, dir.path(), &opts).unwrap_err();
         assert!(
-            matches!(err, ReportError::Search(crate::search::SearchError::IndexNotFound(_))),
+            matches!(
+                err,
+                ReportError::Search(crate::search::SearchError::IndexNotFound(_))
+            ),
             "got {:?}",
             err
         );
@@ -295,6 +298,10 @@ expected = [{ path = "a.rs" }]
             limit: 5,
         };
         let err = run(&git_repo, dir.path(), &opts).unwrap_err();
-        assert!(matches!(err, ReportError::FixturesMissing(_)), "got {:?}", err);
+        assert!(
+            matches!(err, ReportError::FixturesMissing(_)),
+            "got {:?}",
+            err
+        );
     }
 }

@@ -2,10 +2,10 @@
 
 use std::time::Instant;
 
-use crate::search::SearchEngine;
-use crate::search::SearchResult;
 use crate::search::report::fixtures::FixtureQuery;
 use crate::search::report::ReportError;
+use crate::search::SearchEngine;
+use crate::search::SearchResult;
 
 #[derive(Debug, Clone)]
 pub struct LatencyStats {

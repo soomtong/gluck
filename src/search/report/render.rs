@@ -148,10 +148,7 @@ pub fn to_stdout(r: &Report) {
         "NDCG@10".into(),
         format!("{:.3}", r.aggregate.ndcg_at_10),
     ]);
-    t.add_row(vec![
-        "Queries".into(),
-        r.aggregate.n_queries.to_string(),
-    ]);
+    t.add_row(vec!["Queries".into(), r.aggregate.n_queries.to_string()]);
     println!("Aggregate:");
     println!("{t}");
     println!();
@@ -178,7 +175,14 @@ pub fn to_stdout(r: &Report) {
     t.load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec![
-            "#", "Query", "MRR", "R@5", "R@10", "NDCG@10", "HitRank", "Hit Paths",
+            "#",
+            "Query",
+            "MRR",
+            "R@5",
+            "R@10",
+            "NDCG@10",
+            "HitRank",
+            "Hit Paths",
         ]);
     for (i, q) in r.per_query.iter().enumerate() {
         let rank_str = q

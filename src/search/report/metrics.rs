@@ -81,8 +81,7 @@ pub fn evaluate(query: &FixtureQuery, results: &[SearchResult]) -> QueryEval {
     let n_expected = query.expected.len().max(1);
     let recall_at_5 = (hit_count_at_5.min(query.expected.len()) as f32)
         / (query.expected.len().clamp(1, 5) as f32);
-    let recall_at_10 = (hit_count_at_10.min(query.expected.len()) as f32)
-        / (n_expected as f32);
+    let recall_at_10 = (hit_count_at_10.min(query.expected.len()) as f32) / (n_expected as f32);
 
     // IDCG@10: min(10, |expected|) 개 위치에 1.0이 이상적으로 배치된 경우.
     let ideal_k = query.expected.len().min(10);
@@ -234,14 +233,21 @@ mod tests {
             result(3, DocKind::File, "src/b.rs", "src/b.rs"),
         ];
         let e = evaluate(&q, &res);
-        assert_eq!(e.hit_paths, vec!["src/a.rs".to_string(), "src/b.rs".to_string()]);
+        assert_eq!(
+            e.hit_paths,
+            vec!["src/a.rs".to_string(), "src/b.rs".to_string()]
+        );
     }
 
     #[test]
     fn matches_symbol_title_strips_path_suffix() {
         let q = fq(
             "x",
-            vec![eh_full("src/a.rs", DocKind::Symbol, "build_index_incremental")],
+            vec![eh_full(
+                "src/a.rs",
+                DocKind::Symbol,
+                "build_index_incremental",
+            )],
         );
         let res = vec![result(
             1,
