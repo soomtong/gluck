@@ -1,5 +1,6 @@
 pub mod bm25;
 pub mod chunk;
+pub mod diff;
 pub mod embedding;
 pub mod indexer;
 pub mod modal_state;
@@ -55,6 +56,8 @@ pub enum SearchError {
     Embedding(String),
     #[error("toml error: {0}")]
     Toml(String),
+    #[error("git error: {0}")]
+    Git(String),
 }
 
 impl From<toml::de::Error> for SearchError {
@@ -202,7 +205,7 @@ impl SearchEngine {
     }
 }
 
-pub const INDEX_VERSION: u32 = 4;
+pub const INDEX_VERSION: u32 = 5;
 pub const INDEX_DIR_NAME: &str = ".glc-index";
 
 #[cfg(test)]
@@ -327,7 +330,7 @@ mod tests {
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IndexMeta {
     pub version: u32,
     pub head_oid: String,
@@ -338,18 +341,18 @@ pub struct IndexMeta {
     pub vector: VectorMeta,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EmbeddingMeta {
     pub model: String,
     pub dim: usize,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Bm25Meta {
     pub tokenizer: String,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VectorMeta {
     pub backend: String,
 }

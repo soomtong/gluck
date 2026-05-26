@@ -37,6 +37,10 @@ impl VectorIndex {
         Ok(())
     }
 
+    pub fn remove(&mut self, id: u64) -> bool {
+        self.inner.remove(id)
+    }
+
     pub fn search(&self, query: &[f32], k: usize) -> Vec<(u64, f32)> {
         let q = l2_normalize(query);
         let (scores, ids) = self.inner.search(&q, k);
@@ -109,6 +113,18 @@ mod tests {
         let loaded = VectorIndex::load(&path).unwrap();
         let results = loaded.search(&make_vec(0.5, dim), 1);
         assert_eq!(results[0].0, 10);
+    }
+
+    #[test]
+    fn test_remove_drops_from_search() {
+        let dim = 16;
+        let mut idx = VectorIndex::new(dim);
+        idx.add(&[1, 2], &[make_vec(1.0, dim), make_vec(0.1, dim)])
+            .unwrap();
+        assert!(idx.remove(1));
+        let results = idx.search(&make_vec(1.0, dim), 5);
+        assert!(results.iter().all(|(id, _)| *id != 1));
+        assert!(!idx.remove(1), "second remove of same id returns false");
     }
 
     #[test]

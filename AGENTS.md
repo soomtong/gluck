@@ -73,7 +73,7 @@ Pick ──Enter──→ View ──Tab──→ Diff
 
 Semantic-search threading: indexing and engine-load each run on their own thread, talk via `mpsc::channel` (`IndexMessage`, `EngineMessage`). `EngineMessage::Ready(Box<SearchEngine>)` hands the heap-allocated engine to the main thread. `with_silenced_stdio()` redirects stderr during model load to keep hf-hub progress bars out of the alternate screen — **Unix-only** (`libc::dup2`).
 
-Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 3), `head_oid`, per-component metadata. Mismatched version or oid forces rebuild.
+Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 5), `head_oid`, per-component metadata. Mismatched version forces full rebuild. Mismatched `head_oid` triggers incremental update (BM25 `delete_term` + turbovec `remove` for stale docs, embed only the delta) when the old `head_oid` is still reachable; otherwise falls back to full rebuild.
 
 ## Architecture gotchas
 
