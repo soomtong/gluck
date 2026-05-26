@@ -196,3 +196,105 @@ pub fn run(repo: &GitRepo, repo_path: &Path, opts: &ReportOptions) -> Result<(),
 
     Ok(())
 }
+
+#[cfg(test)]
+mod e2e_tests {
+    use super::*;
+    use crate::git::repo::tests::{add_file_commit, init_test_repo};
+    use crate::search::indexer::{build_index, IndexOptions};
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    #[test]
+    #[ignore]
+    fn report_runs_end_to_end_and_writes_markdown() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "alpha.rs", b"fn alpha_func() {}", "Add alpha");
+        add_file_commit(&repo, "beta.rs", b"fn beta_func() {}", "Add beta");
+
+        let git_repo = crate::git::repo::GitRepo::open(dir.path()).unwrap();
+        let idx_opts = IndexOptions::default();
+        build_index(&git_repo, dir.path(), &idx_opts, |_| {}).unwrap();
+
+        let fixtures_dir = tempdir().unwrap();
+        let fixtures_path = fixtures_dir.path().join("q.toml");
+        std::fs::write(
+            &fixtures_path,
+            r#"
+[[query]]
+text = "alpha_func"
+expected = [{ path = "alpha.rs" }]
+
+[[query]]
+text = "beta_func"
+expected = [{ path = "beta.rs" }]
+"#,
+        )
+        .unwrap();
+
+        let out_md = fixtures_dir.path().join("report.md");
+        let opts = ReportOptions {
+            fixtures_path,
+            out_markdown: Some(out_md.clone()),
+            warmup: 1,
+            iters: 2,
+            limit: 10,
+        };
+        run(&git_repo, dir.path(), &opts).unwrap();
+
+        assert!(out_md.exists(), "markdown report should be written");
+        let md = std::fs::read_to_string(&out_md).unwrap();
+        assert!(md.contains("# Search Quality Report"));
+        assert!(md.contains("## Aggregate"));
+        assert!(md.contains("## Per-Query"));
+        assert!(md.contains("alpha_func"));
+        assert!(md.contains("beta_func"));
+    }
+
+    #[test]
+    fn report_errors_when_index_missing() {
+        let (dir, _repo) = init_test_repo();
+        let git_repo = crate::git::repo::GitRepo::open(dir.path()).unwrap();
+
+        let fixtures_dir = tempdir().unwrap();
+        let fixtures_path = fixtures_dir.path().join("q.toml");
+        std::fs::write(
+            &fixtures_path,
+            r#"
+[[query]]
+text = "x"
+expected = [{ path = "a.rs" }]
+"#,
+        )
+        .unwrap();
+
+        let opts = ReportOptions {
+            fixtures_path,
+            out_markdown: None,
+            warmup: 0,
+            iters: 1,
+            limit: 5,
+        };
+        let err = run(&git_repo, dir.path(), &opts).unwrap_err();
+        assert!(
+            matches!(err, ReportError::Search(crate::search::SearchError::IndexNotFound(_))),
+            "got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn report_errors_when_fixtures_missing() {
+        let (dir, _repo) = init_test_repo();
+        let git_repo = crate::git::repo::GitRepo::open(dir.path()).unwrap();
+        let opts = ReportOptions {
+            fixtures_path: PathBuf::from("/nonexistent/path/q.toml"),
+            out_markdown: None,
+            warmup: 0,
+            iters: 1,
+            limit: 5,
+        };
+        let err = run(&git_repo, dir.path(), &opts).unwrap_err();
+        assert!(matches!(err, ReportError::FixturesMissing(_)), "got {:?}", err);
+    }
+}
