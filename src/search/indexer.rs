@@ -5,6 +5,7 @@ use crate::git::repo::GitRepo;
 use crate::git::tree::{is_binary_blob, read_blob};
 use crate::search::bm25::{Bm25Index, TOKENIZER as BM25_TOKENIZER};
 use crate::search::chunk::{commit_to_chunk, split_file, Chunk};
+use crate::search::diff::{commits_since, compute_file_changes};
 use crate::search::embedding::EmbeddingModel;
 use crate::search::vector::VectorIndex;
 use crate::search::{
@@ -207,8 +208,6 @@ fn build_index_incremental(
     opts: &IndexOptions,
     progress: &dyn Fn(&str),
 ) -> Result<(), SearchError> {
-    use crate::search::diff::{commits_since, compute_file_changes};
-
     progress("Opening existing index...");
     let bm25_dir = index_dir.join("bm25");
     let bm25 = Bm25Index::open(bm25_dir.clone())?;
@@ -300,6 +299,11 @@ fn build_index_incremental(
         }
     }
 
+    // Partial failure window: if vector.save fails after bm25.commit succeeds,
+    // next run sees old head_oid (meta.toml unwritten) and re-attempts incremental
+    // from a baseline that no longer matches BM25 state. Task 7's fallback to
+    // full rebuild on incremental error recovers from this; reordering commits
+    // here doesn't help because vector and bm25 derive doc_counter from each other.
     bm25.commit(writer).map_err(SearchError::Tantivy)?;
     vector.add(&all_ids, &all_vecs)?;
     vector.save(vector_path)?;
@@ -315,13 +319,18 @@ fn build_index_incremental(
     };
     let meta_str = toml::to_string_pretty(&meta)?;
     std::fs::write(index_dir.join("meta.toml"), meta_str)?;
-    progress(&format!(
-        "Incremental update: +{} added, ~{} modified, -{} deleted, {} new commits",
-        changes.added.len(),
-        changes.modified.len(),
-        changes.deleted.len(),
-        new_commits.len()
-    ));
+    let total_changes = changes.added.len() + changes.modified.len() + changes.deleted.len();
+    if total_changes == 0 && new_commits.is_empty() {
+        progress("Index head fast-forwarded (no content change).");
+    } else {
+        progress(&format!(
+            "Incremental update: +{} added, ~{} modified, -{} deleted, {} new commits",
+            changes.added.len(),
+            changes.modified.len(),
+            changes.deleted.len(),
+            new_commits.len()
+        ));
+    }
     Ok(())
 }
 
@@ -405,6 +414,13 @@ fn chrono_now() -> String {
     format!("{}Z", secs)
 }
 
+/// Group existing index doc_ids by their path.
+///
+/// Assumes the current indexing model: HEAD-snapshot only, so each path's
+/// docs (one `WholeFile` + zero or more `Symbol`) all represent the same
+/// commit_oid and should be invalidated together on path modification.
+/// If history-aware (per-commit) file indexing is ever introduced, this
+/// grouping needs to key on (path, commit_oid) instead.
 pub(crate) fn collect_path_doc_ids(
     store: &std::collections::HashMap<u64, DocMeta>,
 ) -> std::collections::HashMap<String, Vec<u64>> {
