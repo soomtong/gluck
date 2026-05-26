@@ -5,13 +5,17 @@ pub mod metrics;
 pub mod perf;
 pub mod render;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use thiserror::Error;
 
-use crate::search::SearchError;
-use crate::search::report::metrics::{AggregateEval, QueryEval};
-use crate::search::report::perf::LatencyStats;
+use crate::git::repo::GitRepo;
+use crate::search::indexer::index_dir_for;
+use crate::search::report::metrics::{aggregate, evaluate, AggregateEval, QueryEval};
+use crate::search::report::perf::{run_perf, LatencyStats};
+use crate::search::report::render::{to_markdown_string, to_stdout};
+use crate::search::{DocKind, IndexMeta, SearchEngine, SearchError};
 
 #[derive(Debug, Error)]
 pub enum ReportError {
@@ -63,4 +67,137 @@ pub struct Report {
     pub latency: LatencyStats,
     pub index: IndexStats,
     pub per_query: Vec<QueryEval>,
+}
+
+pub struct ReportOptions {
+    pub fixtures_path: PathBuf,
+    pub out_markdown: Option<PathBuf>,
+    pub warmup: usize,
+    pub iters: usize,
+    pub limit: usize,
+}
+
+impl Default for ReportOptions {
+    fn default() -> Self {
+        Self {
+            fixtures_path: PathBuf::from("tests/fixtures/search_queries.toml"),
+            out_markdown: None,
+            warmup: 3,
+            iters: 10,
+            limit: 10,
+        }
+    }
+}
+
+fn now_epoch_string() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!("{}Z", secs)
+}
+
+fn working_head_oid(repo: &GitRepo) -> Result<String, ReportError> {
+    let r = repo.repository();
+    let head = r
+        .head()
+        .map_err(|e| ReportError::Io(std::io::Error::other(e.to_string())))?;
+    let oid = head
+        .peel_to_commit()
+        .map_err(|e| ReportError::Io(std::io::Error::other(e.to_string())))?
+        .id();
+    Ok(oid.to_string())
+}
+
+fn dir_size(p: &Path) -> u64 {
+    let mut total = 0u64;
+    let Ok(read) = std::fs::read_dir(p) else {
+        return 0;
+    };
+    for entry in read.flatten() {
+        let Ok(ft) = entry.file_type() else { continue };
+        if ft.is_dir() {
+            total += dir_size(&entry.path());
+        } else if let Ok(md) = entry.metadata() {
+            total += md.len();
+        }
+    }
+    total
+}
+
+pub fn run(repo: &GitRepo, repo_path: &Path, opts: &ReportOptions) -> Result<(), ReportError> {
+    let set = fixtures::load(&opts.fixtures_path)?;
+
+    let index_dir = index_dir_for(repo_path);
+    if !index_dir.join("meta.toml").exists() {
+        return Err(ReportError::Search(SearchError::IndexNotFound(
+            index_dir.clone(),
+        )));
+    }
+    let engine = SearchEngine::open(&index_dir)?;
+
+    let meta_str = std::fs::read_to_string(index_dir.join("meta.toml"))?;
+    let meta: IndexMeta = toml::from_str(&meta_str)?;
+
+    let head = working_head_oid(repo)?;
+    let head_mismatch = head != meta.head_oid;
+
+    let (latency, last_results) =
+        run_perf(&engine, &set.queries, opts.warmup, opts.iters, opts.limit)?;
+
+    let per_query: Vec<_> = set
+        .queries
+        .iter()
+        .zip(last_results.iter())
+        .map(|(q, r)| evaluate(q, r))
+        .collect();
+    let aggregate_eval = aggregate(&per_query);
+
+    let mut commit_n = 0usize;
+    let mut file_n = 0usize;
+    let mut sym_n = 0usize;
+    for m in engine.doc_store.values() {
+        match m.kind {
+            DocKind::Commit => commit_n += 1,
+            DocKind::File => file_n += 1,
+            DocKind::Symbol => sym_n += 1,
+        }
+    }
+    let index_stats = IndexStats {
+        index_dir: index_dir.clone(),
+        size_bytes: dir_size(&index_dir),
+        doc_count_total: engine.doc_store.len(),
+        doc_count_commit: commit_n,
+        doc_count_file: file_n,
+        doc_count_symbol: sym_n,
+        head_oid: meta.head_oid.clone(),
+        indexed_at: meta.indexed_at.clone(),
+        embedding_model: meta.embedding.model.clone(),
+        embedding_dim: meta.embedding.dim,
+        bm25_tokenizer: meta.bm25.tokenizer.clone(),
+        vector_backend: meta.vector.backend.clone(),
+    };
+
+    let report = Report {
+        generated_at: now_epoch_string(),
+        working_head_oid: head,
+        head_mismatch,
+        warmup: opts.warmup,
+        iters: opts.iters,
+        limit: opts.limit,
+        aggregate: aggregate_eval,
+        latency,
+        index: index_stats,
+        per_query,
+    };
+
+    to_stdout(&report);
+
+    if let Some(out_path) = &opts.out_markdown {
+        let md = to_markdown_string(&report);
+        std::fs::write(out_path, md)?;
+        eprintln!("wrote markdown report to {}", out_path.display());
+    }
+
+    Ok(())
 }
