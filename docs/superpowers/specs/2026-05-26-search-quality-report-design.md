@@ -140,7 +140,11 @@ fn matches(expected: &ExpectedHit, hit: &SearchResult) -> bool {
         if &hit.meta.kind != k { return false; }
     }
     if let Some(t) = &expected.title {
-        if &hit.meta.title != t { return false; }
+        // DocMeta.title 은 Symbol일 때 "{symbol_name} ({path})", 그 외엔 그대로
+        let name = hit.meta.title.split_once(" (")
+            .map(|(s, _)| s)
+            .unwrap_or(&hit.meta.title);
+        if name != t { return false; }
     }
     true
 }
