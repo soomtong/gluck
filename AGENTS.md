@@ -38,6 +38,7 @@ src/
 ```bash
 cargo run --bin glc -- [PATH]                    # run TUI
 cargo run --bin glc -- index [--force]           # headless index build
+cargo run --bin glc -- report [--out FILE.md]    # search quality + perf report
 cargo test [name]
 cargo clippy                                     # CI: --all-targets -D warnings
 rustfmt src/<changed>.rs                         # repo has formatting debt; format only what you touch
@@ -74,6 +75,8 @@ Pick ──Enter──→ View ──Tab──→ Diff
 Semantic-search threading: indexing and engine-load each run on their own thread, talk via `mpsc::channel` (`IndexMessage`, `EngineMessage`). `EngineMessage::Ready(Box<SearchEngine>)` hands the heap-allocated engine to the main thread. `with_silenced_stdio()` redirects stderr during model load to keep hf-hub progress bars out of the alternate screen — **Unix-only** (`libc::dup2`).
 
 Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 5), `head_oid`, per-component metadata. Mismatched version forces full rebuild. Mismatched `head_oid` triggers incremental update (BM25 `delete_term` + turbovec `remove` for stale docs, embed only the delta) when the old `head_oid` is still reachable; otherwise falls back to full rebuild.
+
+검색 품질 회귀 추적은 `glc report`가 `tests/fixtures/search_queries.toml`의 쿼리/정답으로 MRR/Recall@k/NDCG@10 + latency p50/p95/p99를 계산해 stdout(및 `--out` markdown)에 출력한다.
 
 ## Architecture gotchas
 
