@@ -41,4 +41,5 @@ expected = [
 text = "git revwalk topological commit"
 expected = [
     { path = "src/git/store.rs" },
+    { path = "src/git/commit.rs" },
 ]
