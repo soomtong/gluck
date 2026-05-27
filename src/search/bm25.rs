@@ -172,6 +172,23 @@ impl Bm25Index {
         Ok(())
     }
 
+    /// 진단용: 등록된 본문 토크나이저(`ngram_2_2`)가 텍스트를 어떻게 자르는지 그대로 보여준다.
+    /// 반환은 (position, token text) 쌍의 벡터.
+    pub fn tokenize_body(&self, text: &str) -> Vec<(usize, String)> {
+        use tantivy::tokenizer::TokenStream;
+        let mut analyzer = match self.index.tokenizers().get(TOKENIZER) {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+        let mut stream = analyzer.token_stream(text);
+        let mut out = Vec::new();
+        while stream.advance() {
+            let t = stream.token();
+            out.push((t.position, t.text.clone()));
+        }
+        out
+    }
+
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<(u64, f32)>, SearchError> {
         let searcher = self.reader.searcher();
         let mut parser = QueryParser::for_index(

@@ -57,4 +57,14 @@ pub enum Commands {
         #[arg(long, default_value = "10")]
         limit: usize,
     },
+
+    /// Diagnose a single query: dump BM25 tokens, raw BM25/Vector/RRF rankings
+    Diagnose {
+        /// Query text to analyze (e.g. "검색 인덱스 빌드")
+        query: String,
+
+        /// Number of top hits per stage
+        #[arg(long, default_value = "10")]
+        limit: usize,
+    },
 }

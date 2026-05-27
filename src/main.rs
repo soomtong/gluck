@@ -73,6 +73,16 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Some(Commands::Diagnose { query, limit }) => {
+            if let Err(e) = gluck::search::diagnose::run(&path, &query, limit) {
+                eprintln!("diagnose error: {}", e);
+                if matches!(e, gluck::search::SearchError::IndexNotFound(_)) {
+                    eprintln!("hint: run `glc index` first");
+                }
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
         None => {}
     }
 
