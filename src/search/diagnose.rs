@@ -7,24 +7,30 @@
 use std::path::Path;
 
 use crate::search::indexer::index_dir_for;
-use crate::search::rrf::rrf_fuse;
+use crate::search::rrf::{rrf_fuse_weighted, rrf_fuse_with_bm25_anchor};
 use crate::search::silence::with_silenced_stdio;
+use crate::search::text_prep::is_korean_query;
 use crate::search::{DocMeta, SearchEngine, SearchError};
 
 pub fn run(repo_path: &Path, query: &str, limit: usize) -> Result<(), SearchError> {
     let index_dir = index_dir_for(repo_path);
     let engine = with_silenced_stdio(|| SearchEngine::open(&index_dir))?;
 
+    let korean = is_korean_query(query);
+    let (w_bm25, w_vec) = if korean { (1.0, 1.5) } else { (1.0, 1.0) };
+
     println!("# Diagnose: {:?}", query);
     println!();
     println!("- Index dir: {}", index_dir.display());
     println!("- Docs: {}", engine.doc_store.len());
+    println!("- Korean query: {}", korean);
+    println!("- RRF weights: bm25={:.2}, vec={:.2}", w_bm25, w_vec);
     println!();
 
     print_tokens(&engine, query);
-    let bm25_hits = print_bm25(&engine, query, limit)?;
+    let bm25_hits = print_bm25(&engine, query, limit, korean)?;
     let vec_hits = print_vector(&engine, query, limit)?;
-    print_rrf(&engine, &bm25_hits, &vec_hits, limit);
+    print_rrf(&engine, &bm25_hits, &vec_hits, limit, w_bm25, w_vec);
 
     Ok(())
 }
@@ -46,9 +52,17 @@ fn print_bm25(
     engine: &SearchEngine,
     query: &str,
     limit: usize,
+    korean: bool,
 ) -> Result<Vec<(u64, f32)>, SearchError> {
-    let hits = engine.bm25.search(query, limit)?;
-    println!("## BM25 top {} (raw scores)", limit);
+    let (hits, mode) = if korean {
+        (
+            engine.bm25.search_path_title_only(query, limit)?,
+            "path+title only",
+        )
+    } else {
+        (engine.bm25.search(query, limit)?, "title+path+body")
+    };
+    println!("## BM25 top {} (raw scores, fields={})", limit, mode);
     if hits.is_empty() {
         println!("  (no hits)");
     } else {
@@ -89,9 +103,20 @@ fn print_rrf(
     bm25_hits: &[(u64, f32)],
     vec_hits: &[(u64, f32)],
     limit: usize,
+    w_bm25: f32,
+    w_vec: f32,
 ) {
-    let fused = rrf_fuse(bm25_hits, vec_hits, 60.0, limit);
-    println!("## RRF fused top {} (k=60)", limit);
+    let korean = w_vec > 1.0; // diagnose가 한국어 모드일 때 anchor 적용
+    let fused = if korean {
+        rrf_fuse_with_bm25_anchor(bm25_hits, vec_hits, 60.0, limit, w_bm25, w_vec, 3)
+    } else {
+        rrf_fuse_weighted(bm25_hits, vec_hits, 60.0, limit, w_bm25, w_vec)
+    };
+    let anchor_note = if korean { " + BM25 anchor=3" } else { "" };
+    println!(
+        "## RRF fused top {} (k=60, w_bm25={:.2}, w_vec={:.2}{})",
+        limit, w_bm25, w_vec, anchor_note
+    );
     if fused.is_empty() {
         println!("  (no hits)");
     } else {

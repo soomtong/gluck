@@ -140,7 +140,7 @@ impl Bm25Index {
         meta: &DocMeta,
         body: &str,
     ) -> Result<(), TantivyError> {
-        use crate::search::text_prep::{path_to_terms, split_camel_case};
+        use crate::search::text_prep::{korean_aliases, path_to_terms, split_camel_case};
         let mut doc = tantivy::TantivyDocument::default();
         doc.add_u64(self.fields.id, meta.doc_id);
         doc.add_text(self.fields.kind, meta.kind.as_str());
@@ -149,7 +149,13 @@ impl Bm25Index {
         doc.add_text(self.fields.commit_oid, &meta.commit_oid);
         if let Some(p) = &meta.path {
             doc.add_text(self.fields.path, p);
-            doc.add_text(self.fields.path_terms, path_to_terms(p));
+            let aliases = korean_aliases(p);
+            let path_terms_text = if aliases.is_empty() {
+                path_to_terms(p)
+            } else {
+                format!("{} {}", path_to_terms(p), aliases)
+            };
+            doc.add_text(self.fields.path_terms, path_terms_text);
         }
         if let Some(ls) = meta.line_start {
             doc.add_u64(self.fields.line_start, u64::from(ls));
@@ -190,14 +196,43 @@ impl Bm25Index {
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<(u64, f32)>, SearchError> {
+        self.search_inner(query, limit, false)
+    }
+
+    /// 한국어 쿼리 전용 BM25. body 필드를 제외하고 title + path_terms만 사용한다.
+    /// 한국어 자연어가 풍부한 .md/commit 본문에 묻히지 않게 하기 위한 좁은 검색.
+    /// path_terms에 주입된 한국어 별칭이 신호 표면을 제공한다.
+    pub fn search_path_title_only(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(u64, f32)>, SearchError> {
+        self.search_inner(query, limit, true)
+    }
+
+    fn search_inner(
+        &self,
+        query: &str,
+        limit: usize,
+        path_title_only: bool,
+    ) -> Result<Vec<(u64, f32)>, SearchError> {
         let searcher = self.reader.searcher();
-        let mut parser = QueryParser::for_index(
-            &self.index,
-            vec![self.fields.title, self.fields.path_terms, self.fields.body],
-        );
-        parser.set_field_boost(self.fields.title, 2.0);
-        parser.set_field_boost(self.fields.path_terms, 2.0);
-        parser.set_field_boost(self.fields.body, 1.0);
+        let fields = if path_title_only {
+            vec![self.fields.title, self.fields.path_terms]
+        } else {
+            vec![self.fields.title, self.fields.path_terms, self.fields.body]
+        };
+        let mut parser = QueryParser::for_index(&self.index, fields);
+        if path_title_only {
+            // 한국어 쿼리 전용. commit 타이틀의 한국어 매칭이 path 별칭을 압도하지 않도록
+            // path_terms를 강하게 띄우고 title 가중을 낮춘다.
+            parser.set_field_boost(self.fields.title, 1.0);
+            parser.set_field_boost(self.fields.path_terms, 5.0);
+        } else {
+            parser.set_field_boost(self.fields.title, 2.0);
+            parser.set_field_boost(self.fields.path_terms, 2.0);
+            parser.set_field_boost(self.fields.body, 1.0);
+        }
         let tantivy_query = match parser.parse_query(query) {
             Ok(q) => q,
             Err(_) => return Ok(vec![]),
@@ -558,6 +593,29 @@ mod tests {
                 "path-matching doc 1 should rank ≤ body-only doc 2"
             );
         }
+    }
+
+    #[test]
+    fn test_korean_query_matches_via_path_alias() {
+        // 본문에 한국어가 전혀 없어도 path alias로 잡혀야 한다.
+        let (_dir, idx) = tmp_index();
+        let mut w = idx.writer().unwrap();
+        let meta = DocMeta {
+            doc_id: 1,
+            kind: DocKind::File,
+            title: "src/search/indexer.rs".into(),
+            commit_oid: "a".repeat(40),
+            path: Some("src/search/indexer.rs".into()),
+            line_start: None,
+            line_end: None,
+        };
+        idx.add_doc(&mut w, &meta, "fn build_index() {}").unwrap();
+        idx.commit(w).unwrap();
+        let results = idx.search("검색 인덱스", 10).unwrap();
+        assert!(
+            results.iter().any(|(id, _)| *id == 1),
+            "한국어 쿼리가 영문 path의 한국어 별칭으로 매칭되어야 한다"
+        );
     }
 
     #[test]

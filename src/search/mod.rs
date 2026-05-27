@@ -159,7 +159,11 @@ impl SearchEngine {
         } else {
             limit * 2
         };
-        let bm25_hits = self.bm25.search(query, candidate_limit)?;
+        let bm25_hits = if text_prep::is_korean_query(query) {
+            self.bm25.search_path_title_only(query, candidate_limit)?
+        } else {
+            self.bm25.search(query, candidate_limit)?
+        };
 
         // 벡터 검색은 필드 문법을 모르므로 path:"..."가 제거된 의미 부분으로 임베딩
         let embed_text = if path_filter.is_some() {
@@ -182,7 +186,22 @@ impl SearchEngine {
                 .encode_single(embed_text)
                 .map_err(|e| SearchError::Embedding(e.to_string()))?;
             let vec_hits = self.vector.search(&query_vec, candidate_limit);
-            rrf::rrf_fuse(&bm25_hits, &vec_hits, 60.0, candidate_limit)
+            // 한국어 쿼리는 path 별칭으로 BM25가 정답을 잡지만 vector가 commit
+            // 노이즈에 끌려가므로, BM25 top 3을 anchor해서 단일 강한 매칭을 보존한다.
+            // 그 뒤는 weighted RRF로 채운다 (vec 1.5x — paraphrase 케이스 보호).
+            if text_prep::is_korean_query(embed_text) {
+                rrf::rrf_fuse_with_bm25_anchor(
+                    &bm25_hits,
+                    &vec_hits,
+                    60.0,
+                    candidate_limit,
+                    1.0,
+                    1.5,
+                    3,
+                )
+            } else {
+                rrf::rrf_fuse(&bm25_hits, &vec_hits, 60.0, candidate_limit)
+            }
         };
 
         let hydrated = self.hydrate(fused);
@@ -208,7 +227,7 @@ impl SearchEngine {
     }
 }
 
-pub const INDEX_VERSION: u32 = 6;
+pub const INDEX_VERSION: u32 = 7;
 pub const INDEX_DIR_NAME: &str = ".glc-index";
 
 #[cfg(test)]
