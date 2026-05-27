@@ -207,7 +207,7 @@ impl SearchEngine {
     }
 }
 
-pub const INDEX_VERSION: u32 = 5;
+pub const INDEX_VERSION: u32 = 6;
 pub const INDEX_DIR_NAME: &str = ".glc-index";
 
 #[cfg(test)]
