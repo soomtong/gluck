@@ -1,6 +1,10 @@
 # gluck 자체 검색 회귀 추적용 fixture.
 # 정답은 path 위주. Symbol 정답을 명시할 때만 kind/title을 추가.
-# category는 쿼리의 의도/형태를 분류한다.
+# category는 쿼리의 의도/형태를 분류한다 (exact_identifier, natural_language,
+# korean, typo, paraphrase, negative). negative 쿼리는 expected 대신
+# forbidden 으로 "이 결과가 상위 10에 들어오면 실패"를 표현한다.
+
+# ───────────────────────── exact_identifier (식별자 정확 매칭) ─────────────────────────
 
 [[query]]
 category = "exact_identifier"
@@ -17,17 +21,33 @@ expected = [
 ]
 
 [[query]]
-category = "natural_language"
-text = "RRF reciprocal rank fusion"
-expected = [
-    { path = "src/search/rrf.rs" },
-]
-
-[[query]]
 category = "exact_identifier"
 text = "embedding model load potion"
 expected = [
     { path = "src/search/embedding.rs" },
+]
+
+[[query]]
+category = "exact_identifier"
+text = "build_index_incremental"
+expected = [
+    { path = "src/search/indexer.rs", kind = "Symbol", title = "build_index_incremental" },
+]
+
+[[query]]
+category = "exact_identifier"
+text = "delete_doc bm25"
+expected = [
+    { path = "src/search/bm25.rs", kind = "Symbol", title = "delete_doc" },
+]
+
+# ───────────────────────── natural_language (영어 자연어) ─────────────────────────
+
+[[query]]
+category = "natural_language"
+text = "RRF reciprocal rank fusion"
+expected = [
+    { path = "src/search/rrf.rs" },
 ]
 
 [[query]]
@@ -50,4 +70,160 @@ text = "git revwalk topological commit"
 expected = [
     { path = "src/git/store.rs" },
     { path = "src/git/commit.rs" },
+]
+
+[[query]]
+category = "natural_language"
+text = "vector ANN search backend"
+expected = [
+    { path = "src/search/vector.rs" },
+]
+
+# ───────────────────────── korean (한국어 자연어) ─────────────────────────
+
+[[query]]
+category = "korean"
+text = "검색 인덱스 빌드"
+expected = [
+    { path = "src/search/indexer.rs" },
+]
+
+[[query]]
+category = "korean"
+text = "벡터 임베딩 모델"
+expected = [
+    { path = "src/search/embedding.rs" },
+]
+
+[[query]]
+category = "korean"
+text = "검색 모달 상태 머신"
+expected = [
+    { path = "src/search/modal_state.rs" },
+]
+
+[[query]]
+category = "korean"
+text = "트리 시터 하이라이트"
+expected = [
+    { path = "src/highlight/engine.rs" },
+]
+
+[[query]]
+category = "korean"
+text = "커밋 그래프 순회"
+expected = [
+    { path = "src/git/store.rs" },
+    { path = "src/git/commit.rs" },
+]
+
+# ───────────────────────── typo (오타 내성) ─────────────────────────
+
+[[query]]
+category = "typo"
+text = "tantivvy delete_trm"
+expected = [
+    { path = "src/search/bm25.rs" },
+]
+
+[[query]]
+category = "typo"
+text = "build_index_incremntal"
+expected = [
+    { path = "src/search/indexer.rs" },
+]
+
+[[query]]
+category = "typo"
+text = "embeding model potion"
+expected = [
+    { path = "src/search/embedding.rs" },
+]
+
+[[query]]
+category = "typo"
+text = "reciprical rank fussion"
+expected = [
+    { path = "src/search/rrf.rs" },
+]
+
+[[query]]
+category = "typo"
+text = "revwalk topolgical"
+expected = [
+    { path = "src/git/store.rs" },
+]
+
+# ───────────────────────── paraphrase (동의어/의역) ─────────────────────────
+
+[[query]]
+category = "paraphrase"
+text = "합치는 점수 알고리즘"
+expected = [
+    { path = "src/search/rrf.rs" },
+]
+
+[[query]]
+category = "paraphrase"
+text = "벡터 압축 방식"
+expected = [
+    { path = "src/search/vector.rs" },
+]
+
+[[query]]
+category = "paraphrase"
+text = "의미 기반 검색 구현"
+expected = [
+    { path = "src/search/mod.rs" },
+]
+
+[[query]]
+category = "paraphrase"
+text = "문서 청크 분할"
+expected = [
+    { path = "src/search/chunk/mod.rs" },
+]
+
+[[query]]
+category = "paraphrase"
+text = "토크나이저 설정"
+expected = [
+    { path = "src/search/bm25.rs" },
+]
+
+# ─────────── negative (gluck 도메인 밖 — src/ 안 정답이 떠오르면 안 됨) ───────────
+
+[[query]]
+category = "negative"
+text = "react component lifecycle hooks"
+forbidden = [
+    { path_prefix = "src/" },
+]
+
+[[query]]
+category = "negative"
+text = "django orm migrations"
+forbidden = [
+    { path_prefix = "src/" },
+]
+
+[[query]]
+category = "negative"
+text = "kubernetes pod scheduling"
+forbidden = [
+    { path_prefix = "src/" },
+]
+
+[[query]]
+category = "negative"
+text = "spring boot dependency injection"
+forbidden = [
+    { path_prefix = "src/" },
+]
+
+[[query]]
+category = "negative"
+text = "tensorflow model training loop"
+forbidden = [
+    { path_prefix = "src/" },
 ]

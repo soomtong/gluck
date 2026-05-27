@@ -363,9 +363,17 @@ forbidden = [{ path_prefix = "src/" }]
         if p.exists() {
             let set = load(p).expect("project fixtures must be valid");
             assert!(
-                set.queries.len() >= 7,
-                "expected at least 7 queries, got {}",
+                set.queries.len() >= 30,
+                "expected at least 30 queries, got {}",
                 set.queries.len()
+            );
+            let categories: std::collections::HashSet<_> =
+                set.queries.iter().map(|q| q.category).collect();
+            assert_eq!(
+                categories.len(),
+                6,
+                "expected all 6 categories present, got {:?}",
+                categories
             );
         }
     }
