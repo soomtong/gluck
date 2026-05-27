@@ -6,7 +6,56 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::{ContentArrangement, Table};
 use humansize::{format_size, BINARY};
 
+use crate::search::report::fixtures::Category;
+use crate::search::report::metrics::{NegativeEval, PositiveEval, QueryEval};
 use crate::search::report::Report;
+
+fn category_abbrev(c: Category) -> &'static str {
+    match c {
+        Category::ExactIdentifier => "exact",
+        Category::NaturalLanguage => "natural",
+        Category::Korean => "korean",
+        Category::Typo => "typo",
+        Category::Paraphrase => "paraphrase",
+        Category::Negative => "negative",
+    }
+}
+
+fn category_full(c: Category) -> &'static str {
+    match c {
+        Category::ExactIdentifier => "exact_identifier",
+        Category::NaturalLanguage => "natural_language",
+        Category::Korean => "korean",
+        Category::Typo => "typo",
+        Category::Paraphrase => "paraphrase",
+        Category::Negative => "negative",
+    }
+}
+
+fn split_positive_negative(qs: &[QueryEval]) -> (Vec<&PositiveEval>, Vec<&NegativeEval>) {
+    let mut pos = Vec::new();
+    let mut neg = Vec::new();
+    for q in qs {
+        match q {
+            QueryEval::Positive(p) => pos.push(p),
+            QueryEval::Negative(n) => neg.push(n),
+        }
+    }
+    (pos, neg)
+}
+
+fn negative_result_str(n: &NegativeEval) -> String {
+    if n.passed {
+        "PASS".into()
+    } else {
+        let parts: Vec<String> = n
+            .violations
+            .iter()
+            .map(|v| format!("rank {}: {} ({})", v.rank, v.path, v.matched_rule))
+            .collect();
+        format!("FAIL ({})", parts.join("; "))
+    }
+}
 
 pub fn to_markdown_string(r: &Report) -> String {
     let mut s = String::new();
@@ -29,7 +78,11 @@ pub fn to_markdown_string(r: &Report) -> String {
     }
     let _ = writeln!(s);
 
-    let _ = writeln!(s, "## Aggregate\n");
+    let _ = writeln!(
+        s,
+        "## Aggregate (positive only, n={})\n",
+        r.aggregate.n_queries
+    );
     let _ = writeln!(s, "| Metric | Value |");
     let _ = writeln!(s, "|--------|-------|");
     let _ = writeln!(s, "| MRR | {:.3} |", r.aggregate.mrr);
@@ -38,6 +91,46 @@ pub fn to_markdown_string(r: &Report) -> String {
     let _ = writeln!(s, "| NDCG@10 | {:.3} |", r.aggregate.ndcg_at_10);
     let _ = writeln!(s, "| Queries | {} |", r.aggregate.n_queries);
     let _ = writeln!(s);
+
+    let _ = writeln!(s, "## By Category\n");
+    let _ = writeln!(s, "| Category | n | MRR | R@5 | R@10 | NDCG@10 |");
+    let _ = writeln!(s, "|----------|---|-----|-----|------|---------|");
+    for cat in &r.by_category {
+        let _ = writeln!(
+            s,
+            "| {} | {} | {:.3} | {:.3} | {:.3} | {:.3} |",
+            category_full(cat.category),
+            cat.n,
+            cat.mrr,
+            cat.recall_at_5,
+            cat.recall_at_10,
+            cat.ndcg_at_10,
+        );
+    }
+    let _ = writeln!(s);
+
+    if !r.negatives.is_empty() {
+        let pass_count = r.negatives.iter().filter(|n| n.passed).count();
+        let pass_rate = (pass_count as f32) / (r.negatives.len() as f32);
+        let _ = writeln!(
+            s,
+            "## Negative Queries (n={}, pass {:.1}%)\n",
+            r.negatives.len(),
+            pass_rate * 100.0,
+        );
+        let _ = writeln!(s, "| # | Query | Result |");
+        let _ = writeln!(s, "|---|-------|--------|");
+        for (i, n) in r.negatives.iter().enumerate() {
+            let _ = writeln!(
+                s,
+                "| {} | {} | {} |",
+                i + 1,
+                n.query,
+                negative_result_str(n),
+            );
+        }
+        let _ = writeln!(s);
+    }
 
     let _ = writeln!(
         s,
@@ -77,34 +170,36 @@ pub fn to_markdown_string(r: &Report) -> String {
     );
     let _ = writeln!(s);
 
-    let _ = writeln!(s, "## Per-Query\n");
+    let (positives, _) = split_positive_negative(&r.per_query);
+    let _ = writeln!(s, "## Per-Query (positive only, n={})\n", positives.len());
     let _ = writeln!(
         s,
-        "| # | Query | MRR | R@5 | R@10 | NDCG@10 | Hit Rank | Hit Paths |"
+        "| # | Cat | Query | MRR | R@5 | R@10 | NDCG@10 | Hit Rank | Hit Paths |"
     );
     let _ = writeln!(
         s,
-        "|---|-------|-----|-----|------|---------|----------|-----------|"
+        "|---|-----|-------|-----|-----|------|---------|----------|-----------|"
     );
-    for (i, q) in r.per_query.iter().enumerate() {
-        let rank_str = q
+    for (i, p) in positives.iter().enumerate() {
+        let rank_str = p
             .first_hit_rank
             .map(|n| n.to_string())
             .unwrap_or_else(|| "—".into());
-        let paths = if q.hit_paths.is_empty() {
+        let paths = if p.hit_paths.is_empty() {
             "—".into()
         } else {
-            q.hit_paths.join(", ")
+            p.hit_paths.join(", ")
         };
         let _ = writeln!(
             s,
-            "| {} | {} | {:.3} | {:.3} | {:.3} | {:.3} | {} | {} |",
+            "| {} | {} | {} | {:.3} | {:.3} | {:.3} | {:.3} | {} | {} |",
             i + 1,
-            q.query,
-            q.mrr,
-            q.recall_at_5,
-            q.recall_at_10,
-            q.ndcg_at_10,
+            category_abbrev(p.category),
+            p.query,
+            p.mrr,
+            p.recall_at_5,
+            p.recall_at_10,
+            p.ndcg_at_10,
             rank_str,
             paths
         );
@@ -149,9 +244,50 @@ pub fn to_stdout(r: &Report) {
         format!("{:.3}", r.aggregate.ndcg_at_10),
     ]);
     t.add_row(vec!["Queries".into(), r.aggregate.n_queries.to_string()]);
-    println!("Aggregate:");
+    println!("Aggregate (positive only, n={}):", r.aggregate.n_queries);
     println!("{t}");
     println!();
+
+    let mut t = Table::new();
+    t.load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_header(vec!["Category", "n", "MRR", "R@5", "R@10", "NDCG@10"]);
+    for cat in &r.by_category {
+        t.add_row(vec![
+            category_full(cat.category).into(),
+            cat.n.to_string(),
+            format!("{:.3}", cat.mrr),
+            format!("{:.3}", cat.recall_at_5),
+            format!("{:.3}", cat.recall_at_10),
+            format!("{:.3}", cat.ndcg_at_10),
+        ]);
+    }
+    println!("By Category:");
+    println!("{t}");
+    println!();
+
+    if !r.negatives.is_empty() {
+        let pass_count = r.negatives.iter().filter(|n| n.passed).count();
+        let pass_rate = (pass_count as f32) / (r.negatives.len() as f32);
+        let mut t = Table::new();
+        t.load_preset(UTF8_FULL)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_header(vec!["#", "Query", "Result"]);
+        for (i, n) in r.negatives.iter().enumerate() {
+            t.add_row(vec![
+                (i + 1).to_string(),
+                n.query.clone(),
+                negative_result_str(n),
+            ]);
+        }
+        println!(
+            "Negative Queries (n={}, pass {:.1}%):",
+            r.negatives.len(),
+            pass_rate * 100.0,
+        );
+        println!("{t}");
+        println!();
+    }
 
     let mut t = Table::new();
     t.load_preset(UTF8_FULL)
@@ -171,11 +307,13 @@ pub fn to_stdout(r: &Report) {
     println!("{t}");
     println!();
 
+    let (positives, _) = split_positive_negative(&r.per_query);
     let mut t = Table::new();
     t.load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec![
             "#",
+            "Cat",
             "Query",
             "MRR",
             "R@5",
@@ -184,35 +322,38 @@ pub fn to_stdout(r: &Report) {
             "HitRank",
             "Hit Paths",
         ]);
-    for (i, q) in r.per_query.iter().enumerate() {
-        let rank_str = q
+    for (i, p) in positives.iter().enumerate() {
+        let rank_str = p
             .first_hit_rank
             .map(|n| n.to_string())
             .unwrap_or_else(|| "—".into());
-        let paths = if q.hit_paths.is_empty() {
+        let paths = if p.hit_paths.is_empty() {
             "—".into()
         } else {
-            q.hit_paths.join(", ")
+            p.hit_paths.join(", ")
         };
         t.add_row(vec![
             (i + 1).to_string(),
-            q.query.clone(),
-            format!("{:.3}", q.mrr),
-            format!("{:.3}", q.recall_at_5),
-            format!("{:.3}", q.recall_at_10),
-            format!("{:.3}", q.ndcg_at_10),
+            category_abbrev(p.category).into(),
+            p.query.clone(),
+            format!("{:.3}", p.mrr),
+            format!("{:.3}", p.recall_at_5),
+            format!("{:.3}", p.recall_at_10),
+            format!("{:.3}", p.ndcg_at_10),
             rank_str,
             paths,
         ]);
     }
-    println!("Per-Query:");
+    println!("Per-Query (positive only, n={}):", positives.len());
     println!("{t}");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::search::report::metrics::{AggregateEval, QueryEval};
+    use crate::search::report::metrics::{
+        AggregateEval, CategoryAggregate, NegativeEval, NegativeViolation, PositiveEval, QueryEval,
+    };
     use crate::search::report::perf::LatencyStats;
     use crate::search::report::IndexStats;
     use std::path::PathBuf;
@@ -230,7 +371,7 @@ mod tests {
                 recall_at_5: 0.6,
                 recall_at_10: 0.8,
                 ndcg_at_10: 0.7,
-                n_queries: 2,
+                n_queries: 1,
             },
             latency: LatencyStats {
                 p50_ms: 20.0,
@@ -254,15 +395,25 @@ mod tests {
                 bm25_tokenizer: "ngram_2_2".into(),
                 vector_backend: "turbovec".into(),
             },
-            per_query: vec![QueryEval {
+            per_query: vec![QueryEval::Positive(PositiveEval {
                 query: "q1".into(),
+                category: Category::ExactIdentifier,
                 mrr: 1.0,
                 recall_at_5: 1.0,
                 recall_at_10: 1.0,
                 ndcg_at_10: 1.0,
                 first_hit_rank: Some(1),
                 hit_paths: vec!["src/a.rs".into()],
+            })],
+            by_category: vec![CategoryAggregate {
+                category: Category::ExactIdentifier,
+                n: 1,
+                mrr: 1.0,
+                recall_at_5: 1.0,
+                recall_at_10: 1.0,
+                ndcg_at_10: 1.0,
             }],
+            negatives: vec![],
         }
     }
 
@@ -271,12 +422,15 @@ mod tests {
         let md = to_markdown_string(&sample_report());
         assert!(md.contains("# Search Quality Report"));
         assert!(md.contains("## Aggregate"));
+        assert!(md.contains("## By Category"));
         assert!(md.contains("## Performance"));
         assert!(md.contains("## Index"));
         assert!(md.contains("## Per-Query"));
         assert!(md.contains("MRR"));
         assert!(md.contains("NDCG@10"));
         assert!(md.contains("src/a.rs"));
+        assert!(md.contains("exact_identifier"));
+        assert!(md.contains("exact "));
     }
 
     #[test]
@@ -285,5 +439,37 @@ mod tests {
         r.head_mismatch = true;
         let md = to_markdown_string(&r);
         assert!(md.contains("HEAD ≠ index.head_oid"));
+    }
+
+    #[test]
+    fn markdown_includes_negative_section_when_present() {
+        let mut r = sample_report();
+        r.negatives = vec![
+            NegativeEval {
+                query: "react component".into(),
+                passed: true,
+                violations: vec![],
+            },
+            NegativeEval {
+                query: "django migrations".into(),
+                passed: false,
+                violations: vec![NegativeViolation {
+                    rank: 3,
+                    path: "src/main.rs".into(),
+                    matched_rule: "path_prefix=src/".into(),
+                }],
+            },
+        ];
+        let md = to_markdown_string(&r);
+        assert!(md.contains("## Negative Queries"));
+        assert!(md.contains("PASS"));
+        assert!(md.contains("FAIL"));
+        assert!(md.contains("path_prefix=src/"));
+    }
+
+    #[test]
+    fn markdown_skips_negative_section_when_empty() {
+        let md = to_markdown_string(&sample_report());
+        assert!(!md.contains("## Negative Queries"));
     }
 }

@@ -11,7 +11,10 @@ use thiserror::Error;
 
 use crate::git::repo::GitRepo;
 use crate::search::indexer::index_dir_for;
-use crate::search::report::metrics::{aggregate, evaluate, AggregateEval, QueryEval};
+use crate::search::report::metrics::{
+    aggregate, aggregate_by_category, evaluate, AggregateEval, CategoryAggregate, NegativeEval,
+    QueryEval,
+};
 use crate::search::report::perf::{run_perf, LatencyStats};
 use crate::search::report::render::{to_markdown_string, to_stdout};
 use crate::search::{DocKind, IndexMeta, SearchEngine, SearchError};
@@ -74,6 +77,8 @@ pub struct Report {
     pub latency: LatencyStats,
     pub index: IndexStats,
     pub per_query: Vec<QueryEval>,
+    pub by_category: Vec<CategoryAggregate>,
+    pub negatives: Vec<NegativeEval>,
 }
 
 pub struct ReportOptions {
@@ -155,6 +160,14 @@ pub fn run(repo: &GitRepo, repo_path: &Path, opts: &ReportOptions) -> Result<(),
         .map(|(q, r)| evaluate(q, r))
         .collect();
     let aggregate_eval = aggregate(&per_query);
+    let by_category = aggregate_by_category(&per_query);
+    let negatives: Vec<NegativeEval> = per_query
+        .iter()
+        .filter_map(|q| match q {
+            QueryEval::Negative(n) => Some(n.clone()),
+            QueryEval::Positive(_) => None,
+        })
+        .collect();
 
     let mut commit_n = 0usize;
     let mut file_n = 0usize;
@@ -192,6 +205,8 @@ pub fn run(repo: &GitRepo, repo_path: &Path, opts: &ReportOptions) -> Result<(),
         latency,
         index: index_stats,
         per_query,
+        by_category,
+        negatives,
     };
 
     to_stdout(&report);
