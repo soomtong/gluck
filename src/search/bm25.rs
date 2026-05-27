@@ -140,14 +140,16 @@ impl Bm25Index {
         meta: &DocMeta,
         body: &str,
     ) -> Result<(), TantivyError> {
+        use crate::search::text_prep::{path_to_terms, split_camel_case};
         let mut doc = tantivy::TantivyDocument::default();
         doc.add_u64(self.fields.id, meta.doc_id);
         doc.add_text(self.fields.kind, meta.kind.as_str());
-        doc.add_text(self.fields.title, &meta.title);
+        doc.add_text(self.fields.title, split_camel_case(&meta.title));
         doc.add_text(self.fields.body, body);
         doc.add_text(self.fields.commit_oid, &meta.commit_oid);
         if let Some(p) = &meta.path {
             doc.add_text(self.fields.path, p);
+            doc.add_text(self.fields.path_terms, path_to_terms(p));
         }
         if let Some(ls) = meta.line_start {
             doc.add_u64(self.fields.line_start, u64::from(ls));
@@ -465,5 +467,32 @@ mod tests {
             "only the matching path should be returned"
         );
         assert_eq!(results[0].0, 1);
+    }
+
+    #[test]
+    fn test_camel_case_title_split_for_query() {
+        let (_dir, idx) = tmp_index();
+        let mut w = idx.writer().unwrap();
+        let meta = DocMeta {
+            doc_id: 7,
+            kind: DocKind::Symbol,
+            title: "ModalState (src/search/modal_state.rs)".into(),
+            commit_oid: "b".repeat(40),
+            path: Some("src/search/modal_state.rs".into()),
+            line_start: Some(1),
+            line_end: Some(10),
+        };
+        idx.add_doc(&mut w, &meta, "enum ModalState {}").unwrap();
+        idx.commit(w).unwrap();
+        let r = idx.search("modal", 10).unwrap();
+        assert!(
+            r.iter().any(|(id, _)| *id == 7),
+            "modal must match split ModalState in title"
+        );
+        let r = idx.search("state", 10).unwrap();
+        assert!(
+            r.iter().any(|(id, _)| *id == 7),
+            "state must match split ModalState in title"
+        );
     }
 }
