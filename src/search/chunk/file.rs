@@ -106,10 +106,7 @@ mod tests {
 
     #[test]
     fn twelve_kb_rust_file_stays_whole_file() {
-        let big = format!(
-            "fn foo() {{\n{}\n}}\n",
-            "    let x = 1;\n".repeat(800),
-        );
+        let big = format!("fn foo() {{\n{}\n}}\n", "    let x = 1;\n".repeat(800),);
         assert!(
             big.len() > 8 * 1024 && big.len() < 16 * 1024,
             "test fixture sizing: got {}",
