@@ -174,7 +174,13 @@ impl Bm25Index {
 
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<(u64, f32)>, SearchError> {
         let searcher = self.reader.searcher();
-        let parser = QueryParser::for_index(&self.index, vec![self.fields.title, self.fields.body]);
+        let mut parser = QueryParser::for_index(
+            &self.index,
+            vec![self.fields.title, self.fields.path_terms, self.fields.body],
+        );
+        parser.set_field_boost(self.fields.title, 2.0);
+        parser.set_field_boost(self.fields.path_terms, 2.0);
+        parser.set_field_boost(self.fields.body, 1.0);
         let tantivy_query = match parser.parse_query(query) {
             Ok(q) => q,
             Err(_) => return Ok(vec![]),
@@ -467,6 +473,74 @@ mod tests {
             "only the matching path should be returned"
         );
         assert_eq!(results[0].0, 1);
+    }
+
+    #[test]
+    fn test_path_terms_matches_path_segment_query() {
+        let (_dir, idx) = tmp_index();
+        let mut w = idx.writer().unwrap();
+        let meta = DocMeta {
+            doc_id: 1,
+            kind: DocKind::File,
+            title: "src/search/rrf.rs".into(),
+            commit_oid: "a".repeat(40),
+            path: Some("src/search/rrf.rs".into()),
+            line_start: None,
+            line_end: None,
+        };
+        idx.add_doc(&mut w, &meta, "fn rrf_fuse() {}").unwrap();
+        idx.commit(w).unwrap();
+        let results = idx.search("rrf", 10).unwrap();
+        assert!(
+            results.iter().any(|(id, _)| *id == 1),
+            "query 'rrf' must match path_terms src/search/rrf.rs"
+        );
+    }
+
+    #[test]
+    fn test_path_match_outranks_unrelated_body_match() {
+        let (_dir, idx) = tmp_index();
+        let mut w = idx.writer().unwrap();
+
+        let target = DocMeta {
+            doc_id: 1,
+            kind: DocKind::File,
+            title: "src/git/store.rs".into(),
+            commit_oid: "a".repeat(40),
+            path: Some("src/git/store.rs".into()),
+            line_start: None,
+            line_end: None,
+        };
+        idx.add_doc(&mut w, &target, "fn open() {}").unwrap();
+
+        let distractor = DocMeta {
+            doc_id: 2,
+            kind: DocKind::File,
+            title: "src/ui/view.rs".into(),
+            commit_oid: "b".repeat(40),
+            path: Some("src/ui/view.rs".into()),
+            line_start: None,
+            line_end: None,
+        };
+        idx.add_doc(
+            &mut w,
+            &distractor,
+            "some long content that mentions store once in the middle of many other words and bigrams",
+        )
+        .unwrap();
+
+        idx.commit(w).unwrap();
+
+        let results = idx.search("store", 10).unwrap();
+        assert!(results.iter().any(|(id, _)| *id == 1));
+        let pos_1 = results.iter().position(|(id, _)| *id == 1).unwrap();
+        let pos_2 = results.iter().position(|(id, _)| *id == 2);
+        if let Some(p2) = pos_2 {
+            assert!(
+                pos_1 <= p2,
+                "path-matching doc 1 should rank ≤ body-only doc 2"
+            );
+        }
     }
 
     #[test]
