@@ -1,6 +1,6 @@
 [package]
 name = "gluck"
-version = "0.9.1"
+version = "0.9.3"
 edition = "2021"
 
 [[bin]]
@@ -16,8 +16,8 @@ clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
-tree-sitter = "0.22"
-tree-sitter-highlight = "0.22"
+tree-sitter = "0.23"
+tree-sitter-highlight = "0.23"
 tree-sitter-rust = "0.23"
 tree-sitter-python = "0.23"
 tree-sitter-javascript = "0.23"

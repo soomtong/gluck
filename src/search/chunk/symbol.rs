@@ -11,6 +11,7 @@ pub enum SymbolKind {
     Struct,
     Enum,
     Trait,
+    TypeAlias,
     Class,
     Other,
 }
@@ -86,6 +87,10 @@ fn build_symbol_span(
                 symbol_node = Some(cap.node);
                 kind = SymbolKind::Trait;
             }
+            "symbol.type" => {
+                symbol_node = Some(cap.node);
+                kind = SymbolKind::TypeAlias;
+            }
             "symbol.class" => {
                 symbol_node = Some(cap.node);
                 kind = SymbolKind::Class;
@@ -125,56 +130,32 @@ fn lang_and_query(language: Language) -> Option<(&'static TsLanguage, &'static Q
 // Language와 Query는 immutable이므로 OnceLock으로 캐싱 — 파일마다 재컴파일 비용 제거.
 fn rust_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_rust::LANGUAGE.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_rust::LANGUAGE.into())
 }
 
 fn python_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_python::LANGUAGE.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_python::LANGUAGE.into())
 }
 
 fn javascript_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_javascript::LANGUAGE.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_javascript::LANGUAGE.into())
 }
 
 fn typescript_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
 }
 
 fn tsx_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_typescript::LANGUAGE_TSX.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_typescript::LANGUAGE_TSX.into())
 }
 
 fn go_lang() -> &'static TsLanguage {
     static LANG: OnceLock<TsLanguage> = OnceLock::new();
-    LANG.get_or_init(|| {
-        let raw_fn = tree_sitter_go::LANGUAGE.into_raw();
-        let raw_ptr = unsafe { raw_fn() };
-        unsafe { TsLanguage::from_raw(raw_ptr as *const _) }
-    })
+    LANG.get_or_init(|| tree_sitter_go::LANGUAGE.into())
 }
 
 fn rust_query() -> &'static Query {
@@ -221,6 +202,12 @@ const RUST_QUERY: &str = r#"
 
 ((source_file
    (enum_item name: (type_identifier) @name) @symbol.enum))
+
+((source_file
+   (trait_item name: (type_identifier) @name) @symbol.trait))
+
+((source_file
+   (type_item name: (type_identifier) @name) @symbol.type))
 
 ((source_file
    (impl_item
@@ -388,6 +375,40 @@ func Top() {}
         let kinds_names: Vec<_> = spans.iter().map(|s| (s.kind, s.name.as_str())).collect();
         assert!(kinds_names.contains(&(SymbolKind::Function, "Top")));
         assert!(kinds_names.contains(&(SymbolKind::Method, "Bar")));
+    }
+
+    #[test]
+    fn rust_top_level_trait_extracted() {
+        let src = r#"
+trait Greet {
+    fn name(&self) -> &str;
+    fn hello(&self) -> String { String::new() }
+}
+"#;
+        let spans = extract_symbols(src, Language::Rust).unwrap();
+        let has_trait_container = spans
+            .iter()
+            .any(|s| s.kind == SymbolKind::Trait && s.name == "Greet");
+        assert!(
+            has_trait_container,
+            "top-level trait declaration must be extracted as Trait, not only its methods"
+        );
+    }
+
+    #[test]
+    fn rust_top_level_type_alias_extracted() {
+        let src = r#"
+type CommitId = String;
+type Result<T> = std::result::Result<T, MyError>;
+"#;
+        let spans = extract_symbols(src, Language::Rust).unwrap();
+        let names: Vec<_> = spans
+            .iter()
+            .filter(|s| s.kind == SymbolKind::TypeAlias)
+            .map(|s| s.name.as_str())
+            .collect();
+        assert!(names.contains(&"CommitId"));
+        assert!(names.contains(&"Result"));
     }
 
     #[test]

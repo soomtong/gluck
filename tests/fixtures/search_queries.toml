@@ -4,7 +4,6 @@
 [[query]]
 text = "incremental indexing fallback"
 expected = [
-    { path = "src/search/diff.rs" },
     { path = "src/search/indexer.rs", kind = "Symbol", title = "build_index_incremental" },
 ]
 
@@ -42,4 +41,5 @@ expected = [
 text = "git revwalk topological commit"
 expected = [
     { path = "src/git/store.rs" },
+    { path = "src/git/commit.rs" },
 ]

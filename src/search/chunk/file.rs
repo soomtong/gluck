@@ -3,7 +3,7 @@ use super::Chunk;
 use crate::lang::Language;
 
 /// 파일 크기 임계값 — 미만은 WholeFile, 이상은 Symbol 시도.
-const WHOLE_FILE_THRESHOLD: usize = 8 * 1024; // 8 KB
+const WHOLE_FILE_THRESHOLD: usize = 16 * 1024; // 16 KB — modal_state.rs, store.rs 등을 WholeFile로 보존
 
 /// 너무 짧은 심볼은 청크화 가치가 없다 — 1줄짜리 setter 등을 제외.
 const MIN_SYMBOL_LINES: u32 = 2;
@@ -72,8 +72,13 @@ mod tests {
     fn large_rust_file_produces_symbols() {
         let big_fn = format!(
             "fn foo() {{\n{}\n}}\nfn bar() {{\n{}\n}}",
-            "    let x = 1;\n".repeat(500),
-            "    let y = 2;\n".repeat(500),
+            "    let x = 1;\n".repeat(800),
+            "    let y = 2;\n".repeat(800),
+        );
+        assert!(
+            big_fn.len() > 16 * 1024,
+            "fixture must exceed WHOLE_FILE_THRESHOLD: got {}",
+            big_fn.len()
         );
         let chunks = split_file("abc", "src/lib.rs", &big_fn);
         assert!(chunks.iter().any(|c| matches!(c, Chunk::Symbol { .. })));
@@ -81,9 +86,9 @@ mod tests {
 
     #[test]
     fn utf8_safe_slicing_does_not_panic() {
-        let body = "// 한국어 주석이 잔뜩 들어간 큰 파일\n".repeat(400);
+        let body = "// 한국어 주석이 잔뜩 들어간 큰 파일\n".repeat(800);
         let src = format!("{}\nfn foo() {{\n    let x = 1;\n}}\n", body);
-        assert!(src.len() > 8 * 1024);
+        assert!(src.len() > 16 * 1024);
         // panic 없이 동작하면 통과
         let chunks = split_file("oid", "korean.rs", &src);
         assert!(!chunks.is_empty());
@@ -92,10 +97,23 @@ mod tests {
     #[test]
     fn unsupported_language_large_file_falls_back_to_whole_file() {
         // .java는 supports_symbol_chunking == false. 큰 파일이지만 WholeFile.
-        let src = "class Foo { int x; }\n".repeat(500);
-        assert!(src.len() > 8 * 1024);
+        let src = "class Foo { int x; }\n".repeat(1000);
+        assert!(src.len() > 16 * 1024);
         let chunks = split_file("oid", "Big.java", &src);
         assert_eq!(chunks.len(), 1);
+        assert!(matches!(chunks[0], Chunk::WholeFile { .. }));
+    }
+
+    #[test]
+    fn twelve_kb_rust_file_stays_whole_file() {
+        let big = format!("fn foo() {{\n{}\n}}\n", "    let x = 1;\n".repeat(800),);
+        assert!(
+            big.len() > 8 * 1024 && big.len() < 16 * 1024,
+            "test fixture sizing: got {}",
+            big.len()
+        );
+        let chunks = split_file("oid", "medium.rs", &big);
+        assert_eq!(chunks.len(), 1, "12KB file should be single WholeFile");
         assert!(matches!(chunks[0], Chunk::WholeFile { .. }));
     }
 
@@ -104,8 +122,13 @@ mod tests {
         // Method/Function/Struct 분리 확인용
         let big_fn = format!(
             "struct Foo {{ x: i32 }}\nimpl Foo {{\n    fn bar(&self) {{\n{}\n}}\n}}\nfn top() {{\n{}\n}}",
-            "        let _ = 1;\n".repeat(300),
-            "    let _ = 1;\n".repeat(300),
+            "        let _ = 1;\n".repeat(500),
+            "    let _ = 1;\n".repeat(500),
+        );
+        assert!(
+            big_fn.len() > 16 * 1024,
+            "fixture must exceed WHOLE_FILE_THRESHOLD: got {}",
+            big_fn.len()
         );
         let chunks = split_file("oid", "big.rs", &big_fn);
         let kinds: Vec<SymbolKind> = chunks

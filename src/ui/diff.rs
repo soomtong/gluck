@@ -219,6 +219,62 @@ fn render_unified(
     frame.render_widget(paragraph, area);
 }
 
+#[derive(Debug)]
+enum AlignedLine<'a> {
+    Both {
+        old: &'a DiffLine,
+        new: &'a DiffLine,
+    },
+    OldOnly {
+        old: &'a DiffLine,
+    },
+    NewOnly {
+        new: &'a DiffLine,
+    },
+}
+
+fn align_diff_lines(lines: &[DiffLine]) -> Vec<AlignedLine<'_>> {
+    let mut result = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        match &lines[i] {
+            DiffLine::Context { .. } => {
+                result.push(AlignedLine::Both {
+                    old: &lines[i],
+                    new: &lines[i],
+                });
+                i += 1;
+            }
+            _ => {
+                let mut removed = Vec::new();
+                let mut added = Vec::new();
+                while i < lines.len() && !matches!(lines[i], DiffLine::Context { .. }) {
+                    match &lines[i] {
+                        DiffLine::Removed { .. } => removed.push(&lines[i]),
+                        DiffLine::Added { .. } => added.push(&lines[i]),
+                        _ => {}
+                    }
+                    i += 1;
+                }
+                let paired = removed.len().min(added.len());
+                for j in 0..paired {
+                    result.push(AlignedLine::Both {
+                        old: removed[j],
+                        new: added[j],
+                    });
+                }
+                for old_line in removed.iter().skip(paired) {
+                    result.push(AlignedLine::OldOnly { old: old_line });
+                }
+                for new_line in added.iter().skip(paired) {
+                    result.push(AlignedLine::NewOnly { new: new_line });
+                }
+            }
+        }
+    }
+    result
+}
+
 fn render_side_by_side(
     frame: &mut ratatui::Frame,
     area: Rect,
@@ -228,53 +284,27 @@ fn render_side_by_side(
 ) {
     let (left, right) = layout::split_horizontal(area, area.width / 2);
 
-    let old_lines: Vec<Line> = file
-        .lines
-        .iter()
-        .filter(|dl| !matches!(dl, DiffLine::Added { .. }))
-        .map(|dl| {
-            let (prefix, line_no) = match dl {
-                DiffLine::Removed { line_no, .. } => ("-", format!(" {:>4} ", line_no)),
-                DiffLine::Context { old_line_no, .. } => (" ", format!(" {:>4} ", old_line_no)),
-                DiffLine::Added { .. } => unreachable!(),
-            };
-            let content = match dl {
-                DiffLine::Context { content, .. } => content,
-                DiffLine::Removed { content, .. } => content,
-                DiffLine::Added { .. } => unreachable!(),
-            };
-            let style = style_for_line(dl, palette);
-            Line::from(vec![
-                Span::styled(prefix, style),
-                Span::styled(line_no, Style::new().fg(palette.dim)),
-                Span::styled(content.clone(), style),
-            ])
-        })
-        .collect();
+    let aligned = align_diff_lines(&file.lines);
 
-    let new_lines: Vec<Line> = file
-        .lines
-        .iter()
-        .filter(|dl| !matches!(dl, DiffLine::Removed { .. }))
-        .map(|dl| {
-            let (prefix, line_no) = match dl {
-                DiffLine::Added { line_no, .. } => ("+", format!(" {:>4} ", line_no)),
-                DiffLine::Context { new_line_no, .. } => (" ", format!(" {:>4} ", new_line_no)),
-                DiffLine::Removed { .. } => unreachable!(),
-            };
-            let content = match dl {
-                DiffLine::Context { content, .. } => content,
-                DiffLine::Added { content, .. } => content,
-                DiffLine::Removed { .. } => unreachable!(),
-            };
-            let style = style_for_line(dl, palette);
-            Line::from(vec![
-                Span::styled(prefix, style),
-                Span::styled(line_no, Style::new().fg(palette.dim)),
-                Span::styled(content.clone(), style),
-            ])
-        })
-        .collect();
+    let mut old_lines: Vec<Line> = Vec::new();
+    let mut new_lines: Vec<Line> = Vec::new();
+
+    for al in &aligned {
+        match al {
+            AlignedLine::Both { old, new } => {
+                old_lines.push(diff_line_span(old, palette, false));
+                new_lines.push(diff_line_span(new, palette, true));
+            }
+            AlignedLine::OldOnly { old } => {
+                old_lines.push(diff_line_span(old, palette, false));
+                new_lines.push(Line::from(""));
+            }
+            AlignedLine::NewOnly { new } => {
+                old_lines.push(Line::from(""));
+                new_lines.push(diff_line_span(new, palette, true));
+            }
+        }
+    }
 
     let old_widget = Paragraph::new(old_lines)
         .block(
@@ -295,9 +325,211 @@ fn render_side_by_side(
     frame.render_widget(new_widget, right);
 }
 
+fn diff_line_span(dl: &DiffLine, palette: &crate::theme::Palette, is_new: bool) -> Line<'static> {
+    let style = style_for_line(dl, palette);
+    match dl {
+        DiffLine::Context {
+            old_line_no,
+            new_line_no,
+            content,
+        } => {
+            let line_no = if is_new {
+                format!(" {:>4} ", new_line_no)
+            } else {
+                format!(" {:>4} ", old_line_no)
+            };
+            Line::from(vec![
+                Span::styled(" ", style),
+                Span::styled(line_no, Style::new().fg(palette.dim)),
+                Span::styled(content.clone(), style),
+            ])
+        }
+        DiffLine::Removed { line_no, content } => Line::from(vec![
+            Span::styled("-", style),
+            Span::styled(format!(" {:>4} ", line_no), Style::new().fg(palette.dim)),
+            Span::styled(content.clone(), style),
+        ]),
+        DiffLine::Added { line_no, content } => Line::from(vec![
+            Span::styled("+", style),
+            Span::styled(format!(" {:>4} ", line_no), Style::new().fg(palette.dim)),
+            Span::styled(content.clone(), style),
+        ]),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_align_diff_lines_context_only() {
+        let lines = vec![DiffLine::Context {
+            old_line_no: 1,
+            new_line_no: 1,
+            content: "hello".into(),
+        }];
+        let aligned = align_diff_lines(&lines);
+        assert_eq!(aligned.len(), 1);
+        match &aligned[0] {
+            AlignedLine::Both { old, new } => {
+                assert_eq!(old, new);
+            }
+            _ => panic!("expected Both"),
+        }
+    }
+
+    #[test]
+    fn test_align_diff_lines_added_removed_pairs() {
+        let lines = vec![
+            DiffLine::Removed {
+                line_no: 1,
+                content: "old".into(),
+            },
+            DiffLine::Added {
+                line_no: 1,
+                content: "new".into(),
+            },
+        ];
+        let aligned = align_diff_lines(&lines);
+        assert_eq!(aligned.len(), 1);
+        match &aligned[0] {
+            AlignedLine::Both { old, new } => {
+                match old {
+                    DiffLine::Removed { content, .. } => assert_eq!(content, "old"),
+                    _ => panic!("expected Removed"),
+                }
+                match new {
+                    DiffLine::Added { content, .. } => assert_eq!(content, "new"),
+                    _ => panic!("expected Added"),
+                }
+            }
+            _ => panic!("expected Both"),
+        }
+    }
+
+    #[test]
+    fn test_align_diff_lines_more_added_than_removed() {
+        let lines = vec![
+            DiffLine::Removed {
+                line_no: 1,
+                content: "old".into(),
+            },
+            DiffLine::Added {
+                line_no: 1,
+                content: "new1".into(),
+            },
+            DiffLine::Added {
+                line_no: 2,
+                content: "new2".into(),
+            },
+        ];
+        let aligned = align_diff_lines(&lines);
+        assert_eq!(aligned.len(), 2);
+        match &aligned[0] {
+            AlignedLine::Both { .. } => {}
+            _ => panic!("expected Both at position 0"),
+        }
+        match &aligned[1] {
+            AlignedLine::NewOnly { new } => match new {
+                DiffLine::Added { content, .. } => assert_eq!(content, "new2"),
+                _ => panic!("expected Added"),
+            },
+            _ => panic!("expected NewOnly at position 1"),
+        }
+    }
+
+    #[test]
+    fn test_align_diff_lines_more_removed_than_added() {
+        let lines = vec![
+            DiffLine::Removed {
+                line_no: 1,
+                content: "old1".into(),
+            },
+            DiffLine::Removed {
+                line_no: 2,
+                content: "old2".into(),
+            },
+            DiffLine::Added {
+                line_no: 1,
+                content: "new".into(),
+            },
+        ];
+        let aligned = align_diff_lines(&lines);
+        assert_eq!(aligned.len(), 2);
+        match &aligned[0] {
+            AlignedLine::Both { .. } => {}
+            _ => panic!("expected Both at position 0"),
+        }
+        match &aligned[1] {
+            AlignedLine::OldOnly { old } => match old {
+                DiffLine::Removed { content, .. } => assert_eq!(content, "old2"),
+                _ => panic!("expected Removed"),
+            },
+            _ => panic!("expected OldOnly at position 1"),
+        }
+    }
+
+    #[test]
+    fn test_align_diff_lines_context_surrounding_changes() {
+        let lines = vec![
+            DiffLine::Context {
+                old_line_no: 1,
+                new_line_no: 1,
+                content: "before".into(),
+            },
+            DiffLine::Removed {
+                line_no: 2,
+                content: "old".into(),
+            },
+            DiffLine::Added {
+                line_no: 2,
+                content: "new".into(),
+            },
+            DiffLine::Context {
+                old_line_no: 3,
+                new_line_no: 3,
+                content: "after".into(),
+            },
+        ];
+        let aligned = align_diff_lines(&lines);
+        assert_eq!(aligned.len(), 3);
+        match &aligned[0] {
+            AlignedLine::Both { .. } => {}
+            _ => panic!("expected Both for context line"),
+        }
+        match &aligned[1] {
+            AlignedLine::Both { .. } => {}
+            _ => panic!("expected Both for paired change"),
+        }
+        match &aligned[2] {
+            AlignedLine::Both { .. } => {}
+            _ => panic!("expected Both for context line"),
+        }
+    }
+
+    #[test]
+    fn test_diff_line_span_context_uses_correct_line_no() {
+        let palette = crate::theme::Palette::plain();
+        let dl = DiffLine::Context {
+            old_line_no: 10,
+            new_line_no: 20,
+            content: "ctx".into(),
+        };
+        let old_span = diff_line_span(&dl, &palette, false);
+        let new_span = diff_line_span(&dl, &palette, true);
+        let old_text: String = old_span.spans.iter().map(|s| s.content.as_ref()).collect();
+        let new_text: String = new_span.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            old_text.contains("10"),
+            "old side should use old_line_no: {}",
+            old_text
+        );
+        assert!(
+            new_text.contains("20"),
+            "new side should use new_line_no: {}",
+            new_text
+        );
+    }
 
     #[test]
     fn test_visible_tabs_empty() {

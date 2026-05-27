@@ -7,6 +7,7 @@ pub mod modal_state;
 pub mod report;
 pub mod rrf;
 pub mod silence;
+pub mod text_prep;
 pub mod vector;
 
 use std::collections::HashMap;
@@ -206,7 +207,7 @@ impl SearchEngine {
     }
 }
 
-pub const INDEX_VERSION: u32 = 5;
+pub const INDEX_VERSION: u32 = 6;
 pub const INDEX_DIR_NAME: &str = ".glc-index";
 
 #[cfg(test)]
