@@ -7,6 +7,7 @@ pub mod modal_state;
 pub mod report;
 pub mod rrf;
 pub mod silence;
+pub mod text_prep;
 pub mod vector;
 
 use std::collections::HashMap;
