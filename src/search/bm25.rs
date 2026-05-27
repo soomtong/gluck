@@ -6,12 +6,13 @@ use tantivy::query::QueryParser;
 use tantivy::schema::{
     Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, INDEXED, STORED, STRING,
 };
-use tantivy::tokenizer::{LowerCaser, NgramTokenizer, TextAnalyzer};
+use tantivy::tokenizer::{LowerCaser, NgramTokenizer, SimpleTokenizer, TextAnalyzer};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyError};
 
 use crate::search::{DocKind, DocMeta, SearchError};
 
 pub const TOKENIZER: &str = "ngram_2_2";
+pub const WORD_TOKENIZER: &str = "word_lower";
 const WRITER_HEAP: usize = 50_000_000;
 
 pub struct Bm25Fields {
@@ -20,6 +21,7 @@ pub struct Bm25Fields {
     pub title: Field,
     pub body: Field,
     pub path: Field,
+    pub path_terms: Field,
     pub commit_oid: Field,
     pub line_start: Field,
     pub line_end: Field,
@@ -34,24 +36,36 @@ pub struct Bm25Index {
 fn make_schema() -> (Schema, Bm25Fields) {
     let mut builder = Schema::builder();
 
-    let text_opts = TextOptions::default()
+    // Title: SimpleTokenizer + LowerCaser. `_` / `/` / `.` / `-` 자동 분해.
+    // camelCase는 add_doc에서 write-time으로 split.
+    let title_opts = TextOptions::default()
         .set_indexing_options(
             TextFieldIndexing::default()
-                .set_tokenizer(TOKENIZER)
+                .set_tokenizer(WORD_TOKENIZER)
                 .set_index_option(IndexRecordOption::WithFreqsAndPositions),
         )
         .set_stored();
+
+    // Path terms: 검색 전용 (STORED 없음). path를 단어 단위로 매칭.
+    let path_terms_opts = TextOptions::default().set_indexing_options(
+        TextFieldIndexing::default()
+            .set_tokenizer(WORD_TOKENIZER)
+            .set_index_option(IndexRecordOption::WithFreqs),
+    );
+
+    // Body: ngram_2_2 유지 — 한글/임의 텍스트 부분 매칭. 멀티-토큰 쿼리(phrase)를 위해 positions 필요.
     let body_opts = TextOptions::default().set_indexing_options(
         TextFieldIndexing::default()
             .set_tokenizer(TOKENIZER)
-            .set_index_option(IndexRecordOption::WithFreqs),
+            .set_index_option(IndexRecordOption::WithFreqsAndPositions),
     );
 
     let id = builder.add_u64_field("id", FAST | STORED | INDEXED);
     let kind = builder.add_text_field("kind", STRING | STORED);
-    let title = builder.add_text_field("title", text_opts);
+    let title = builder.add_text_field("title", title_opts);
     let body = builder.add_text_field("body", body_opts);
     let path = builder.add_text_field("path", STRING | STORED);
+    let path_terms = builder.add_text_field("path_terms", path_terms_opts);
     let commit_oid = builder.add_text_field("commit_oid", STRING | STORED);
     let line_start = builder.add_u64_field("line_start", STORED);
     let line_end = builder.add_u64_field("line_end", STORED);
@@ -63,6 +77,7 @@ fn make_schema() -> (Schema, Bm25Fields) {
         title,
         body,
         path,
+        path_terms,
         commit_oid,
         line_start,
         line_end,
@@ -71,11 +86,16 @@ fn make_schema() -> (Schema, Bm25Fields) {
 }
 
 fn register_tokenizer(index: &Index) {
-    let tokenizer =
+    let ngram =
         TextAnalyzer::builder(NgramTokenizer::new(2, 2, false).expect("valid ngram params"))
             .filter(LowerCaser)
             .build();
-    index.tokenizers().register(TOKENIZER, tokenizer);
+    index.tokenizers().register(TOKENIZER, ngram);
+
+    let word_lower = TextAnalyzer::builder(SimpleTokenizer::default())
+        .filter(LowerCaser)
+        .build();
+    index.tokenizers().register(WORD_TOKENIZER, word_lower);
 }
 
 impl Bm25Index {
@@ -291,7 +311,7 @@ mod tests {
         idx.add_doc(&mut w, &commit_meta(1, "hello world"), "greeting text")
             .unwrap();
         idx.commit(w).unwrap();
-        let results = idx.search("he", 10).unwrap();
+        let results = idx.search("hello", 10).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].0, 1);
     }
@@ -333,15 +353,15 @@ mod tests {
     }
 
     #[test]
-    fn test_uppercase_indexed_matches_lowercase_query() {
+    fn test_word_tokenizer_lowercases_title() {
         let (_dir, idx) = tmp_index();
         let mut w = idx.writer().unwrap();
         idx.add_doc(&mut w, &commit_meta(1, "Hello"), "").unwrap();
         idx.commit(w).unwrap();
-        let results = idx.search("he", 10).unwrap();
+        let results = idx.search("hello", 10).unwrap();
         assert!(
             !results.is_empty(),
-            "2-char lowercase query 'he' must match 'Hello' — requires LowerCaser on 'He'"
+            "lowercase query 'hello' must match title 'Hello' — requires LowerCaser on word tokenizer"
         );
     }
 
@@ -353,14 +373,14 @@ mod tests {
         idx.add_doc(&mut w, &commit_meta(1, "first doc"), "")
             .unwrap();
         idx.commit(w).unwrap();
-        let r1 = idx.search("fi", 10).unwrap();
+        let r1 = idx.search("first", 10).unwrap();
         assert_eq!(r1.len(), 1, "first commit visible");
 
         let mut w = idx.writer().unwrap();
         idx.add_doc(&mut w, &commit_meta(2, "second doc"), "")
             .unwrap();
         idx.commit(w).unwrap();
-        let r2 = idx.search("se", 10).unwrap();
+        let r2 = idx.search("second", 10).unwrap();
         assert!(
             r2.iter().any(|(id, _)| *id == 2),
             "second commit must be visible via cached reader"
@@ -401,12 +421,12 @@ mod tests {
         idx.add_doc(&mut w, &commit_meta(2, "hello again"), "second")
             .unwrap();
         idx.commit(w).unwrap();
-        assert_eq!(idx.search("he", 10).unwrap().len(), 2);
+        assert_eq!(idx.search("hello", 10).unwrap().len(), 2);
 
         let mut w = idx.writer().unwrap();
         idx.delete_doc(&mut w, 1);
         idx.commit(w).unwrap();
-        let r = idx.search("he", 10).unwrap();
+        let r = idx.search("hello", 10).unwrap();
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].0, 2);
     }
