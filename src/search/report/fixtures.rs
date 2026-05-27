@@ -51,6 +51,14 @@ pub struct ForbiddenRule {
     pub path_prefix: Option<String>,
 }
 
+fn validate_forbidden_rule(rule: &ForbiddenRule) -> Result<(), String> {
+    match (&rule.path, &rule.path_prefix) {
+        (None, None) => Err("must specify either 'path' or 'path_prefix'".into()),
+        (Some(_), Some(_)) => Err("cannot specify both 'path' and 'path_prefix'".into()),
+        _ => Ok(()),
+    }
+}
+
 pub fn load(path: &Path) -> Result<FixtureSet, ReportError> {
     if !path.exists() {
         return Err(ReportError::FixturesMissing(path.to_path_buf()));
@@ -61,8 +69,41 @@ pub fn load(path: &Path) -> Result<FixtureSet, ReportError> {
         return Err(ReportError::EmptyFixtures);
     }
     for (i, q) in set.queries.iter().enumerate() {
-        if q.expected.is_empty() {
-            return Err(ReportError::EmptyExpected(i));
+        match q.category {
+            Category::Negative => {
+                if !q.expected.is_empty() {
+                    return Err(ReportError::InvalidNegativeQuery {
+                        index: i,
+                        reason: "negative queries must not have 'expected' entries".into(),
+                    });
+                }
+                if q.forbidden.is_empty() {
+                    return Err(ReportError::InvalidNegativeQuery {
+                        index: i,
+                        reason: "negative queries must have at least one 'forbidden' rule".into(),
+                    });
+                }
+                for (ri, rule) in q.forbidden.iter().enumerate() {
+                    validate_forbidden_rule(rule).map_err(|reason| {
+                        ReportError::InvalidForbiddenRule {
+                            query_index: i,
+                            rule_index: ri,
+                            reason,
+                        }
+                    })?;
+                }
+            }
+            _ => {
+                if q.expected.is_empty() {
+                    return Err(ReportError::EmptyExpected(i));
+                }
+                if !q.forbidden.is_empty() {
+                    return Err(ReportError::InvalidNegativeQuery {
+                        index: i,
+                        reason: "positive queries must not have 'forbidden' entries".into(),
+                    });
+                }
+            }
         }
     }
     Ok(set)
@@ -201,6 +242,119 @@ expected = []
             Err(ReportError::EmptyExpected(i)) => assert_eq!(i, 0),
             other => panic!("expected EmptyExpected, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rejects_positive_with_forbidden() {
+        let dir = tempdir().unwrap();
+        let p = write(
+            &dir,
+            r#"
+[[query]]
+category = "exact_identifier"
+text = "test"
+expected = [{ path = "src/a.rs" }]
+forbidden = [{ path_prefix = "src/" }]
+"#,
+        );
+        match load(&p) {
+            Err(ReportError::InvalidNegativeQuery { .. }) => {}
+            other => panic!("expected InvalidNegativeQuery, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_negative_with_expected() {
+        let dir = tempdir().unwrap();
+        let p = write(
+            &dir,
+            r#"
+[[query]]
+category = "negative"
+text = "test"
+expected = [{ path = "src/a.rs" }]
+forbidden = [{ path_prefix = "src/" }]
+"#,
+        );
+        match load(&p) {
+            Err(ReportError::InvalidNegativeQuery { .. }) => {}
+            other => panic!("expected InvalidNegativeQuery, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_negative_without_forbidden() {
+        let dir = tempdir().unwrap();
+        let p = write(
+            &dir,
+            r#"
+[[query]]
+category = "negative"
+text = "test"
+"#,
+        );
+        match load(&p) {
+            Err(ReportError::InvalidNegativeQuery { .. }) => {}
+            other => panic!("expected InvalidNegativeQuery, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_forbidden_rule_with_both_path_and_prefix() {
+        let dir = tempdir().unwrap();
+        let p = write(
+            &dir,
+            r#"
+[[query]]
+category = "negative"
+text = "test"
+forbidden = [{ path = "src/a.rs", path_prefix = "src/" }]
+"#,
+        );
+        match load(&p) {
+            Err(ReportError::InvalidForbiddenRule { .. }) => {}
+            other => panic!("expected InvalidForbiddenRule, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_forbidden_rule_with_neither() {
+        let dir = tempdir().unwrap();
+        let p = write(
+            &dir,
+            r#"
+[[query]]
+category = "negative"
+text = "test"
+forbidden = [{}]
+"#,
+        );
+        match load(&p) {
+            Err(ReportError::InvalidForbiddenRule { .. }) => {}
+            other => panic!("expected InvalidForbiddenRule, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn loads_negative_query_with_path_prefix() {
+        let dir = tempdir().unwrap();
+        let p = write(
+            &dir,
+            r#"
+[[query]]
+category = "negative"
+text = "react component lifecycle"
+forbidden = [{ path_prefix = "src/" }]
+"#,
+        );
+        let set = load(&p).unwrap();
+        assert_eq!(set.queries.len(), 1);
+        assert_eq!(set.queries[0].category, Category::Negative);
+        assert!(set.queries[0].expected.is_empty());
+        assert_eq!(
+            set.queries[0].forbidden[0].path_prefix.as_deref(),
+            Some("src/")
+        );
     }
 
     #[test]

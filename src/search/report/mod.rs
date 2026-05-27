@@ -24,6 +24,14 @@ pub enum ReportError {
     EmptyFixtures,
     #[error("query #{0} has empty `expected` array")]
     EmptyExpected(usize),
+    #[error("query #{index}: invalid negative query: {reason}")]
+    InvalidNegativeQuery { index: usize, reason: String },
+    #[error("query #{query_index}, forbidden rule #{rule_index}: {reason}")]
+    InvalidForbiddenRule {
+        query_index: usize,
+        rule_index: usize,
+        reason: String,
+    },
     #[error("search engine error: {0}")]
     Search(#[from] SearchError),
     #[error("IO error: {0}")]
