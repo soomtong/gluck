@@ -222,10 +222,12 @@ mod e2e_tests {
             &fixtures_path,
             r#"
 [[query]]
+category = "exact_identifier"
 text = "alpha_func"
 expected = [{ path = "alpha.rs" }]
 
 [[query]]
+category = "exact_identifier"
 text = "beta_func"
 expected = [{ path = "beta.rs" }]
 "#,
@@ -262,6 +264,7 @@ expected = [{ path = "beta.rs" }]
             &fixtures_path,
             r#"
 [[query]]
+category = "exact_identifier"
 text = "x"
 expected = [{ path = "a.rs" }]
 "#,

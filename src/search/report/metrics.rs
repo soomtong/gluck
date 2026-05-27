@@ -1,6 +1,8 @@
 //! 검색 품질 메트릭 — MRR, Recall@k, NDCG@k.
 
 use crate::search::report::fixtures::{ExpectedHit, FixtureQuery};
+#[cfg(test)]
+use crate::search::report::fixtures::Category;
 use crate::search::SearchResult;
 
 #[derive(Debug, Clone)]
@@ -157,7 +159,9 @@ mod tests {
     fn fq(text: &str, expected: Vec<ExpectedHit>) -> FixtureQuery {
         FixtureQuery {
             text: text.to_string(),
+            category: Category::ExactIdentifier,
             expected,
+            forbidden: vec![],
         }
     }
 

@@ -1,43 +1,51 @@
 # gluck 자체 검색 회귀 추적용 fixture.
 # 정답은 path 위주. Symbol 정답을 명시할 때만 kind/title을 추가.
+# category는 쿼리의 의도/형태를 분류한다.
 
 [[query]]
+category = "exact_identifier"
 text = "incremental indexing fallback"
 expected = [
     { path = "src/search/indexer.rs", kind = "Symbol", title = "build_index_incremental" },
 ]
 
 [[query]]
+category = "exact_identifier"
 text = "tantivy delete_term"
 expected = [
     { path = "src/search/bm25.rs", kind = "Symbol", title = "delete_doc" },
 ]
 
 [[query]]
+category = "natural_language"
 text = "RRF reciprocal rank fusion"
 expected = [
     { path = "src/search/rrf.rs" },
 ]
 
 [[query]]
+category = "exact_identifier"
 text = "embedding model load potion"
 expected = [
     { path = "src/search/embedding.rs" },
 ]
 
 [[query]]
+category = "natural_language"
 text = "search modal state machine"
 expected = [
     { path = "src/search/modal_state.rs" },
 ]
 
 [[query]]
+category = "natural_language"
 text = "tree sitter highlight configuration"
 expected = [
     { path = "src/highlight/engine.rs" },
 ]
 
 [[query]]
+category = "natural_language"
 text = "git revwalk topological commit"
 expected = [
     { path = "src/git/store.rs" },

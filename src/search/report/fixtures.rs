@@ -7,6 +7,17 @@ use serde::Deserialize;
 use crate::search::report::ReportError;
 use crate::search::DocKind;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Category {
+    ExactIdentifier,
+    NaturalLanguage,
+    Korean,
+    Typo,
+    Paraphrase,
+    Negative,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct FixtureSet {
     #[serde(default, rename = "query")]
@@ -16,7 +27,11 @@ pub struct FixtureSet {
 #[derive(Debug, Deserialize)]
 pub struct FixtureQuery {
     pub text: String,
+    pub category: Category,
+    #[serde(default)]
     pub expected: Vec<ExpectedHit>,
+    #[serde(default)]
+    pub forbidden: Vec<ForbiddenRule>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,6 +41,14 @@ pub struct ExpectedHit {
     pub kind: Option<DocKind>,
     #[serde(default)]
     pub title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ForbiddenRule {
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub path_prefix: Option<String>,
 }
 
 pub fn load(path: &Path) -> Result<FixtureSet, ReportError> {
@@ -64,6 +87,7 @@ mod tests {
             &dir,
             r#"
 [[query]]
+category = "exact_identifier"
 text = "hello"
 expected = [{ path = "src/main.rs" }]
 "#,
@@ -71,6 +95,7 @@ expected = [{ path = "src/main.rs" }]
         let set = load(&p).unwrap();
         assert_eq!(set.queries.len(), 1);
         assert_eq!(set.queries[0].text, "hello");
+        assert_eq!(set.queries[0].category, Category::ExactIdentifier);
         assert_eq!(set.queries[0].expected[0].path, "src/main.rs");
         assert!(set.queries[0].expected[0].kind.is_none());
         assert!(set.queries[0].expected[0].title.is_none());
@@ -83,6 +108,7 @@ expected = [{ path = "src/main.rs" }]
             &dir,
             r#"
 [[query]]
+category = "exact_identifier"
 text = "delete_term"
 expected = [
     { path = "src/search/bm25.rs", kind = "Symbol", title = "delete_doc" },
@@ -93,6 +119,50 @@ expected = [
         let e = &set.queries[0].expected[0];
         assert_eq!(e.kind, Some(DocKind::Symbol));
         assert_eq!(e.title.as_deref(), Some("delete_doc"));
+    }
+
+    #[test]
+    fn fixture_query_requires_category_field() {
+        let dir = tempdir().unwrap();
+        let p = write(
+            &dir,
+            r#"
+[[query]]
+text = "test"
+expected = [{ path = "src/a.rs" }]
+"#,
+        );
+        match load(&p) {
+            Err(ReportError::Toml(e)) if e.contains("missing field `category`") => {}
+            other => panic!("expected missing field error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_all_category_variants() {
+        let cases = [
+            ("exact_identifier", Category::ExactIdentifier),
+            ("natural_language", Category::NaturalLanguage),
+            ("korean", Category::Korean),
+            ("typo", Category::Typo),
+            ("paraphrase", Category::Paraphrase),
+        ];
+        for (s, expected) in cases {
+            let dir = tempdir().unwrap();
+            let p = write(
+                &dir,
+                &format!(
+                    r#"
+[[query]]
+category = "{s}"
+text = "t"
+expected = [{{ path = "src/a.rs" }}]
+"#
+                ),
+            );
+            let set = load(&p).unwrap();
+            assert_eq!(set.queries[0].category, expected);
+        }
     }
 
     #[test]
@@ -122,6 +192,7 @@ expected = [
             &dir,
             r#"
 [[query]]
+category = "exact_identifier"
 text = "hello"
 expected = []
 "#,
