@@ -3,6 +3,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
+use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_width::UnicodeWidthStr;
 
 pub fn app_layout(area: Rect) -> (Rect, Rect, Rect) {
@@ -21,12 +22,31 @@ pub fn split_horizontal(area: Rect, left_width: u16) -> (Rect, Rect) {
     (left, right)
 }
 
+pub fn format_header_date(time: SystemTime) -> String {
+    let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
+    let secs = duration.as_secs();
+    let days = secs / 86400;
+    let z = days + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    let h = (secs % 86400) / 3600;
+    let min = (secs % 3600) / 60;
+    format!("{:04}-{:02}-{:02} {:02}:{:02}", y, m, d, h, min)
+}
+
 pub fn render_header(
     frame: &mut ratatui::Frame,
     area: Rect,
     palette: &Palette,
     mode: &str,
-    theme: &str,
+    info: &str,
     message: Option<&str>,
 ) {
     let logo = Span::styled("◆ ", Style::new().fg(palette.accent));
@@ -43,11 +63,11 @@ pub fn render_header(
         mode,
         Style::new().fg(palette.accent).add_modifier(Modifier::BOLD),
     );
-    let theme_span = Span::styled(format!(" · {}", theme), Style::new().fg(palette.dim));
+    let info_span = Span::styled(format!(" · {}", info), Style::new().fg(palette.dim));
 
     let line = if let Some(msg) = message {
         let prefix_width =
-            2 + 3 + 2 + env!("CARGO_PKG_VERSION").len() + mode.len() + theme.len() + 10;
+            2 + 3 + 2 + env!("CARGO_PKG_VERSION").len() + mode.len() + info.len() + 10;
         let available = (area.width as usize).saturating_sub(prefix_width + 2);
         let truncated: String = if msg.len() > available && available > 0 {
             msg.chars()
@@ -60,7 +80,7 @@ pub fn render_header(
         let sep2 = Span::styled(" · ", Style::new().fg(palette.dim));
         let msg_span = Span::styled(truncated, Style::new().fg(palette.dim));
         Line::from(vec![
-            logo, name, version, sep, mode_span, theme_span, sep2, msg_span,
+            logo, name, version, sep, mode_span, info_span, sep2, msg_span,
         ])
     } else {
         let project = Span::styled(" GLUCK", Style::new().fg(palette.fg));
@@ -69,7 +89,7 @@ pub fn render_header(
             Style::new().fg(palette.dim).add_modifier(Modifier::ITALIC),
         );
         Line::from(vec![
-            logo, name, version, sep, mode_span, theme_span, project, tagline,
+            logo, name, version, sep, mode_span, info_span, project, tagline,
         ])
     };
 

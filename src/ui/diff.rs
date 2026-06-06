@@ -13,12 +13,13 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     if let Mode::Diff(state) = &app.mode {
         let palette = &app.palette;
         let title = format!("DIFF: {} ↦ {}", state.from.short_id, state.to.short_id);
+        let timestamp = layout::format_header_date(state.to.date);
         layout::render_header(
             frame,
             header,
             palette,
             &title,
-            &app.theme_name,
+            &timestamp,
             Some(&state.to.message),
         );
 
