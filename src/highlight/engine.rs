@@ -121,6 +121,15 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_markdown_config() {
             self.configs.insert("markdown".to_string(), config);
         }
+        if let Ok(config) = Self::make_typescript_config() {
+            self.configs.insert("typescript".to_string(), config);
+        }
+        if let Ok(config) = Self::make_tsx_config() {
+            self.configs.insert("tsx".to_string(), config);
+        }
+        if let Ok(config) = Self::make_javascript_config() {
+            self.configs.insert("javascript".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -139,6 +148,42 @@ impl HighlightEngine {
         let language = tree_sitter_markdown_fork::language();
         let mut config =
             HighlightConfiguration::new(language, "markdown", MARKDOWN_HIGHLIGHTS_QUERY, "", "")?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_typescript_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            "typescript",
+            tree_sitter_typescript::HIGHLIGHTS_QUERY,
+            "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_tsx_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_typescript::LANGUAGE_TSX.into(),
+            "tsx",
+            tree_sitter_typescript::HIGHLIGHTS_QUERY,
+            "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_javascript_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_javascript::LANGUAGE.into(),
+            "javascript",
+            tree_sitter_javascript::HIGHLIGHT_QUERY,
+            tree_sitter_javascript::INJECTIONS_QUERY,
+            "",
+        )?;
         config.configure(HIGHLIGHT_NAMES);
         Ok(config)
     }
@@ -226,5 +271,53 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .any(|s| s.style.fg.is_some());
         assert!(!has_color, "expected no colors without theme set");
+    }
+
+    #[test]
+    fn test_typescript_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "const greet = (name: string): string => `hi ${name}`;\n",
+            "app.ts",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in typescript highlight output");
+    }
+
+    #[test]
+    fn test_tsx_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "export const App = ({ label }: { label: string }) => <div>{label}</div>;\n",
+            "App.tsx",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in tsx highlight output");
+    }
+
+    #[test]
+    fn test_javascript_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "export const greet = (name) => `hi ${name}`;\nfunction add(a, b) { return a + b; }\n",
+            "app.js",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in javascript highlight output");
     }
 }
