@@ -1,9 +1,10 @@
 use crate::theme::Palette;
+use chrono::{DateTime, Local, Utc};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 use unicode_width::UnicodeWidthStr;
 
 pub fn app_layout(area: Rect) -> (Rect, Rect, Rect) {
@@ -23,22 +24,8 @@ pub fn split_horizontal(area: Rect, left_width: u16) -> (Rect, Rect) {
 }
 
 pub fn format_header_date(time: SystemTime) -> String {
-    let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
-    let secs = duration.as_secs();
-    let days = secs / 86400;
-    let z = days + 719468;
-    let era = z / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    let h = (secs % 86400) / 3600;
-    let min = (secs % 3600) / 60;
-    format!("{:04}-{:02}-{:02} {:02}:{:02}", y, m, d, h, min)
+    let local: DateTime<Local> = DateTime::<Utc>::from(time).into();
+    local.format("%Y-%m-%d %H:%M").to_string()
 }
 
 pub fn render_header(
@@ -128,4 +115,33 @@ pub fn render_search_bar(frame: &mut ratatui::Frame, area: Rect, palette: &Palet
         .block(Block::bordered().border_style(Style::new().fg(palette.border)));
     frame.render_widget(search, area);
     frame.set_cursor_position((area.x + 3 + query.width() as u16, area.y + 1));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn format_header_date_uses_local_timezone() {
+        let ts: SystemTime = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let expected = chrono::Local
+            .timestamp_opt(1_700_000_000, 0)
+            .unwrap()
+            .format("%Y-%m-%d %H:%M")
+            .to_string();
+        assert_eq!(format_header_date(ts), expected);
+    }
+
+    #[test]
+    fn format_header_date_handles_pre_epoch() {
+        let ts: SystemTime = UNIX_EPOCH.checked_sub(Duration::from_secs(1)).unwrap();
+        let expected = chrono::Local
+            .timestamp_opt(-1, 0)
+            .unwrap()
+            .format("%Y-%m-%d %H:%M")
+            .to_string();
+        assert_eq!(format_header_date(ts), expected);
+    }
 }
