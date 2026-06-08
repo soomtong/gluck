@@ -1,6 +1,7 @@
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
 impl Default for HighlightEngine {
@@ -156,7 +157,7 @@ impl HighlightEngine {
         let mut config = HighlightConfiguration::new(
             tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             "typescript",
-            tree_sitter_typescript::HIGHLIGHTS_QUERY,
+            ts_with_js_keywords(),
             "",
             "",
         )?;
@@ -168,7 +169,7 @@ impl HighlightEngine {
         let mut config = HighlightConfiguration::new(
             tree_sitter_typescript::LANGUAGE_TSX.into(),
             "tsx",
-            tree_sitter_typescript::HIGHLIGHTS_QUERY,
+            ts_with_js_keywords(),
             "",
             "",
         )?;
@@ -187,6 +188,17 @@ impl HighlightEngine {
         config.configure(HIGHLIGHT_NAMES);
         Ok(config)
     }
+}
+
+fn ts_with_js_keywords() -> &'static str {
+    static Q: OnceLock<String> = OnceLock::new();
+    Q.get_or_init(|| {
+        format!(
+            "{}\n{}",
+            tree_sitter_javascript::HIGHLIGHT_QUERY,
+            tree_sitter_typescript::HIGHLIGHTS_QUERY,
+        )
+    })
 }
 
 pub const HIGHLIGHT_NAMES: &[&str] = &[
@@ -319,5 +331,51 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .any(|s| s.style.fg.is_some());
         assert!(has_color, "no colored spans in javascript highlight output");
+    }
+
+    #[test]
+    fn test_typescript_keywords_are_colored() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "if (x) { return 1; } else { return 2; }\nfunction f(): void {}\n",
+            "a.ts",
+        );
+        let keyword_spans: Vec<_> = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| {
+                ["if", "return", "else", "function"].contains(&s.content.as_ref())
+                    && s.style.fg.is_some()
+            })
+            .collect();
+        assert!(
+            keyword_spans.len() >= 4,
+            "expected `if`/`return`/`else`/`function` to be keyword-colored, got spans: {:#?}",
+            lines
+        );
+    }
+
+    #[test]
+    fn test_tsx_keywords_are_colored() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "if (x) { return 1; } else { return 2; }\nconst C = () => <div>hi</div>;\n",
+            "C.tsx",
+        );
+        let keyword_spans: Vec<_> = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| {
+                ["if", "return", "else", "const"].contains(&s.content.as_ref())
+                    && s.style.fg.is_some()
+            })
+            .collect();
+        assert!(
+            keyword_spans.len() >= 4,
+            "expected `if`/`return`/`else`/`const` to be keyword-colored in tsx, got spans: {:#?}",
+            lines
+        );
     }
 }
