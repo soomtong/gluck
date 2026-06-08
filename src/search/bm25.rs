@@ -237,7 +237,8 @@ impl Bm25Index {
             Ok(q) => q,
             Err(_) => return Ok(vec![]),
         };
-        let top_docs = searcher.search(&tantivy_query, &TopDocs::with_limit(limit))?;
+        let top_docs =
+            searcher.search(&tantivy_query, &TopDocs::with_limit(limit).order_by_score())?;
         let mut results = Vec::new();
         for (score, doc_addr) in top_docs {
             let doc: tantivy::TantivyDocument = searcher.doc(doc_addr)?;
@@ -251,7 +252,8 @@ impl Bm25Index {
     pub fn scan_doc_store(&self) -> Result<HashMap<u64, DocMeta>, SearchError> {
         use tantivy::query::AllQuery;
         let searcher = self.reader.searcher();
-        let top_docs = searcher.search(&AllQuery, &TopDocs::with_limit(1_000_000))?;
+        let top_docs =
+            searcher.search(&AllQuery, &TopDocs::with_limit(1_000_000).order_by_score())?;
         let mut store = HashMap::new();
         for (_score, doc_addr) in top_docs {
             let doc: tantivy::TantivyDocument = searcher.doc(doc_addr)?;
@@ -308,18 +310,14 @@ impl Bm25Index {
     }
 }
 
-fn value_as_u64(v: &tantivy::schema::OwnedValue) -> Option<u64> {
-    match v {
-        tantivy::schema::OwnedValue::U64(n) => Some(*n),
-        _ => None,
-    }
+fn value_as_u64(v: tantivy::schema::document::CompactDocValue<'_>) -> Option<u64> {
+    use tantivy::schema::document::Value;
+    v.as_u64()
 }
 
-fn value_as_str(v: &tantivy::schema::OwnedValue) -> Option<&str> {
-    match v {
-        tantivy::schema::OwnedValue::Str(s) => Some(s.as_str()),
-        _ => None,
-    }
+fn value_as_str<'a>(v: tantivy::schema::document::CompactDocValue<'a>) -> Option<&'a str> {
+    use tantivy::schema::document::Value;
+    v.as_str()
 }
 
 impl DocKind {

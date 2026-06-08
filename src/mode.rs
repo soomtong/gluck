@@ -222,7 +222,7 @@ mod tests {
 
     fn make_commit(msg: &str) -> CommitInfo {
         CommitInfo {
-            id: git2::Oid::zero(),
+            id: git2::Oid::ZERO_SHA1,
             short_id: "abc1234".into(),
             author: "Test".into(),
             date: std::time::UNIX_EPOCH,

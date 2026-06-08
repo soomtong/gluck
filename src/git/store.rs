@@ -148,7 +148,7 @@ mod tests {
 
     fn make_commit(msg: &str, author: &str) -> CommitInfo {
         CommitInfo {
-            id: Oid::zero(),
+            id: Oid::ZERO_SHA1,
             short_id: "abc1234".into(),
             author: author.into(),
             date: std::time::UNIX_EPOCH,

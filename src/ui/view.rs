@@ -3,7 +3,7 @@ use crate::git::tree::EntryKind;
 use crate::mode::{FileContent, Mode};
 use crate::ui::layout;
 use ratatui::layout::Rect;
-use ratatui::style::{Style, Stylize};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
 
@@ -37,7 +37,7 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                 let marker = if state.changed_paths.contains(&entry.path) {
                     Span::styled("*", Style::new().fg(palette.warning))
                 } else {
-                    Span::styled(" ", Style::new().reset())
+                    Span::styled(" ", Style::reset())
                 };
                 let suffix = match entry.kind {
                     EntryKind::Directory => "/",

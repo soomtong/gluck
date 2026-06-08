@@ -107,7 +107,7 @@ impl App {
 
     fn render_debug_overlay(&self, frame: &mut Frame) {
         use ratatui::layout::Rect;
-        use ratatui::style::{Style, Stylize};
+        use ratatui::style::Style;
         use ratatui::widgets::Paragraph;
 
         let mode_name = match &self.mode {

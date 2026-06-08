@@ -22,7 +22,8 @@ pub fn l2_normalize(v: &[f32]) -> Vec<f32> {
 impl VectorIndex {
     pub fn new(dim: usize) -> Self {
         Self {
-            inner: IdMapIndex::new(dim, BIT_WIDTH),
+            inner: IdMapIndex::new(dim, BIT_WIDTH)
+                .expect("turbovec IdMapIndex::new with valid bit width"),
         }
     }
 
