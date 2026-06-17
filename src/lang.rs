@@ -17,6 +17,8 @@ pub enum Language {
     Markdown,
     Html,
     Css,
+    Swift,
+    Yaml,
 }
 
 impl Language {
@@ -34,8 +36,10 @@ impl Language {
             "java" => Some(Self::Java),
             "sh" | "bash" => Some(Self::Bash),
             "toml" => Some(Self::Toml),
-            "json" => Some(Self::Json),
+            "json" | "jsonc" => Some(Self::Json),
+            "yaml" | "yml" => Some(Self::Yaml),
             "md" => Some(Self::Markdown),
+            "swift" => Some(Self::Swift),
             "html" => Some(Self::Html),
             "css" => Some(Self::Css),
             _ => None,
@@ -59,13 +63,21 @@ impl Language {
             Self::Markdown => "markdown",
             Self::Html => "html",
             Self::Css => "css",
+            Self::Swift => "swift",
+            Self::Yaml => "yaml",
         }
     }
 
     pub fn supports_symbol_chunking(&self) -> bool {
         matches!(
             self,
-            Self::Rust | Self::Python | Self::JavaScript | Self::TypeScript | Self::Tsx | Self::Go
+            Self::Rust
+                | Self::Python
+                | Self::JavaScript
+                | Self::TypeScript
+                | Self::Tsx
+                | Self::Go
+                | Self::Swift
         )
     }
 }
@@ -93,5 +105,14 @@ mod tests {
         assert!(!Language::Markdown.supports_symbol_chunking());
         assert!(!Language::C.supports_symbol_chunking());
         assert!(!Language::Java.supports_symbol_chunking());
+    }
+
+    #[test]
+    fn detects_swift_jsonc_yaml() {
+        assert_eq!(Language::from_path("main.swift"), Some(Language::Swift));
+        assert_eq!(Language::from_path("config.yaml"), Some(Language::Yaml));
+        assert_eq!(Language::from_path("config.yml"), Some(Language::Yaml));
+        assert_eq!(Language::from_path("data.jsonc"), Some(Language::Json));
+        assert!(Language::Swift.supports_symbol_chunking());
     }
 }
