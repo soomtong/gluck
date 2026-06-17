@@ -209,6 +209,13 @@ impl Palette {
         m.insert("text.reference".into(), Style::new().fg(self.syn_type));
         m.insert("punctuation.special".into(), Style::new().fg(self.dim));
         m.insert("string.escape".into(), Style::new().fg(self.syn_constant));
+        m.insert("number".into(), Style::new().fg(self.syn_constant));
+        m.insert("boolean".into(), Style::new().fg(self.syn_constant));
+        m.insert(
+            "constant.builtin".into(),
+            Style::new().fg(self.syn_constant),
+        );
+        m.insert("label".into(), Style::new().fg(self.syn_type));
         m
     }
 }
@@ -292,5 +299,15 @@ mod tests {
         let s = p.highlight_style();
         assert_eq!(s.fg, Some(Color::Black));
         assert_eq!(s.bg, Some(Color::White));
+    }
+
+    #[test]
+    fn test_highlight_map_includes_new_capture_names() {
+        let p = Palette::plain();
+        let map = p.to_highlight_map();
+        assert!(map.contains_key("number"));
+        assert!(map.contains_key("boolean"));
+        assert!(map.contains_key("constant.builtin"));
+        assert!(map.contains_key("label"));
     }
 }

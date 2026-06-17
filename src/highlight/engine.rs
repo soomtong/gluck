@@ -229,6 +229,10 @@ pub const HIGHLIGHT_NAMES: &[&str] = &[
     "text.reference",
     "punctuation.special",
     "string.escape",
+    "number",
+    "boolean",
+    "constant.builtin",
+    "label",
     "none",
 ];
 
