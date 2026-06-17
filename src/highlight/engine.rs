@@ -689,10 +689,7 @@ mod tests {
     fn test_yaml_highlight_produces_colors() {
         let mut engine = HighlightEngine::new();
         engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
-        let lines = engine.highlight(
-            "name: gluck\ncount: 42\nactive: true\n",
-            "config.yaml",
-        );
+        let lines = engine.highlight("name: gluck\ncount: 42\nactive: true\n", "config.yaml");
         assert!(!lines.is_empty());
         let has_color = lines
             .iter()
