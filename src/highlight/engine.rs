@@ -137,6 +137,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_yaml_config() {
             self.configs.insert("yaml".to_string(), config);
         }
+        if let Ok(config) = Self::make_swift_config() {
+            self.configs.insert("swift".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -212,6 +215,18 @@ impl HighlightEngine {
             tree_sitter_yaml::language(),
             "yaml",
             tree_sitter_yaml::HIGHLIGHTS_QUERY,
+            "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_swift_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_swift::LANGUAGE.into(),
+            "swift",
+            SWIFT_HIGHLIGHTS_QUERY,
             "",
             "",
         )?;
@@ -308,6 +323,228 @@ const JSON_HIGHLIGHTS_QUERY: &str = r#"
 (escape_sequence) @string.escape
 
 (comment) @comment
+"#;
+
+const SWIFT_HIGHLIGHTS_QUERY: &str = r#"[
+  "."
+  ";"
+  ":"
+  ","
+] @punctuation.delimiter
+
+[
+  "("
+  ")"
+  "["
+  "]"
+  "{"
+  "}"
+  "<"
+  ">"
+] @punctuation.bracket
+
+(type_identifier) @type
+
+[
+  (self_expression)
+  (super_expression)
+] @variable.builtin
+
+(simple_identifier) @variable
+
+(function_declaration
+  name: (simple_identifier) @function)
+
+(protocol_function_declaration
+  name: (simple_identifier) @function)
+
+(init_declaration
+  "init" @function)
+
+(parameter
+  external_name: (simple_identifier) @variable.parameter)
+
+(parameter
+  name: (simple_identifier) @variable.parameter)
+
+(type_parameter
+  (type_identifier) @variable.parameter)
+
+[
+  "protocol"
+  "extension"
+  "indirect"
+  "nonisolated"
+  "override"
+  "convenience"
+  "required"
+  "some"
+  "any"
+  "weak"
+  "unowned"
+  "didSet"
+  "willSet"
+  "subscript"
+  "let"
+  "var"
+  (throws)
+  (where_keyword)
+  (getter_specifier)
+  (setter_specifier)
+  (modify_specifier)
+  (else)
+  (as_operator)
+  "func"
+  "deinit"
+  "enum"
+  "struct"
+  "class"
+  "typealias"
+  "async"
+  "await"
+  "import"
+  "if"
+  "guard"
+  "switch"
+  "case"
+  "for"
+  "while"
+  "repeat"
+  "continue"
+  "break"
+  "return"
+  "do"
+  (throw_keyword)
+  (catch_keyword)
+  "in"
+] @keyword
+
+(class_body
+  (property_declaration
+    (pattern
+      (simple_identifier) @variable)))
+
+(protocol_property_declaration
+  (pattern
+    (simple_identifier) @variable))
+
+(navigation_expression
+  (navigation_suffix
+    (simple_identifier) @variable))
+
+(value_argument
+  name: (value_argument_label
+    (simple_identifier) @variable))
+
+(modifiers
+  (attribute
+    "@" @attribute
+    (user_type
+      (type_identifier) @attribute)))
+
+(call_expression
+  (simple_identifier) @function)
+
+(call_expression
+  (navigation_expression
+    (navigation_suffix
+      (simple_identifier) @function)))
+
+(call_expression
+  (prefix_expression
+    (simple_identifier) @function))
+
+(directive) @keyword
+
+[
+  (comment)
+  (multiline_comment)
+] @comment
+
+(line_str_text) @string
+
+(str_escaped_char) @string.escape
+
+(multi_line_str_text) @string
+
+(raw_str_part) @string
+
+(raw_str_end_part) @string
+
+[
+  "\""
+  "\"\"\""
+] @string
+
+(line_string_literal
+  [
+    "\\("
+    ")"
+  ] @punctuation.special)
+
+(multi_line_string_literal
+  [
+    "\\("
+    ")"
+  ] @punctuation.special)
+
+(raw_str_interpolation
+  [
+    (raw_str_interpolation_start)
+    ")"
+  ] @punctuation.special)
+
+[
+  (integer_literal)
+  (hex_literal)
+  (oct_literal)
+  (bin_literal)
+  (real_literal)
+] @number
+
+(boolean_literal) @boolean
+
+"nil" @constant.builtin
+
+(custom_operator) @operator
+
+[
+  "+"
+  "-"
+  "*"
+  "/"
+  "%"
+  "="
+  "+="
+  "-="
+  "*="
+  "/="
+  "<"
+  ">"
+  "<<"
+  ">>"
+  "<="
+  ">="
+  "++"
+  "--"
+  "^"
+  "&"
+  "&&"
+  "|"
+  "||"
+  "~"
+  "%="
+  "!="
+  "!=="
+  "=="
+  "==="
+  "?"
+  "??"
+  "->"
+  "..<"
+  "..."
+  (bang)
+] @operator
 "#;
 
 #[cfg(test)]
@@ -462,5 +699,21 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .any(|s| s.style.fg.is_some());
         assert!(has_color, "no colored spans in yaml highlight output");
+    }
+
+    #[test]
+    fn test_swift_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "import Foundation\n\nstruct Point {\n    let x: Int\n    func distance() -> Double { return 0.0 }\n}\n",
+            "Point.swift",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in swift highlight output");
     }
 }
