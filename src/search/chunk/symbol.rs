@@ -95,6 +95,10 @@ fn build_symbol_span(
                 symbol_node = Some(cap.node);
                 kind = SymbolKind::Class;
             }
+            "symbol.other" => {
+                symbol_node = Some(cap.node);
+                kind = SymbolKind::Other;
+            }
             "name" => {
                 name_node = Some(cap.node);
             }
@@ -122,6 +126,7 @@ fn lang_and_query(language: Language) -> Option<(&'static TsLanguage, &'static Q
         Language::TypeScript => Some((typescript_lang(), typescript_query())),
         Language::Tsx => Some((tsx_lang(), tsx_query())),
         Language::Go => Some((go_lang(), go_query())),
+        Language::Swift => Some((swift_lang(), swift_query())),
         _ => None,
     }
 }
@@ -158,6 +163,11 @@ fn go_lang() -> &'static TsLanguage {
     LANG.get_or_init(|| tree_sitter_go::LANGUAGE.into())
 }
 
+fn swift_lang() -> &'static TsLanguage {
+    static LANG: OnceLock<TsLanguage> = OnceLock::new();
+    LANG.get_or_init(|| tree_sitter_swift::LANGUAGE.into())
+}
+
 fn rust_query() -> &'static Query {
     static Q: OnceLock<Query> = OnceLock::new();
     Q.get_or_init(|| Query::new(rust_lang(), RUST_QUERY).expect("valid rust query"))
@@ -189,6 +199,11 @@ fn tsx_query() -> &'static Query {
 fn go_query() -> &'static Query {
     static Q: OnceLock<Query> = OnceLock::new();
     Q.get_or_init(|| Query::new(go_lang(), GO_QUERY).expect("valid go query"))
+}
+
+fn swift_query() -> &'static Query {
+    static Q: OnceLock<Query> = OnceLock::new();
+    Q.get_or_init(|| Query::new(swift_lang(), SWIFT_QUERY).expect("valid swift query"))
 }
 
 // 핵심 원칙: top-level 심볼만. nested function/method 제외.
@@ -266,6 +281,40 @@ const GO_QUERY: &str = r#"
 ((source_file
    (type_declaration
      (type_spec name: (type_identifier) @name)) @symbol.struct))
+"#;
+
+const SWIFT_QUERY: &str = r#"
+((source_file
+   (function_declaration
+     name: (simple_identifier) @name) @symbol.function))
+
+((source_file
+   (class_declaration
+     "class"
+     name: (type_identifier) @name) @symbol.class))
+
+((source_file
+   (class_declaration
+     "struct"
+     name: (type_identifier) @name) @symbol.struct))
+
+((source_file
+   (class_declaration
+     "enum"
+     name: (type_identifier) @name) @symbol.enum))
+
+((source_file
+   (protocol_declaration
+     name: (type_identifier) @name) @symbol.trait))
+
+((source_file
+   (typealias_declaration
+     name: (type_identifier) @name) @symbol.type))
+
+((source_file
+   (class_declaration
+     "extension"
+     name: (_) @name) @symbol.other))
 "#;
 
 #[cfg(test)]
@@ -417,5 +466,54 @@ type Result<T> = std::result::Result<T, MyError>;
         let q1 = rust_query() as *const Query;
         let q2 = rust_query() as *const Query;
         assert_eq!(q1, q2);
+    }
+
+    #[test]
+    fn swift_top_level_symbols_only() {
+        let src = r#"
+import Foundation
+
+func global() {}
+
+struct Point {
+    let x: Int
+    func distance() -> Double { return 0.0 }
+}
+
+class Foo {
+    func method() {}
+}
+
+enum Status {
+    case ok
+}
+
+protocol Greet {
+    func hello()
+}
+
+typealias ID = String
+
+extension Foo {
+    func ext() {}
+}
+"#;
+        let spans = extract_symbols(src, Language::Swift).unwrap();
+        let kinds_names: Vec<_> = spans.iter().map(|s| (s.kind, s.name.as_str())).collect();
+        assert!(kinds_names.contains(&(SymbolKind::Function, "global")));
+        assert!(kinds_names.contains(&(SymbolKind::Struct, "Point")));
+        assert!(kinds_names.contains(&(SymbolKind::Class, "Foo")));
+        assert!(kinds_names.contains(&(SymbolKind::Enum, "Status")));
+        assert!(kinds_names.contains(&(SymbolKind::Trait, "Greet")));
+        assert!(kinds_names.contains(&(SymbolKind::TypeAlias, "ID")));
+        assert!(kinds_names.contains(&(SymbolKind::Other, "Foo")));
+        assert!(
+            !kinds_names.iter().any(|(_, n)| *n == "distance"),
+            "nested method should not be extracted"
+        );
+        assert!(
+            !kinds_names.iter().any(|(_, n)| *n == "method"),
+            "nested method should not be extracted"
+        );
     }
 }
