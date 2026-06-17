@@ -122,6 +122,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_markdown_config() {
             self.configs.insert("markdown".to_string(), config);
         }
+        if let Ok(config) = Self::make_json_config() {
+            self.configs.insert("json".to_string(), config);
+        }
         if let Ok(config) = Self::make_typescript_config() {
             self.configs.insert("typescript".to_string(), config);
         }
@@ -149,6 +152,18 @@ impl HighlightEngine {
         let language = tree_sitter_markdown_fork::language();
         let mut config =
             HighlightConfiguration::new(language, "markdown", MARKDOWN_HIGHLIGHTS_QUERY, "", "")?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_json_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_json::LANGUAGE.into(),
+            "json",
+            JSON_HIGHLIGHTS_QUERY,
+            "",
+            "",
+        )?;
         config.configure(HIGHLIGHT_NAMES);
         Ok(config)
     }
@@ -259,6 +274,25 @@ const MARKDOWN_HIGHLIGHTS_QUERY: &str = r#"[
   (backslash_escape)
   (hard_line_break)
 ] @string.escape
+"#;
+
+const JSON_HIGHLIGHTS_QUERY: &str = r#"
+(pair
+  key: (_) @property)
+
+(string) @string
+
+(number) @number
+
+[
+  (null)
+  (true)
+  (false)
+] @constant.builtin
+
+(escape_sequence) @string.escape
+
+(comment) @comment
 "#;
 
 #[cfg(test)]
@@ -381,5 +415,21 @@ mod tests {
             "expected `if`/`return`/`else`/`const` to be keyword-colored in tsx, got spans: {:#?}",
             lines
         );
+    }
+
+    #[test]
+    fn test_json_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            r#"{"name": "gluck", "count": 42, "active": true}"#,
+            "config.json",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in json highlight output");
     }
 }
