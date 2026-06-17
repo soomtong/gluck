@@ -134,6 +134,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_javascript_config() {
             self.configs.insert("javascript".to_string(), config);
         }
+        if let Ok(config) = Self::make_yaml_config() {
+            self.configs.insert("yaml".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -198,6 +201,18 @@ impl HighlightEngine {
             "javascript",
             tree_sitter_javascript::HIGHLIGHT_QUERY,
             tree_sitter_javascript::INJECTIONS_QUERY,
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_yaml_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_yaml::language(),
+            "yaml",
+            tree_sitter_yaml::HIGHLIGHTS_QUERY,
+            "",
             "",
         )?;
         config.configure(HIGHLIGHT_NAMES);
@@ -431,5 +446,21 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .any(|s| s.style.fg.is_some());
         assert!(has_color, "no colored spans in json highlight output");
+    }
+
+    #[test]
+    fn test_yaml_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "name: gluck\ncount: 42\nactive: true\n",
+            "config.yaml",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in yaml highlight output");
     }
 }
