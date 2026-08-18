@@ -974,11 +974,17 @@ impl App {
     /// Rebuild the commit store from the current HEAD and, in Pick mode,
     /// re-apply the active filter and restore the selection by commit oid.
     /// Outside Pick mode only the store is rebuilt; callers refresh the
-    /// visible state when transitioning back to Pick.
-    pub fn apply_repo_refresh(&mut self) {
+    /// visible state when transitioning back to Pick. Returns `true` if the
+    /// store was rebuilt, `false` if the rebuild failed (e.g. concurrent
+    /// gc/lock) and the caller should decide how to retry.
+    pub fn apply_repo_refresh(&mut self) -> bool {
         let prev_total = self.store.total_loaded();
-        let Ok(mut new_store) = CommitStore::new(&self.repo, 200) else {
-            return;
+        let mut new_store = match CommitStore::new(&self.repo, 200) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("repo refresh failed to rebuild commit store: {}", e);
+                return false;
+            }
         };
         // Keep the previous scroll depth available after the rebuild.
         while new_store.total_loaded() < prev_total && !new_store.exhausted {
@@ -1014,6 +1020,7 @@ impl App {
         if matches!(self.mode, Mode::Pick(_)) {
             self.update_pick_diff();
         }
+        true
     }
 
     /// Called every main-loop iteration. Checks HEAD at most once per
@@ -1025,9 +1032,14 @@ impl App {
             return;
         }
         self.last_head_check = Instant::now();
+        let prev_head = self.last_head.clone();
         if self.check_repo_changed() {
             if matches!(self.mode, Mode::Pick(_)) {
-                self.apply_repo_refresh();
+                if !self.apply_repo_refresh() {
+                    // Store rebuild failed: restore the snapshot so the
+                    // next tick detects the change again and retries.
+                    self.last_head = prev_head;
+                }
             } else {
                 self.repo_changed = true;
             }
@@ -1547,6 +1559,33 @@ mod tests {
         };
         assert_eq!(state.commits.len(), 3);
         assert!(!app.repo_changed);
+    }
+
+    #[test]
+    fn test_poll_repo_watch_retries_after_failed_refresh() {
+        let (dir, repo, mut app) = test_app_with_repo();
+        add_file_commit(&repo, "c.txt", b"new", "External commit");
+        // Corrupt the object store so CommitStore::new fails while HEAD
+        // refs remain readable.
+        let objects = dir.path().join(".git").join("objects");
+        let backup = dir.path().join("objects-backup");
+        std::fs::rename(&objects, &backup).unwrap();
+
+        app.last_head_check = std::time::Instant::now() - HEAD_POLL_INTERVAL;
+        app.poll_repo_watch();
+        // Refresh failed: list unchanged, snapshot rolled back for retry.
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick mode")
+        };
+        assert_eq!(state.commits.len(), 3);
+
+        std::fs::rename(&backup, &objects).unwrap();
+        app.last_head_check = std::time::Instant::now() - HEAD_POLL_INTERVAL;
+        app.poll_repo_watch();
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick mode")
+        };
+        assert_eq!(state.commits.len(), 4);
     }
 
     #[test]
