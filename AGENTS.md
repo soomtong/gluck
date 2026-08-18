@@ -117,6 +117,12 @@ Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 5), `hea
 - `~/.config/gluck/config.toml` (`dirs::config_dir()`). Sections: `[theme]`, `[ui]` (scroll_lines), `[search]` (index_dir, batch_size, max_file_bytes, result_limit).
 - Missing file → `Config::default()`; does NOT auto-create. Saved on theme cycle.
 
+### Repo watch
+
+- Main loop is poll-based (`event::poll(1s)`; 80ms while indexing). `App::poll_repo_watch()` checks `GitRepo::head_info()` (oid + ref shorthand) every `HEAD_POLL_INTERVAL` (5s).
+- On change: Pick mode rebuilds `CommitStore` immediately (filter re-applied, selection restored by oid); View/Diff only set `repo_changed` and show a footer notice — the refresh applies in `back()`.
+- Diff/tree caches are oid-keyed and immutable — never cleared on refresh.
+
 ## Notable dependencies
 
 Authoritative list lives in `Cargo.toml`. Non-obvious points:
