@@ -185,10 +185,7 @@ mod tests {
     #[test]
     fn korean_aliases_lowercases_camelcase() {
         // path_to_terms가 ModalState를 "Modal State"로 분리하고, 우리는 lowercase 후 매칭.
-        assert_eq!(
-            korean_aliases("src/search/ModalState.rs"),
-            "검색 모달 상태"
-        );
+        assert_eq!(korean_aliases("src/search/ModalState.rs"), "검색 모달 상태");
     }
 
     #[test]
