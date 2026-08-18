@@ -16,6 +16,7 @@ use crossterm::event::KeyCode;
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 pub enum IndexMessage {
     Progress(String),
@@ -27,6 +28,8 @@ pub enum EngineMessage {
     Ready(Box<SearchEngine>),
     Failed(String),
 }
+
+pub const HEAD_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 pub struct App {
     pub mode: Mode,
@@ -51,10 +54,14 @@ pub struct App {
     pub needs_clear: bool,
     pub index_rx: Option<mpsc::Receiver<IndexMessage>>,
     pub engine_rx: Option<mpsc::Receiver<EngineMessage>>,
+    pub last_head: Option<(git2::Oid, String)>,
+    pub repo_changed: bool,
+    pub last_head_check: Instant,
 }
 
 impl App {
     pub fn new(repo: GitRepo, config: Config) -> Result<Self> {
+        let last_head = repo.head_info();
         let store = CommitStore::new(&repo, 200)?;
         let pick_state = PickState::new(store.loaded.clone());
         let theme_name = config.theme.name.clone();
@@ -82,6 +89,9 @@ impl App {
             needs_clear: false,
             index_rx: None,
             engine_rx: None,
+            last_head,
+            repo_changed: false,
+            last_head_check: Instant::now(),
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
@@ -940,6 +950,22 @@ impl App {
         });
     }
 
+    /// Compare current HEAD against the last snapshot. Updates the snapshot
+    /// on change. Unreadable HEAD (unborn, deleted .git) is treated as no
+    /// change so the app keeps running and retries next tick.
+    pub fn check_repo_changed(&mut self) -> bool {
+        let current = self.repo.head_info();
+        if current.is_none() {
+            return false;
+        }
+        if current != self.last_head {
+            self.last_head = current;
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn is_indexing(&self) -> bool {
         self.index_rx.is_some() || self.engine_rx.is_some() || self.search_pending
     }
@@ -1290,6 +1316,31 @@ mod tests {
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let app = App::new(git_repo, Config::default()).unwrap();
         (dir, app)
+    }
+
+    fn test_app_with_repo() -> (tempfile::TempDir, git2::Repository, App) {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"first", "First commit");
+        add_file_commit(&repo, "b.txt", b"second", "Second commit");
+        add_file_commit(&repo, "a.txt", b"third", "Third commit");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let app = App::new(git_repo, Config::default()).unwrap();
+        (dir, repo, app)
+    }
+
+    #[test]
+    fn test_check_repo_changed_noop_without_changes() {
+        let (_dir, _repo, mut app) = test_app_with_repo();
+        assert!(!app.check_repo_changed());
+    }
+
+    #[test]
+    fn test_check_repo_changed_detects_external_commit() {
+        let (_dir, repo, mut app) = test_app_with_repo();
+        add_file_commit(&repo, "c.txt", b"new", "External commit");
+        assert!(app.check_repo_changed());
+        // Snapshot updated: second call is a no-op
+        assert!(!app.check_repo_changed());
     }
 
     #[test]
