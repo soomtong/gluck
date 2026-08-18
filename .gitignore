@@ -7,3 +7,4 @@ gluck.log
 *.swo
 .glc-index/
 .worktrees/
+.claude/
