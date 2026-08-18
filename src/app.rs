@@ -402,6 +402,11 @@ impl App {
     }
 
     fn back(&mut self) {
+        if self.repo_changed {
+            // Deferred refresh from View/Diff: rebuild the store first so the
+            // PickState below is built from the fresh commit list.
+            self.apply_repo_refresh();
+        }
         match &self.mode {
             Mode::View(_) | Mode::Diff(_) => {
                 let target_id = if let Mode::View(vs) = &self.mode {
@@ -966,6 +971,51 @@ impl App {
         }
     }
 
+    /// Rebuild the commit store from the current HEAD and, in Pick mode,
+    /// re-apply the active filter and restore the selection by commit oid.
+    /// Outside Pick mode only the store is rebuilt; callers refresh the
+    /// visible state when transitioning back to Pick.
+    pub fn apply_repo_refresh(&mut self) {
+        let prev_total = self.store.total_loaded();
+        let Ok(mut new_store) = CommitStore::new(&self.repo, 200) else {
+            return;
+        };
+        // Keep the previous scroll depth available after the rebuild.
+        while new_store.total_loaded() < prev_total && !new_store.exhausted {
+            if new_store.load_batch(&self.repo).is_err() {
+                break;
+            }
+        }
+        self.store = new_store;
+        self.repo_changed = false;
+
+        if let Mode::Pick(state) = &mut self.mode {
+            let prev_oid = state
+                .filtered_indices
+                .get(state.selected)
+                .map(|&i| state.commits[i].id);
+            let prev_selected = state.selected;
+            state.commits = self.store.loaded.clone();
+            let query = state.query().map(|s| s.to_string());
+            match query {
+                Some(q) => state.update_filter(&q),
+                None => {
+                    state.filtered_indices = (0..state.commits.len()).collect();
+                    state.scroll = 0;
+                }
+            }
+            state.selected = prev_oid
+                .and_then(|oid| state.commits.iter().position(|c| c.id == oid))
+                .and_then(|full_idx| state.filtered_indices.iter().position(|&i| i == full_idx))
+                .unwrap_or_else(|| {
+                    prev_selected.min(state.filtered_indices.len().saturating_sub(1))
+                });
+        }
+        if matches!(self.mode, Mode::Pick(_)) {
+            self.update_pick_diff();
+        }
+    }
+
     pub fn is_indexing(&self) -> bool {
         self.index_rx.is_some() || self.engine_rx.is_some() || self.search_pending
     }
@@ -1341,6 +1391,99 @@ mod tests {
         assert!(app.check_repo_changed());
         // Snapshot updated: second call is a no-op
         assert!(!app.check_repo_changed());
+    }
+
+    #[test]
+    fn test_apply_repo_refresh_shows_new_commit_and_preserves_selection() {
+        let (_dir, repo, mut app) = test_app_with_repo();
+        // Select "Second commit" (index 1)
+        app.handle_key(KeyCode::Char('j'));
+        let selected_oid = {
+            let Mode::Pick(state) = &app.mode else {
+                panic!("expected pick mode")
+            };
+            state.commits[state.filtered_indices[state.selected]].id
+        };
+
+        add_file_commit(&repo, "c.txt", b"new", "External commit");
+        assert!(app.check_repo_changed());
+        app.apply_repo_refresh();
+
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick mode")
+        };
+        assert_eq!(state.commits.len(), 4);
+        // Same commit still selected, shifted down by the new commit
+        assert_eq!(
+            state.commits[state.filtered_indices[state.selected]].id,
+            selected_oid
+        );
+        assert_eq!(state.selected, 2);
+        assert!(!app.repo_changed);
+    }
+
+    #[test]
+    fn test_apply_repo_refresh_clamps_selection_after_history_rewrite() {
+        let (_dir, repo, mut app) = test_app_with_repo();
+        // Selection stays on newest commit (index 0)
+        let first_commit_oid = {
+            let Mode::Pick(state) = &app.mode else {
+                panic!("expected pick mode")
+            };
+            state.commits[2].id
+        };
+        // Hard-reset to the oldest commit: the selected (newest) oid disappears
+        let obj = repo.find_object(first_commit_oid, None).unwrap();
+        repo.reset(&obj, git2::ResetType::Hard, None).unwrap();
+
+        assert!(app.check_repo_changed());
+        app.apply_repo_refresh();
+
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick mode")
+        };
+        assert_eq!(state.commits.len(), 1);
+        assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn test_apply_repo_refresh_keeps_active_filter() {
+        let (_dir, repo, mut app) = test_app_with_repo();
+        // Filter to "second" → 1 match
+        app.handle_key(KeyCode::Char('/'));
+        for c in "second".chars() {
+            app.handle_key(KeyCode::Char(c));
+        }
+        app.handle_key(KeyCode::Enter);
+
+        add_file_commit(&repo, "d.txt", b"x", "Second helping");
+        assert!(app.check_repo_changed());
+        app.apply_repo_refresh();
+
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick mode")
+        };
+        // Filter still applied and re-run over the new list: both "Second*" match
+        assert_eq!(state.filtered_indices.len(), 2);
+        assert_eq!(state.commits.len(), 4);
+    }
+
+    #[test]
+    fn test_back_applies_pending_refresh() {
+        let (_dir, repo, mut app) = test_app_with_repo();
+        app.handle_key(KeyCode::Enter);
+        assert!(matches!(app.mode, Mode::View(_)));
+
+        add_file_commit(&repo, "c.txt", b"new", "External commit");
+        assert!(app.check_repo_changed());
+        app.repo_changed = true; // as poll_repo_watch sets it outside Pick
+
+        app.handle_key(KeyCode::Esc);
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick mode")
+        };
+        assert_eq!(state.commits.len(), 4);
+        assert!(!app.repo_changed);
     }
 
     #[test]
