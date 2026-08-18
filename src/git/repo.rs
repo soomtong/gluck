@@ -32,6 +32,15 @@ impl GitRepo {
     pub fn repository(&self) -> &Repository {
         &self.repo
     }
+
+    /// Cheap snapshot of HEAD for change polling.
+    /// Returns None on unborn HEAD or repository errors.
+    pub fn head_info(&self) -> Option<(git2::Oid, String)> {
+        let head = self.repo.head().ok()?;
+        let oid = head.target()?;
+        let name = head.shorthand().unwrap_or("HEAD").to_string();
+        Some((oid, name))
+    }
 }
 
 #[cfg(test)]
@@ -112,5 +121,44 @@ pub mod tests {
         let mut revwalk = repo.revwalk().unwrap();
         revwalk.push_head().unwrap();
         assert_eq!(revwalk.count(), 50);
+    }
+
+    #[test]
+    fn test_head_info_unborn_head_returns_none() {
+        let (dir, _repo) = init_test_repo();
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        assert!(git_repo.head_info().is_none());
+    }
+
+    #[test]
+    fn test_head_info_tracks_new_commits() {
+        let (dir, repo) = init_test_repo();
+        let first = add_file_commit(&repo, "a.txt", b"a", "first");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+
+        let (oid1, name1) = git_repo.head_info().unwrap();
+        assert_eq!(oid1, first);
+        assert!(!name1.is_empty());
+
+        let second = add_file_commit(&repo, "b.txt", b"b", "second");
+        let (oid2, _) = git_repo.head_info().unwrap();
+        assert_eq!(oid2, second);
+    }
+
+    #[test]
+    fn test_head_info_detects_branch_switch_same_oid() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"a", "first");
+        let head_commit = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("feature", &head_commit, false).unwrap();
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let (oid1, name1) = git_repo.head_info().unwrap();
+
+        repo.set_head("refs/heads/feature").unwrap();
+        let (oid2, name2) = git_repo.head_info().unwrap();
+
+        assert_eq!(oid1, oid2);
+        assert_ne!(name1, name2);
     }
 }
