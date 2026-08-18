@@ -129,7 +129,7 @@ Authoritative list lives in `Cargo.toml`. Non-obvious points:
 
 - `tree-sitter` 0.22 paired with language crates at 0.23 — bridged via `LANGUAGE.into_raw()` + `Language::from_raw(ptr as *const _)`.
 - `model2vec-rs` 0.2 with `hf-hub` feature pulls the embedding model at runtime on first index build.
-- `blas-src` is Accelerate on macOS, OpenBLAS on Linux (required by turbovec/model2vec). CI installs `libopenblas-dev`.
+- `blas-src` is Accelerate on macOS, OpenBLAS on Linux (required by turbovec/model2vec). CI installs `libopenblas-dev`; Linux links the **system** OpenBLAS (`openblas-src` `system` feature) — a from-source build targets the build machine's CPU and SIGILLs on CI runners without those instructions once cached.
 - `silence.rs` uses `libc::dup2` — porting to Windows requires a no-op fallback.
 
 ## Planning artifacts

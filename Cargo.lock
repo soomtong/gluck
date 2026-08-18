@@ -1309,6 +1309,7 @@ dependencies = [
  "humansize",
  "libc",
  "model2vec-rs",
+ "openblas-src",
  "ratatui",
  "serde",
  "serde_json",

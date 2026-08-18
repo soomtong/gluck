@@ -44,6 +44,10 @@ blas-src = { version = "0.14", features = ["accelerate"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 blas-src = { version = "0.14", features = ["openblas"] }
+# Link the distro's OpenBLAS (runtime CPU dispatch) instead of building from
+# source; a source build is compiled for the build machine's CPU and, once
+# cached by rust-cache, SIGILLs on CI runners lacking those instructions.
+openblas-src = { version = "0.10", features = ["system"] }
 
 [dev-dependencies]
 tempfile = "3"
