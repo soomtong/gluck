@@ -1016,6 +1016,24 @@ impl App {
         }
     }
 
+    /// Called every main-loop iteration. Checks HEAD at most once per
+    /// HEAD_POLL_INTERVAL. In Pick mode a detected change refreshes the
+    /// commit list immediately; in View/Diff it only raises `repo_changed`
+    /// so the footer can show a notice without disturbing the viewed content.
+    pub fn poll_repo_watch(&mut self) {
+        if self.last_head_check.elapsed() < HEAD_POLL_INTERVAL {
+            return;
+        }
+        self.last_head_check = Instant::now();
+        if self.check_repo_changed() {
+            if matches!(self.mode, Mode::Pick(_)) {
+                self.apply_repo_refresh();
+            } else {
+                self.repo_changed = true;
+            }
+        }
+    }
+
     pub fn is_indexing(&self) -> bool {
         self.index_rx.is_some() || self.engine_rx.is_some() || self.search_pending
     }
@@ -1483,6 +1501,51 @@ mod tests {
             panic!("expected pick mode")
         };
         assert_eq!(state.commits.len(), 4);
+        assert!(!app.repo_changed);
+    }
+
+    #[test]
+    fn test_poll_repo_watch_refreshes_immediately_in_pick() {
+        let (_dir, repo, mut app) = test_app_with_repo();
+        add_file_commit(&repo, "c.txt", b"new", "External commit");
+        app.last_head_check = std::time::Instant::now() - HEAD_POLL_INTERVAL;
+
+        app.poll_repo_watch();
+
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick mode")
+        };
+        assert_eq!(state.commits.len(), 4);
+        assert!(!app.repo_changed);
+    }
+
+    #[test]
+    fn test_poll_repo_watch_defers_refresh_outside_pick() {
+        let (_dir, repo, mut app) = test_app_with_repo();
+        app.handle_key(KeyCode::Enter);
+        assert!(matches!(app.mode, Mode::View(_)));
+
+        add_file_commit(&repo, "c.txt", b"new", "External commit");
+        app.last_head_check = std::time::Instant::now() - HEAD_POLL_INTERVAL;
+
+        app.poll_repo_watch();
+
+        // Viewed content untouched; only the flag is raised
+        assert!(app.repo_changed);
+        assert!(matches!(app.mode, Mode::View(_)));
+    }
+
+    #[test]
+    fn test_poll_repo_watch_respects_interval() {
+        let (_dir, repo, mut app) = test_app_with_repo();
+        add_file_commit(&repo, "c.txt", b"new", "External commit");
+        // last_head_check was just set in App::new → within the interval
+        app.poll_repo_watch();
+
+        let Mode::Pick(state) = &app.mode else {
+            panic!("expected pick mode")
+        };
+        assert_eq!(state.commits.len(), 3);
         assert!(!app.repo_changed);
     }
 

@@ -106,6 +106,8 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
         }
         terminal.draw(|f| app.render(f))?;
 
+        app.poll_repo_watch();
+
         if app.is_indexing() {
             app.drain_index_messages();
             app.drain_engine_messages();
@@ -115,7 +117,9 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
             }
         } else {
             app.drain_search_results();
-            read_and_dispatch(app)?;
+            if event::poll(Duration::from_secs(1))? {
+                read_and_dispatch(app)?;
+            }
         }
 
         if app.should_quit {
