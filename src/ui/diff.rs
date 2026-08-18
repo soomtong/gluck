@@ -70,7 +70,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         }
     }
 
-    let hints = [
+    let mut hints = vec![
         ("[j/k/←/→]", "file"),
         ("[u/d]", "scroll"),
         ("[J/K]", "page"),
@@ -79,6 +79,9 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         ("[Tab]", "back"),
         ("[Esc]", "pick"),
     ];
+    if app.repo_changed {
+        hints.push(("[!]", "repo changed"));
+    }
     layout::render_footer(frame, footer, &app.palette, &hints);
 }
 
