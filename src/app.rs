@@ -13,8 +13,9 @@ use crate::theme::Palette;
 use crate::ui;
 use anyhow::Result;
 use crossterm::event::KeyCode;
+use ratatui::layout::{Margin, Position, Rect};
 use ratatui::Frame;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -30,6 +31,62 @@ pub enum EngineMessage {
 }
 
 pub const HEAD_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+/// How long j/k navigation must settle on a file before its content is
+/// loaded and highlighted. Held-down keys repeat faster than this, so
+/// skipped-over files are never loaded.
+pub const VIEW_LOAD_DEBOUNCE: Duration = Duration::from_millis(60);
+
+/// Files larger than this skip tree-sitter highlighting and render as plain
+/// text — parsing multi-hundred-KB sources blocks the UI thread.
+const MAX_HIGHLIGHT_BYTES: usize = 256 * 1024;
+
+const MOUSE_WHEEL_LINES: usize = 3;
+const DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(400);
+
+/// LRU cache of rendered file contents keyed by (commit, path), so moving
+/// back and forth over already-viewed files is instant.
+pub struct FileContentCache {
+    entries: HashMap<(git2::Oid, String), crate::mode::FileContent>,
+    order: VecDeque<(git2::Oid, String)>,
+    max_size: usize,
+}
+
+impl FileContentCache {
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            max_size,
+        }
+    }
+
+    pub fn get(&mut self, key: &(git2::Oid, String)) -> Option<crate::mode::FileContent> {
+        if !self.entries.contains_key(key) {
+            return None;
+        }
+        if let Some(pos) = self.order.iter().position(|k| k == key) {
+            self.order.remove(pos);
+            self.order.push_back(key.clone());
+        }
+        self.entries.get(key).cloned()
+    }
+
+    pub fn insert(&mut self, key: (git2::Oid, String), content: crate::mode::FileContent) {
+        if self.entries.len() >= self.max_size {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(key.clone(), content);
+        self.order.push_back(key);
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+}
 
 pub struct App {
     pub mode: Mode,
@@ -57,6 +114,15 @@ pub struct App {
     pub last_head: Option<(git2::Oid, String)>,
     pub repo_changed: bool,
     pub last_head_check: Instant,
+    pub content_cache: FileContentCache,
+    pub pending_view_load: Option<Instant>,
+    // Panel geometry captured at render time for mouse hit-testing.
+    pub view_tree_area: Option<Rect>,
+    pub view_content_area: Option<Rect>,
+    pub view_tree_offset: usize,
+    pub pick_list_area: Option<Rect>,
+    pub pick_list_offset: usize,
+    last_click: Option<(Instant, usize)>,
 }
 
 impl App {
@@ -92,6 +158,14 @@ impl App {
             last_head,
             repo_changed: false,
             last_head_check: Instant::now(),
+            content_cache: FileContentCache::new(32),
+            pending_view_load: None,
+            view_tree_area: None,
+            view_content_area: None,
+            view_tree_offset: 0,
+            pick_list_area: None,
+            pick_list_offset: 0,
+            last_click: None,
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
@@ -99,11 +173,13 @@ impl App {
         Ok(app)
     }
 
-    pub fn render(&self, frame: &mut Frame) {
-        match &self.mode {
-            Mode::Pick(_) => ui::pick::render_pick(frame, frame.area(), self),
-            Mode::View(_) => ui::view::render_view(frame, frame.area(), self),
-            Mode::Diff(_) => ui::diff::render_diff(frame, frame.area(), self),
+    pub fn render(&mut self, frame: &mut Frame) {
+        if matches!(self.mode, Mode::Pick(_)) {
+            ui::pick::render_pick(frame, frame.area(), self);
+        } else if matches!(self.mode, Mode::View(_)) {
+            ui::view::render_view(frame, frame.area(), self);
+        } else {
+            ui::diff::render_diff(frame, frame.area(), self);
         }
 
         if self.search_modal.is_open() {
@@ -208,6 +284,24 @@ impl App {
             }
         }
 
+        // View mode: h/l fold/unfold the selected directory. On files they
+        // keep their default bindings (Back / open).
+        if matches!(self.mode, Mode::View(_)) {
+            match code {
+                KeyCode::Char('h') => {
+                    if self.view_fold_or_parent() {
+                        return;
+                    }
+                }
+                KeyCode::Char('l') => {
+                    if self.view_unfold_or_first_child() {
+                        return;
+                    }
+                }
+                _ => {}
+            }
+        }
+
         let Some(action) = self.keybindings.resolve(code) else {
             return;
         };
@@ -249,6 +343,123 @@ impl App {
             KeyCode::Char('f') => self.pick_page_down(),
             KeyCode::Char('b') => self.pick_page_up(),
             _ => {}
+        }
+    }
+
+    pub fn handle_mouse(&mut self, ev: crossterm::event::MouseEvent) {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        if self.search_modal.is_open() {
+            return;
+        }
+        match ev.kind {
+            MouseEventKind::ScrollDown => self.mouse_scroll(ev.column, ev.row, true),
+            MouseEventKind::ScrollUp => self.mouse_scroll(ev.column, ev.row, false),
+            MouseEventKind::Down(MouseButton::Left) => self.mouse_click(ev.column, ev.row),
+            _ => {}
+        }
+    }
+
+    fn mouse_scroll(&mut self, col: u16, row: u16, down: bool) {
+        match &self.mode {
+            Mode::View(_) => {
+                if rect_contains(self.view_tree_area, col, row) {
+                    if down {
+                        self.move_down();
+                    } else {
+                        self.move_up();
+                    }
+                } else if let Mode::View(state) = &mut self.mode {
+                    if down {
+                        let max_scroll = state.line_count().saturating_sub(1);
+                        state.scroll = (state.scroll + MOUSE_WHEEL_LINES).min(max_scroll);
+                    } else {
+                        state.scroll = state.scroll.saturating_sub(MOUSE_WHEEL_LINES);
+                    }
+                }
+            }
+            Mode::Pick(_) => {
+                if down {
+                    self.move_down();
+                } else {
+                    self.move_up();
+                }
+            }
+            Mode::Diff(_) => {
+                if let Mode::Diff(state) = &mut self.mode {
+                    if down {
+                        let line_count = state
+                            .diff_result
+                            .files
+                            .get(state.selected_file)
+                            .map(|f| f.lines.len())
+                            .unwrap_or(0);
+                        state.scroll =
+                            (state.scroll + MOUSE_WHEEL_LINES).min(line_count.saturating_sub(1));
+                    } else {
+                        state.scroll = state.scroll.saturating_sub(MOUSE_WHEEL_LINES);
+                    }
+                }
+            }
+        }
+    }
+
+    fn mouse_click(&mut self, col: u16, row: u16) {
+        match &self.mode {
+            Mode::View(_) => {
+                if let Some(idx) =
+                    list_row_index(self.view_tree_area, self.view_tree_offset, col, row)
+                {
+                    self.view_tree_click(idx);
+                }
+            }
+            Mode::Pick(_) => {
+                if let Some(idx) =
+                    list_row_index(self.pick_list_area, self.pick_list_offset, col, row)
+                {
+                    self.pick_click(idx);
+                }
+            }
+            Mode::Diff(_) => {}
+        }
+    }
+
+    /// Click in the file tree: select the entry; directories toggle their
+    /// fold, files load.
+    fn view_tree_click(&mut self, idx: usize) {
+        {
+            let Mode::View(state) = &mut self.mode else {
+                return;
+            };
+            if idx >= state.visible.len() {
+                return;
+            }
+            state.selected_file = idx;
+            state.toggle_fold();
+        }
+        self.request_view_file_load();
+    }
+
+    /// Click in the commit list: select; a double-click opens View mode.
+    fn pick_click(&mut self, idx: usize) {
+        let double = self
+            .last_click
+            .take()
+            .is_some_and(|(t, i)| i == idx && t.elapsed() < DOUBLE_CLICK_WINDOW);
+        {
+            let Mode::Pick(state) = &mut self.mode else {
+                return;
+            };
+            if idx >= state.filtered_indices.len() {
+                return;
+            }
+            state.selected = idx;
+        }
+        self.prefetch_if_near_end();
+        self.update_pick_diff();
+        if double {
+            self.enter();
+        } else {
+            self.last_click = Some((Instant::now(), idx));
         }
     }
 
@@ -345,9 +556,9 @@ impl App {
                 state.selected = state.selected.saturating_add(1).min(max);
             }
             Mode::View(state) => {
-                let max = state.tree.len().saturating_sub(1);
+                let max = state.visible.len().saturating_sub(1);
                 state.selected_file = state.selected_file.saturating_add(1).min(max);
-                self.load_view_file();
+                self.request_view_file_load();
             }
             Mode::Diff(state) => {
                 let max = state.diff_result.files.len().saturating_sub(1);
@@ -372,7 +583,7 @@ impl App {
             }
             Mode::View(state) => {
                 state.selected_file = state.selected_file.saturating_sub(1);
-                self.load_view_file();
+                self.request_view_file_load();
             }
             Mode::Diff(state) => {
                 let prev = state.selected_file;
@@ -395,10 +606,82 @@ impl App {
                 }
             }
             Mode::View(_) => {
-                self.load_view_file();
+                let toggled = match &mut self.mode {
+                    Mode::View(state) => state.toggle_fold(),
+                    _ => false,
+                };
+                if !toggled {
+                    self.load_view_file();
+                }
             }
             Mode::Diff(_) => {}
         }
+    }
+
+    /// 'h' in View mode: collapse the selected expanded directory, or jump
+    /// to the parent of an already-collapsed one. Returns false (falls
+    /// through to Back) on files and top-level collapsed directories.
+    fn view_fold_or_parent(&mut self) -> bool {
+        let handled = {
+            let Mode::View(state) = &mut self.mode else {
+                return false;
+            };
+            let Some(entry) = state.selected_entry() else {
+                return false;
+            };
+            if !matches!(entry.kind, EntryKind::Directory) {
+                return false;
+            }
+            let path = entry.path.clone();
+            if !state.collapsed.contains(&path) {
+                state.collapsed.insert(path.clone());
+                state.rebuild_visible();
+                state.select_visible_path(&path);
+                true
+            } else {
+                state.select_parent()
+            }
+        };
+        if handled {
+            self.request_view_file_load();
+        }
+        handled
+    }
+
+    /// 'l' in View mode: expand the selected collapsed directory, or step
+    /// into the first child of an expanded one. Returns false on files so
+    /// the default Enter binding opens them.
+    fn view_unfold_or_first_child(&mut self) -> bool {
+        let handled = {
+            let Mode::View(state) = &mut self.mode else {
+                return false;
+            };
+            let Some(entry) = state.selected_entry() else {
+                return false;
+            };
+            if !matches!(entry.kind, EntryKind::Directory) {
+                return false;
+            }
+            let path = entry.path.clone();
+            if state.collapsed.remove(&path) {
+                state.rebuild_visible();
+                state.select_visible_path(&path);
+            } else {
+                let next = state.selected_file + 1;
+                let child_prefix = format!("{}/", path);
+                if state
+                    .visible_entry(next)
+                    .is_some_and(|e| e.path.starts_with(&child_prefix))
+                {
+                    state.selected_file = next;
+                }
+            }
+            true
+        };
+        if handled {
+            self.request_view_file_load();
+        }
+        handled
     }
 
     fn back(&mut self) {
@@ -453,7 +736,7 @@ impl App {
                         let from = commits[idx + 1].clone();
                         let to = commits[idx].clone();
                         let prev = state.selected_file;
-                        let prev_path = state.tree.get(state.selected_file).map(|e| e.path.clone());
+                        let prev_path = state.selected_entry().map(|e| e.path.clone());
                         drop(commits);
                         let diff_result = self
                             .diff_cache
@@ -484,7 +767,7 @@ impl App {
                 if let Some(idx) = commits.iter().position(|c| c.id == state.to.id) {
                     let commit = commits[idx].clone();
                     let mut view_state = self.make_view_state(commit);
-                    view_state.selected_file = prev.min(view_state.tree.len().saturating_sub(1));
+                    view_state.selected_file = prev.min(view_state.visible.len().saturating_sub(1));
                     self.mode = Mode::View(view_state);
                     self.load_view_file();
                 }
@@ -534,8 +817,11 @@ impl App {
                     return;
                 }
                 let prev_path = self.current_view_file_path();
+                let prev_collapsed = s.collapsed.clone();
                 let commit = commits[idx - 1].clone();
                 let mut state = self.make_view_state(commit);
+                state.collapsed = prev_collapsed;
+                state.rebuild_visible();
                 restore_file_selection(&mut state, prev_path);
                 self.mode = Mode::View(state);
                 self.load_view_file();
@@ -598,8 +884,11 @@ impl App {
                     return;
                 }
                 let prev_path = self.current_view_file_path();
+                let prev_collapsed = s.collapsed.clone();
                 let commit = commits[idx + 1].clone();
                 let mut state = self.make_view_state(commit);
+                state.collapsed = prev_collapsed;
+                state.rebuild_visible();
                 restore_file_selection(&mut state, prev_path);
                 self.mode = Mode::View(state);
                 self.load_view_file();
@@ -649,7 +938,7 @@ impl App {
 
     fn current_view_file_path(&self) -> Option<String> {
         match &self.mode {
-            Mode::View(s) => s.tree.get(s.selected_file).map(|e| e.path.clone()),
+            Mode::View(s) => s.selected_entry().map(|e| e.path.clone()),
             _ => None,
         }
     }
@@ -734,7 +1023,7 @@ impl App {
 
     fn toggle_gitignore(&mut self) {
         if let Mode::View(state) = &mut self.mode {
-            let prev_path = state.tree.get(state.selected_file).map(|e| e.path.clone());
+            let prev_path = state.selected_entry().map(|e| e.path.clone());
             state.show_ignored = !state.show_ignored;
             let commit = state.commit.clone();
             let full_tree = self
@@ -751,9 +1040,11 @@ impl App {
                     .filter(|e| !repo.is_path_ignored(&e.path).unwrap_or(false))
                     .collect();
             }
-            state.selected_file = prev_path
-                .and_then(|p| state.tree.iter().position(|e| e.path == p))
-                .unwrap_or(0);
+            state.rebuild_visible();
+            let restored = prev_path.map(|p| state.select_path(&p)).unwrap_or(false);
+            if !restored {
+                state.selected_file = 0;
+            }
             state.file_content = crate::mode::FileContent::NotLoaded;
             self.load_view_file();
         }
@@ -830,9 +1121,12 @@ impl App {
             }
         };
         let changed_paths = changed_stats.keys().cloned().collect();
+        let visible = (0..tree.len()).collect();
         ViewState {
             commit,
             tree,
+            collapsed: std::collections::HashSet::new(),
+            visible,
             selected_file: 0,
             file_content: crate::mode::FileContent::NotLoaded,
             scroll: 0,
@@ -872,11 +1166,56 @@ impl App {
         }
     }
 
+    /// Schedule loading the selected file after VIEW_LOAD_DEBOUNCE of
+    /// navigation quiet. Cached content and non-file selections apply
+    /// immediately.
+    fn request_view_file_load(&mut self) {
+        let key = {
+            let Mode::View(state) = &mut self.mode else {
+                return;
+            };
+            state.scroll = 0;
+            state
+                .selected_entry()
+                .filter(|e| matches!(e.kind, EntryKind::File))
+                .map(|e| (state.commit.id, e.path.clone()))
+        };
+        let Some(key) = key else {
+            if let Mode::View(vs) = &mut self.mode {
+                vs.file_content = crate::mode::FileContent::NotLoaded;
+            }
+            self.pending_view_load = None;
+            return;
+        };
+        if let Some(content) = self.content_cache.get(&key) {
+            if let Mode::View(vs) = &mut self.mode {
+                vs.file_content = content;
+            }
+            self.pending_view_load = None;
+            return;
+        }
+        if let Mode::View(vs) = &mut self.mode {
+            vs.file_content = crate::mode::FileContent::Loading;
+        }
+        self.pending_view_load = Some(Instant::now());
+    }
+
+    /// Called from the main loop: run the debounced load once navigation
+    /// has settled.
+    pub fn tick_pending_view_load(&mut self) {
+        let Some(requested) = self.pending_view_load else {
+            return;
+        };
+        if requested.elapsed() >= VIEW_LOAD_DEBOUNCE {
+            self.load_view_file();
+        }
+    }
+
     fn load_view_file(&mut self) {
+        self.pending_view_load = None;
         let to_load = match &self.mode {
             Mode::View(state) => state
-                .tree
-                .get(state.selected_file)
+                .selected_entry()
                 .filter(|e| matches!(e.kind, EntryKind::File))
                 .map(|e| (e.path.clone(), state.commit.clone())),
             _ => None,
@@ -893,19 +1232,37 @@ impl App {
             return;
         };
 
+        let key = (commit.id, path.clone());
+        if let Some(content) = self.content_cache.get(&key) {
+            if let Mode::View(vs) = &mut self.mode {
+                vs.file_content = content;
+            }
+            return;
+        }
+
         let binary = is_binary_blob(&self.repo, &commit, &path).unwrap_or(false);
-        if binary {
-            if let Mode::View(vs) = &mut self.mode {
-                vs.file_content = crate::mode::FileContent::Binary;
-            }
+        let content = if binary {
+            crate::mode::FileContent::Binary
         } else if let Ok(content) = read_blob(&self.repo, &commit, &path) {
-            let highlighted = self.highlight.highlight(&content, &path);
-            if let Mode::View(vs) = &mut self.mode {
-                vs.file_content = crate::mode::FileContent::Text {
-                    raw: content,
-                    highlighted,
-                };
+            let highlighted = if content.len() <= MAX_HIGHLIGHT_BYTES {
+                self.highlight.highlight(&content, &path)
+            } else {
+                HighlightEngine::plain_lines(&content)
+            };
+            crate::mode::FileContent::Text {
+                raw: content,
+                highlighted,
             }
+        } else {
+            if let Mode::View(vs) = &mut self.mode {
+                vs.file_content = crate::mode::FileContent::NotLoaded;
+            }
+            return;
+        };
+
+        self.content_cache.insert(key, content.clone());
+        if let Mode::View(vs) = &mut self.mode {
+            vs.file_content = content;
         }
     }
 
@@ -1337,9 +1694,7 @@ impl App {
                 let path = result.meta.path.clone().unwrap_or_default();
                 let line = result.meta.line_start;
                 let mut view_state = self.make_view_state(commit);
-                if let Some(file_idx) = view_state.tree.iter().position(|e| e.path == path) {
-                    view_state.selected_file = file_idx;
-                }
+                view_state.select_path(&path);
                 if let Some(line_start) = line {
                     view_state.scroll = line_start as usize;
                 }
@@ -1359,25 +1714,47 @@ impl App {
         self.theme_name = names[next_idx].to_string();
         self.palette = crate::theme::resolve_palette(Some(&self.theme_name));
         self.highlight.set_theme(self.palette.to_highlight_map());
+        // Cached highlights carry the old palette.
+        self.content_cache.clear();
+        if let Mode::View(s) = &self.mode {
+            let prev_scroll = s.scroll;
+            self.load_view_file();
+            if let Mode::View(s) = &mut self.mode {
+                s.scroll = prev_scroll.min(s.line_count().saturating_sub(1));
+            }
+        }
         self.config.theme.name = self.theme_name.clone();
         let _ = self.config.save();
     }
+}
+
+fn rect_contains(rect: Option<Rect>, col: u16, row: u16) -> bool {
+    rect.is_some_and(|r| r.contains(Position::new(col, row)))
+}
+
+/// Map a click inside a bordered List widget to an item index, using the
+/// scroll offset captured at render time. None when the click is outside
+/// the list's inner area.
+fn list_row_index(rect: Option<Rect>, offset: usize, col: u16, row: u16) -> Option<usize> {
+    let inner = rect?.inner(Margin::new(1, 1));
+    if !inner.contains(Position::new(col, row)) {
+        return None;
+    }
+    Some(offset + (row - inner.y) as usize)
 }
 
 fn restore_file_selection(state: &mut ViewState, prev_path: Option<String>) {
     let Some(path) = prev_path else {
         return;
     };
-    if let Some(idx) = state.tree.iter().position(|e| e.path == path) {
-        state.selected_file = idx;
+    if state.select_path(&path) {
         return;
     }
+    // Path gone in this commit: fall back to the nearest existing ancestor.
     let mut parent = path.as_str();
     while let Some(pos) = parent.rfind('/') {
         parent = &path[..pos];
-        let prefix = format!("{}/", parent);
-        if let Some(idx) = state.tree.iter().position(|e| e.path.starts_with(&prefix)) {
-            state.selected_file = idx;
+        if state.select_path(parent) {
             return;
         }
     }
@@ -2341,6 +2718,350 @@ mod tests {
     }
 
     // ── Performance integration tests ──
+
+    // ── File tree folding ──
+
+    fn test_app_with_dirs() -> (tempfile::TempDir, App) {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"root", "Root file");
+        add_file_commit(&repo, "src/main.rs", b"fn main() {}", "Add main");
+        add_file_commit(&repo, "src/lib.rs", b"pub fn lib() {}", "Add lib");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let app = App::new(git_repo, Config::default()).unwrap();
+        (dir, app)
+    }
+
+    fn select_view_path(app: &mut App, path: &str) {
+        let Mode::View(state) = &mut app.mode else {
+            panic!("expected view mode")
+        };
+        assert!(state.select_path(path), "path {} not found", path);
+    }
+
+    #[test]
+    fn test_enter_toggles_directory_fold() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        select_view_path(&mut app, "src");
+
+        let full_len = {
+            let Mode::View(s) = &app.mode else {
+                panic!("expected view")
+            };
+            s.visible.len()
+        };
+
+        app.handle_key(KeyCode::Enter);
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert!(s.collapsed.contains("src"));
+        assert!(s.visible.len() < full_len);
+        assert_eq!(s.selected_entry().unwrap().path, "src");
+        let _ = s;
+
+        app.handle_key(KeyCode::Enter);
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert!(!s.collapsed.contains("src"));
+        assert_eq!(s.visible.len(), full_len);
+    }
+
+    #[test]
+    fn test_h_collapses_expanded_directory() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        select_view_path(&mut app, "src");
+
+        app.handle_key(KeyCode::Char('h'));
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view, h on dir must not go back")
+        };
+        assert!(s.collapsed.contains("src"));
+    }
+
+    #[test]
+    fn test_h_on_collapsed_top_level_dir_goes_back() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        select_view_path(&mut app, "src");
+        app.handle_key(KeyCode::Char('h')); // collapse
+        app.handle_key(KeyCode::Char('h')); // no parent → Back
+        assert!(matches!(app.mode, Mode::Pick(_)));
+    }
+
+    #[test]
+    fn test_h_on_file_goes_back() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        select_view_path(&mut app, "a.txt");
+        app.handle_key(KeyCode::Char('h'));
+        assert!(matches!(app.mode, Mode::Pick(_)));
+    }
+
+    #[test]
+    fn test_l_expands_collapsed_directory_then_steps_in() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        select_view_path(&mut app, "src");
+        app.handle_key(KeyCode::Char('h')); // collapse
+
+        app.handle_key(KeyCode::Char('l')); // expand
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert!(!s.collapsed.contains("src"));
+        assert_eq!(s.selected_entry().unwrap().path, "src");
+        let _ = s;
+
+        app.handle_key(KeyCode::Char('l')); // step into first child
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert!(s.selected_entry().unwrap().path.starts_with("src/"));
+    }
+
+    #[test]
+    fn test_fold_survives_commit_switch() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        select_view_path(&mut app, "src");
+        app.handle_key(KeyCode::Char('h')); // collapse src
+
+        app.handle_ctrl_key(KeyCode::Char('n')); // older commit
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert!(s.collapsed.contains("src"));
+    }
+
+    // ── Debounced file loading ──
+
+    fn expire_pending_load(app: &mut App) {
+        assert!(app.pending_view_load.is_some(), "expected a pending load");
+        app.pending_view_load = Some(std::time::Instant::now() - VIEW_LOAD_DEBOUNCE);
+        app.tick_pending_view_load();
+    }
+
+    #[test]
+    fn test_view_navigation_defers_file_load() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        // First file loads immediately on entering View
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert!(matches!(
+            s.file_content,
+            crate::mode::FileContent::Text { .. }
+        ));
+        let _ = s;
+
+        select_view_path(&mut app, "src/lib.rs");
+        app.handle_key(KeyCode::Char('j')); // → src/main.rs, uncached → debounced
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert_eq!(s.selected_entry().unwrap().path, "src/main.rs");
+        assert!(matches!(s.file_content, crate::mode::FileContent::Loading));
+        assert!(app.pending_view_load.is_some());
+        let _ = s;
+
+        expire_pending_load(&mut app);
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        let crate::mode::FileContent::Text { raw, .. } = &s.file_content else {
+            panic!("expected text content after the debounce elapsed")
+        };
+        assert!(raw.contains("fn main"));
+        assert!(app.pending_view_load.is_none());
+    }
+
+    #[test]
+    fn test_view_navigation_cache_hit_is_instant() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"aaa", "A");
+        add_file_commit(&repo, "b.txt", b"bbb", "B");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
+        app.handle_key(KeyCode::Enter); // View: a.txt loaded + cached
+
+        app.handle_key(KeyCode::Char('j')); // b.txt: debounced
+        expire_pending_load(&mut app); // loads + caches b.txt
+
+        app.handle_key(KeyCode::Char('k')); // back to a.txt: cache hit
+        assert!(
+            app.pending_view_load.is_none(),
+            "cached file must not debounce"
+        );
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        let crate::mode::FileContent::Text { raw, .. } = &s.file_content else {
+            panic!("expected cached text content")
+        };
+        assert!(raw.contains("aaa"));
+    }
+
+    #[test]
+    fn test_large_file_skips_highlighting() {
+        let (dir, repo) = init_test_repo();
+        let big = "fn main() { println!(\"hi\"); }\n".repeat(10_000); // ~300KB
+        add_file_commit(&repo, "big.rs", big.as_bytes(), "Add big file");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
+        app.handle_key(KeyCode::Enter);
+
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        let crate::mode::FileContent::Text { highlighted, .. } = &s.file_content else {
+            panic!("expected text content")
+        };
+        assert!(!highlighted.is_empty());
+        assert!(
+            highlighted
+                .iter()
+                .flat_map(|line| line.spans.iter())
+                .all(|span| span.style.fg.is_none()),
+            "oversized file must render as plain text"
+        );
+    }
+
+    // ── Mouse ──
+
+    fn mouse(
+        kind: crossterm::event::MouseEventKind,
+        col: u16,
+        row: u16,
+    ) -> crossterm::event::MouseEvent {
+        crossterm::event::MouseEvent {
+            kind,
+            column: col,
+            row,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn test_mouse_wheel_moves_pick_selection() {
+        use crossterm::event::MouseEventKind;
+        let (_dir, mut app) = test_app();
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 5, 5));
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.selected, 1);
+        let _ = s;
+        app.handle_mouse(mouse(MouseEventKind::ScrollUp, 5, 5));
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.selected, 0);
+    }
+
+    #[test]
+    fn test_mouse_click_selects_and_folds_tree_entry() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        use ratatui::layout::Rect;
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        app.view_tree_area = Some(Rect::new(0, 0, 30, 10));
+        app.view_tree_offset = 0;
+
+        let src_row = {
+            let Mode::View(s) = &app.mode else {
+                panic!("expected view")
+            };
+            let idx = s
+                .visible
+                .iter()
+                .position(|&i| s.tree[i].path == "src")
+                .unwrap();
+            1 + idx as u16 // +1 for the top border
+        };
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, src_row));
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert_eq!(s.selected_entry().unwrap().path, "src");
+        assert!(s.collapsed.contains("src"), "click on dir should fold it");
+        let _ = s;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, src_row));
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert!(!s.collapsed.contains("src"), "second click should unfold");
+    }
+
+    #[test]
+    fn test_mouse_click_outside_tree_area_ignored() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        use ratatui::layout::Rect;
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        app.view_tree_area = Some(Rect::new(0, 0, 30, 10));
+        let before = {
+            let Mode::View(s) = &app.mode else {
+                panic!("expected view")
+            };
+            s.selected_file
+        };
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 50, 5));
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert_eq!(s.selected_file, before);
+    }
+
+    #[test]
+    fn test_mouse_double_click_opens_view() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        use ratatui::layout::Rect;
+        let (_dir, mut app) = test_app();
+        app.pick_list_area = Some(Rect::new(0, 0, 40, 10));
+        app.pick_list_offset = 0;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, 2));
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick after single click")
+        };
+        assert_eq!(s.selected, 1);
+        let _ = s;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, 2));
+        assert!(matches!(app.mode, Mode::View(_)));
+    }
+
+    #[test]
+    fn test_mouse_wheel_scrolls_view_content() {
+        use crossterm::event::MouseEventKind;
+        use ratatui::layout::Rect;
+        let (dir, repo) = init_test_repo();
+        let content = (0..50).map(|i| format!("line {}\n", i)).collect::<String>();
+        add_file_commit(&repo, "a.txt", content.as_bytes(), "A");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
+        app.handle_key(KeyCode::Enter);
+        app.view_tree_area = Some(Rect::new(0, 0, 30, 10));
+        app.view_content_area = Some(Rect::new(30, 0, 50, 10));
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 40, 5));
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert_eq!(s.scroll, 3);
+        let _ = s;
+        app.handle_mouse(mouse(MouseEventKind::ScrollUp, 40, 5));
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert_eq!(s.scroll, 0);
+    }
 
     #[test]
     fn test_paging_triggers_on_near_end() {
