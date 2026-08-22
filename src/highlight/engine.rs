@@ -160,6 +160,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_go_config() {
             self.configs.insert("go".to_string(), config);
         }
+        if let Ok(config) = Self::make_lisette_config() {
+            self.configs.insert("lisette".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -325,6 +328,18 @@ impl HighlightEngine {
         config.configure(HIGHLIGHT_NAMES);
         Ok(config)
     }
+
+    fn make_lisette_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_lisette::LANGUAGE.into(),
+            "lisette",
+            tree_sitter_lisette::HIGHLIGHTS_QUERY,
+            "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
 }
 
 fn ts_with_js_keywords() -> &'static str {
@@ -371,6 +386,8 @@ pub const HIGHLIGHT_NAMES: &[&str] = &[
     "constant.builtin",
     "label",
     "none",
+    "constructor",
+    "module",
 ];
 
 const MARKDOWN_HIGHLIGHTS_QUERY: &str = r#"[
@@ -1007,6 +1024,44 @@ mod tests {
         assert!(
             keyword_spans.len() >= 4,
             "expected `func`/`if`/`return`/`int` to be colored in go, got spans: {:#?}",
+            lines
+        );
+    }
+
+    #[test]
+    fn test_lisette_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "enum Shape {\n  Circle(float64),\n}\n\nfn area(shape: Shape) -> float64 {\n  match shape {\n    Shape.Circle(r) => 3.14 * r * r,\n  }\n}\n",
+            "shape.lis",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in lisette highlight output");
+    }
+
+    #[test]
+    fn test_lisette_keywords_are_colored() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "fn main() {\n  let mut count = 0\n  match count {\n    0 => (),\n    _ => (),\n  }\n}\n",
+            "main.lis",
+        );
+        let keyword_spans: Vec<_> = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| {
+                ["fn", "let", "mut", "match"].contains(&s.content.as_ref()) && s.style.fg.is_some()
+            })
+            .collect();
+        assert!(
+            keyword_spans.len() >= 4,
+            "expected `fn`/`let`/`mut`/`match` to be keyword-colored in lisette, got spans: {:#?}",
             lines
         );
     }

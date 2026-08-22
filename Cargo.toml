@@ -44,6 +44,7 @@ tree-sitter-zig = "1.1.2"
 tree-sitter-c = "0.23"
 tree-sitter-asm = "0.24"
 tree-sitter-linkerscript = { path = "vendor/tree-sitter-linkerscript" }
+tree-sitter-lisette = { path = "vendor/tree-sitter-lisette" }
 [target.'cfg(target_os = "macos")'.dependencies]
 blas-src = { version = "0.14", features = ["accelerate"] }
 
