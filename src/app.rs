@@ -285,11 +285,20 @@ impl App {
         }
 
         // View mode: h/l fold/unfold the selected directory. On files they
-        // keep their default bindings (Back / open).
+        // keep their default bindings (Back / open). J/K jump the tree
+        // selection between changed (*-marked) files instead of paging.
         if matches!(self.mode, Mode::View(_)) {
             match code {
                 KeyCode::Char('h') if self.view_fold_or_parent() => return,
                 KeyCode::Char('l') if self.view_unfold_or_first_child() => return,
+                KeyCode::Char('J') => {
+                    self.view_jump_change(true);
+                    return;
+                }
+                KeyCode::Char('K') => {
+                    self.view_jump_change(false);
+                    return;
+                }
                 _ => {}
             }
         }
@@ -674,6 +683,29 @@ impl App {
             self.request_view_file_load();
         }
         handled
+    }
+
+    /// 'J'/'K' in View mode: jump the tree selection to the next/previous
+    /// changed file, expanding collapsed ancestors so it becomes visible.
+    /// No-op when there is no further change in that direction.
+    fn view_jump_change(&mut self, forward: bool) {
+        let moved = {
+            let Mode::View(state) = &mut self.mode else {
+                return;
+            };
+            let target = if forward {
+                state.next_changed_path()
+            } else {
+                state.prev_changed_path()
+            };
+            match target {
+                Some(path) => state.select_path(&path),
+                None => false,
+            }
+        };
+        if moved {
+            self.request_view_file_load();
+        }
     }
 
     fn back(&mut self) {
@@ -2467,14 +2499,14 @@ mod tests {
     }
 
     #[test]
-    fn test_page_up_in_view_does_not_underflow() {
+    fn test_scroll_up_in_view_does_not_underflow() {
         let (dir, repo) = init_test_repo();
         add_file_commit(&repo, "a.txt", b"line1\nline2\nline3\n", "A");
         let git_repo = GitRepo::open(dir.path()).unwrap();
         let mut app = App::new(git_repo, Config::default()).unwrap();
         app.handle_key(KeyCode::Enter);
 
-        app.handle_key(KeyCode::Char('K'));
+        app.handle_key(KeyCode::Char('u'));
         let Mode::View(s) = &app.mode else {
             panic!("expected view")
         };
@@ -2758,6 +2790,74 @@ mod tests {
         };
         assert!(!s.collapsed.contains("src"));
         assert_eq!(s.visible.len(), full_len);
+    }
+
+    // ── Changed-file jump (J/K) ──
+
+    fn view_selected_path(app: &App) -> String {
+        let Mode::View(state) = &app.mode else {
+            panic!("expected view mode")
+        };
+        state.selected_entry().unwrap().path.clone()
+    }
+
+    #[test]
+    fn test_shift_j_jumps_to_next_changed_file() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        // HEAD commit "Add lib" changed src/lib.rs only.
+        app.handle_key(KeyCode::Char('J'));
+        assert_eq!(view_selected_path(&app), "src/lib.rs");
+
+        // No further change below: selection stays put.
+        app.handle_key(KeyCode::Char('J'));
+        assert_eq!(view_selected_path(&app), "src/lib.rs");
+    }
+
+    #[test]
+    fn test_shift_k_jumps_back_to_previous_changed_file() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        select_view_path(&mut app, "src/main.rs");
+
+        app.handle_key(KeyCode::Char('K'));
+        assert_eq!(view_selected_path(&app), "src/lib.rs");
+    }
+
+    #[test]
+    fn test_shift_j_expands_collapsed_dir_to_reach_change() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        select_view_path(&mut app, "src");
+        app.handle_key(KeyCode::Char('h'));
+        for _ in 0..5 {
+            app.handle_key(KeyCode::Char('k'));
+        }
+
+        app.handle_key(KeyCode::Char('J'));
+        assert_eq!(view_selected_path(&app), "src/lib.rs");
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert!(!s.collapsed.contains("src"));
+    }
+
+    #[test]
+    fn test_shift_j_without_changes_is_noop() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"root", "Root commit");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
+        app.handle_key(KeyCode::Enter);
+
+        // Root commit has no parent, so nothing is marked changed. J must
+        // neither move the selection nor fall back to page scrolling.
+        app.handle_key(KeyCode::Char('J'));
+        let Mode::View(s) = &app.mode else {
+            panic!("expected view")
+        };
+        assert_eq!(s.selected_file, 0);
+        assert_eq!(s.scroll, 0);
     }
 
     #[test]
