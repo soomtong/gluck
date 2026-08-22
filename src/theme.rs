@@ -216,6 +216,8 @@ impl Palette {
             Style::new().fg(self.syn_constant),
         );
         m.insert("label".into(), Style::new().fg(self.syn_type));
+        m.insert("constructor".into(), Style::new().fg(self.syn_type));
+        m.insert("module".into(), Style::new().fg(self.syn_variable));
         m
     }
 }

@@ -22,6 +22,7 @@ pub enum Language {
     Zig,
     Asm,
     LinkerScript,
+    Lisette,
 }
 
 impl Language {
@@ -41,6 +42,7 @@ impl Language {
             "zig" => Some(Self::Zig),
             "s" | "S" | "asm" => Some(Self::Asm),
             "ld" | "lds" => Some(Self::LinkerScript),
+            "lis" => Some(Self::Lisette),
             "toml" => Some(Self::Toml),
             "json" | "jsonc" => Some(Self::Json),
             "yaml" | "yml" => Some(Self::Yaml),
@@ -74,6 +76,7 @@ impl Language {
             Self::Zig => "zig",
             Self::Asm => "asm",
             Self::LinkerScript => "linkerscript",
+            Self::Lisette => "lisette",
         }
     }
 
@@ -154,5 +157,15 @@ mod tests {
             Some(Language::LinkerScript)
         );
         assert!(!Language::LinkerScript.supports_symbol_chunking());
+    }
+
+    #[test]
+    fn detects_lisette() {
+        assert_eq!(Language::from_path("main.lis"), Some(Language::Lisette));
+        assert_eq!(
+            Language::from_path("prelude.d.lis"),
+            Some(Language::Lisette)
+        );
+        assert!(!Language::Lisette.supports_symbol_chunking());
     }
 }

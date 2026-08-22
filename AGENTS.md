@@ -86,8 +86,9 @@ Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 5), `hea
 - `HighlightConfiguration::new()` signature in `tree-sitter-highlight` 0.22 is `(language, name, highlights, injections, locals)`. A past bug passed query strings into the `name` slot.
 - One shared `HIGHLIGHT_NAMES` array drives all language configs via `.configure(HIGHLIGHT_NAMES)`. Adding a language: append names here AND add palette entries in `theme.rs::to_highlight_map()`.
 - `tree-sitter-markdown-fork` 0.7.3 doesn't export its highlight query — we embed `MARKDOWN_HIGHLIGHTS_QUERY` inline.
-- Highlighted languages: **Rust, Markdown, JSON, TypeScript, TSX, JavaScript, YAML, Swift, Bash (sh/bash/zsh), Zig, C, Asm (s/S/asm), linker scripts (ld/lds)**. Extension detection goes through `lang::Language::from_path`; non-matching files fall back to plain text.
+- Highlighted languages: **Rust, Markdown, JSON, TypeScript, TSX, JavaScript, YAML, Swift, Bash (sh/bash/zsh), Zig, C, Asm (s/S/asm), linker scripts (ld/lds), Go, Lisette (lis)**. Extension detection goes through `lang::Language::from_path`; non-matching files fall back to plain text.
 - `tree-sitter-linkerscript` is vendored at `vendor/tree-sitter-linkerscript/` (crates.io release pins tree-sitter 0.20/cc 1.0 — incompatible); grammar sources are verbatim upstream, only the Rust bindings are modernized.
+- `tree-sitter-lisette` is vendored at `vendor/tree-sitter-lisette/` from ivov/lisette `editors/tree-sitter-lisette` (no crates.io release; upstream parser.c is ABI 15, ours is regenerated at ABI 14 with tree-sitter CLI 0.23 for the 0.23 runtime — regenerate the same way when syncing upstream).
 
 ### Chunking
 
