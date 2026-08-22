@@ -1,5 +1,6 @@
 use crate::app::App;
 use crate::git::diff::{DiffFile, DiffLine};
+use crate::highlight::engine::expand_tabs;
 use crate::mode::Mode;
 use crate::ui::layout;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -211,7 +212,7 @@ fn render_unified(
             Line::from(vec![
                 Span::styled(prefix, style),
                 Span::styled(line_no, Style::new().fg(palette.dim)),
-                Span::styled(content, style),
+                Span::styled(expand_tabs(&content), style),
             ])
         })
         .collect();
@@ -345,18 +346,18 @@ fn diff_line_span(dl: &DiffLine, palette: &crate::theme::Palette, is_new: bool) 
             Line::from(vec![
                 Span::styled(" ", style),
                 Span::styled(line_no, Style::new().fg(palette.dim)),
-                Span::styled(content.clone(), style),
+                Span::styled(expand_tabs(content), style),
             ])
         }
         DiffLine::Removed { line_no, content } => Line::from(vec![
             Span::styled("-", style),
             Span::styled(format!(" {:>4} ", line_no), Style::new().fg(palette.dim)),
-            Span::styled(content.clone(), style),
+            Span::styled(expand_tabs(content), style),
         ]),
         DiffLine::Added { line_no, content } => Line::from(vec![
             Span::styled("+", style),
             Span::styled(format!(" {:>4} ", line_no), Style::new().fg(palette.dim)),
-            Span::styled(content.clone(), style),
+            Span::styled(expand_tabs(content), style),
         ]),
     }
 }
