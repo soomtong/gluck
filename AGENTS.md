@@ -85,7 +85,7 @@ Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 5), `hea
 - `HighlightConfiguration::new()` signature in `tree-sitter-highlight` 0.22 is `(language, name, highlights, injections, locals)`. A past bug passed query strings into the `name` slot.
 - One shared `HIGHLIGHT_NAMES` array drives all language configs via `.configure(HIGHLIGHT_NAMES)`. Adding a language: append names here AND add palette entries in `theme.rs::to_highlight_map()`.
 - `tree-sitter-markdown-fork` 0.7.3 doesn't export its highlight query — we embed `MARKDOWN_HIGHLIGHTS_QUERY` inline.
-- Currently only **Rust + Markdown** are highlighted. Extension detection goes through `lang::Language::from_path`; non-matching files fall back to plain text.
+- Highlighted languages: **Rust, Markdown, JSON, TypeScript, TSX, JavaScript, YAML, Swift, Bash (sh/bash/zsh), Zig**. Extension detection goes through `lang::Language::from_path`; non-matching files fall back to plain text.
 
 ### Chunking
 

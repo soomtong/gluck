@@ -39,6 +39,8 @@ chrono = { version = "0.4.45", features = ["serde"] }
 model2vec-rs = { version = "0.2", features = ["hf-hub"] }
 turbovec = "0.8"
 tantivy = "0.26"
+tree-sitter-bash = "0.23"
+tree-sitter-zig = "1.1.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 blas-src = { version = "0.14", features = ["accelerate"] }
 

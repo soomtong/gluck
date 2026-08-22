@@ -19,6 +19,7 @@ pub enum Language {
     Css,
     Swift,
     Yaml,
+    Zig,
 }
 
 impl Language {
@@ -34,7 +35,8 @@ impl Language {
             "c" | "h" => Some(Self::C),
             "cpp" | "cc" | "cxx" | "hpp" => Some(Self::Cpp),
             "java" => Some(Self::Java),
-            "sh" | "bash" => Some(Self::Bash),
+            "sh" | "bash" | "zsh" => Some(Self::Bash),
+            "zig" => Some(Self::Zig),
             "toml" => Some(Self::Toml),
             "json" | "jsonc" => Some(Self::Json),
             "yaml" | "yml" => Some(Self::Yaml),
@@ -65,6 +67,7 @@ impl Language {
             Self::Css => "css",
             Self::Swift => "swift",
             Self::Yaml => "yaml",
+            Self::Zig => "zig",
         }
     }
 
@@ -114,5 +117,15 @@ mod tests {
         assert_eq!(Language::from_path("config.yml"), Some(Language::Yaml));
         assert_eq!(Language::from_path("data.jsonc"), Some(Language::Json));
         assert!(Language::Swift.supports_symbol_chunking());
+    }
+
+    #[test]
+    fn detects_zig_and_shells() {
+        assert_eq!(Language::from_path("main.zig"), Some(Language::Zig));
+        assert_eq!(Language::from_path("run.sh"), Some(Language::Bash));
+        assert_eq!(Language::from_path("run.bash"), Some(Language::Bash));
+        assert_eq!(Language::from_path("run.zsh"), Some(Language::Bash));
+        assert!(!Language::Zig.supports_symbol_chunking());
+        assert!(!Language::Bash.supports_symbol_chunking());
     }
 }

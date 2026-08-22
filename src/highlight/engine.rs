@@ -140,6 +140,12 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_swift_config() {
             self.configs.insert("swift".to_string(), config);
         }
+        if let Ok(config) = Self::make_bash_config() {
+            self.configs.insert("bash".to_string(), config);
+        }
+        if let Ok(config) = Self::make_zig_config() {
+            self.configs.insert("zig".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -228,6 +234,30 @@ impl HighlightEngine {
             "swift",
             SWIFT_HIGHLIGHTS_QUERY,
             "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_bash_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_bash::LANGUAGE.into(),
+            "bash",
+            tree_sitter_bash::HIGHLIGHT_QUERY,
+            "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_zig_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_zig::LANGUAGE.into(),
+            "zig",
+            tree_sitter_zig::HIGHLIGHTS_QUERY,
+            tree_sitter_zig::INJECTIONS_QUERY,
             "",
         )?;
         config.configure(HIGHLIGHT_NAMES);
@@ -712,5 +742,75 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .any(|s| s.style.fg.is_some());
         assert!(has_color, "no colored spans in swift highlight output");
+    }
+
+    #[test]
+    fn test_bash_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "#!/bin/bash\nfor f in *.txt; do\n  echo \"$f\"\ndone\n",
+            "build.sh",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in bash highlight output");
+    }
+
+    #[test]
+    fn test_zsh_uses_bash_highlighting() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "if [ -f config ]; then\n  source config\nfi\n",
+            ".zshrc.zsh",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in zsh highlight output");
+    }
+
+    #[test]
+    fn test_zig_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "const std = @import(\"std\");\n\npub fn main() !void {\n    var x: u32 = 42;\n    std.debug.print(\"{}\\n\", .{x});\n}\n",
+            "main.zig",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in zig highlight output");
+    }
+
+    #[test]
+    fn test_zig_keywords_are_colored() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "pub fn add(a: i32, b: i32) i32 {\n    return a + b;\n}\n",
+            "lib.zig",
+        );
+        let keyword_spans: Vec<_> = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| {
+                ["pub", "fn", "return"].contains(&s.content.as_ref()) && s.style.fg.is_some()
+            })
+            .collect();
+        assert!(
+            keyword_spans.len() >= 3,
+            "expected `pub`/`fn`/`return` to be keyword-colored in zig, got spans: {:#?}",
+            lines
+        );
     }
 }
