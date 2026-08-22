@@ -288,16 +288,8 @@ impl App {
         // keep their default bindings (Back / open).
         if matches!(self.mode, Mode::View(_)) {
             match code {
-                KeyCode::Char('h') => {
-                    if self.view_fold_or_parent() {
-                        return;
-                    }
-                }
-                KeyCode::Char('l') => {
-                    if self.view_unfold_or_first_child() {
-                        return;
-                    }
-                }
+                KeyCode::Char('h') if self.view_fold_or_parent() => return,
+                KeyCode::Char('l') if self.view_unfold_or_first_child() => return,
                 _ => {}
             }
         }
