@@ -105,7 +105,9 @@ impl HighlightEngine {
         }
     }
 
-    fn plain_lines(source: &str) -> Vec<Line<'static>> {
+    /// Unstyled per-line rendering; also the fast path for files too large
+    /// to highlight.
+    pub fn plain_lines(source: &str) -> Vec<Line<'static>> {
         source.lines().map(|l| Line::from(l.to_string())).collect()
     }
 

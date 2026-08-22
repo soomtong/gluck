@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use crossterm::event::{self, Event, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, KeyModifiers,
+};
 use gluck::app::App;
 use gluck::cli::{Cli, Commands};
 use gluck::config::Config;
@@ -93,7 +95,9 @@ fn main() -> Result<()> {
     }
 
     let mut terminal = ratatui::init();
+    let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
     let result = run_app(&mut terminal, &mut app);
+    let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
     result
 }
@@ -111,16 +115,21 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
         if app.is_indexing() {
             app.drain_index_messages();
             app.drain_engine_messages();
-            app.drain_search_results();
-            if event::poll(Duration::from_millis(80))? {
-                read_and_dispatch(app)?;
-            }
-        } else {
-            app.drain_search_results();
-            if event::poll(Duration::from_secs(1))? {
-                read_and_dispatch(app)?;
-            }
         }
+        app.drain_search_results();
+
+        let timeout = if app.is_indexing() {
+            Duration::from_millis(80)
+        } else if app.pending_view_load.is_some() {
+            // Wake up soon enough to run the debounced file load.
+            Duration::from_millis(30)
+        } else {
+            Duration::from_secs(1)
+        };
+        if event::poll(timeout)? {
+            read_and_dispatch(app)?;
+        }
+        app.tick_pending_view_load();
 
         if app.should_quit {
             break;
@@ -130,14 +139,16 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
 }
 
 fn read_and_dispatch(app: &mut App) -> Result<()> {
-    if let Event::Key(key) = event::read()? {
-        if key.kind == KeyEventKind::Press {
+    match event::read()? {
+        Event::Key(key) if key.kind == KeyEventKind::Press => {
             if key.modifiers.contains(KeyModifiers::CONTROL) {
                 app.handle_ctrl_key(key.code);
             } else {
                 app.handle_key(key.code);
             }
         }
+        Event::Mouse(mouse) => app.handle_mouse(mouse),
+        _ => {}
     }
     Ok(())
 }

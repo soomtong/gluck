@@ -59,8 +59,9 @@ Pick ──Enter──→ View ──Tab──→ Diff
 ```
 
 - **Pick**: commit list + inline diff preview. `/` opens prefix search (CommitIndex tree). Lazy-loads 200-batches; prefetches when selection within 50 of end.
-- **View**: file tree + syntax-highlighted content. `.` toggles gitignore filter.
+- **View**: file tree + syntax-highlighted content. `.` toggles gitignore filter. On a directory `Enter` toggles fold, `h` collapses (then jumps to parent), `l` expands (then steps into first child); on files `h`/`l` keep their Back/open bindings.
 - **Diff**: side-by-side default. `v` toggles unified. `h`/`l` and ←/→ navigate files.
+- **Mouse**: capture enabled in `main.rs`. Wheel moves list selection (Pick, View tree) or scrolls content (View pane, Diff); click selects tree/commit rows (dirs toggle fold, Pick double-click opens View). Hit-testing uses panel `Rect`s + `ListState` offsets captured into `App` fields at render time — `App::render` takes `&mut self` for this.
 - **Ctrl+N/P** crosses commits while preserving selected file path.
 - **Ctrl+T** cycles theme and persists to config.
 
@@ -100,6 +101,10 @@ Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 5), `hea
 - `FileContent::Text` carries `raw: String` + `highlighted: Vec<Line<'static>>`. Setting only `raw` makes view fall back to plain text. `load_view_file()` must populate `highlighted` via `self.highlight.highlight(...)`.
 - `FileContent::line_count()` prefers `highlighted.len()` over `raw.lines().count()`.
 - `ui/view.rs` prepends line numbers when `highlighted` is populated — keep that consistent if you change construction.
+- `ViewState.selected_file` indexes `visible` (fold-filtered indices into `tree`), NOT `tree` — go through `selected_entry()`/`select_path()`; call `rebuild_visible()` after mutating `tree` or `collapsed`.
+- j/k navigation defers loading: `request_view_file_load()` shows `FileContent::Loading` and arms `pending_view_load`; the main loop's `tick_pending_view_load()` loads after `VIEW_LOAD_DEBOUNCE` (60ms) of quiet, so held keys skip intermediate files. `Enter`/commit-switch paths still call `load_view_file()` directly.
+- Loaded content is LRU-cached in `App.content_cache` keyed `(commit oid, path)` — cleared on theme cycle. Files over `MAX_HIGHLIGHT_BYTES` (256KB) skip tree-sitter and render via `HighlightEngine::plain_lines`.
+- The content pane renders only the `scroll..scroll+height` window (no `Paragraph::scroll`) — cloning every line per frame stalls large files.
 - Search modal is a 70%×60% centered overlay using `Clear` widget. Debug overlay (`Ctrl+D`) renders top-right.
 
 ### CommitStore batching

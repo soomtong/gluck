@@ -12,8 +12,10 @@ fn entry_depth(entry: &crate::git::tree::FileEntry) -> usize {
     path.matches('/').count()
 }
 
-pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
+pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let (header, body, footer) = layout::app_layout(area);
+    let (left, right) = layout::split_horizontal(body, 36);
+    let mut tree_offset = 0;
 
     if let Mode::View(state) = &app.mode {
         let palette = &app.palette;
@@ -27,26 +29,41 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             &timestamp,
             Some(&state.commit.message),
         );
-        let (left, right) = layout::split_horizontal(body, 36);
 
         let items: Vec<ListItem> = state
-            .tree
+            .visible
             .iter()
-            .map(|entry| {
+            .map(|&tree_idx| {
+                let entry = &state.tree[tree_idx];
+                let is_dir = matches!(entry.kind, EntryKind::Directory);
+                let collapsed = is_dir && state.collapsed.contains(&entry.path);
                 let indent = "  ".repeat(entry_depth(entry));
-                let marker = if state.changed_paths.contains(&entry.path) {
+                // A collapsed directory inherits the change marker of
+                // anything hidden inside it.
+                let changed = state.changed_paths.contains(&entry.path)
+                    || (collapsed && {
+                        let prefix = format!("{}/", entry.path);
+                        state.changed_paths.iter().any(|p| p.starts_with(&prefix))
+                    });
+                let marker = if changed {
                     Span::styled("*", Style::new().fg(palette.warning))
                 } else {
                     Span::styled(" ", Style::reset())
                 };
-                let suffix = match entry.kind {
-                    EntryKind::Directory => "/",
-                    EntryKind::File => "",
+                let fold_icon = if is_dir {
+                    if collapsed {
+                        "▸ "
+                    } else {
+                        "▾ "
+                    }
+                } else {
+                    ""
                 };
+                let suffix = if is_dir { "/" } else { "" };
 
                 let mut spans = vec![
                     marker,
-                    Span::raw(format!("{}{}{}", indent, entry.name, suffix)),
+                    Span::raw(format!("{}{}{}{}", indent, fold_icon, entry.name, suffix)),
                 ];
 
                 if let Some(&(added, removed)) = state.changed_stats.get(&entry.path) {
@@ -82,17 +99,24 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         let mut list_state = ListState::default();
         list_state.select(Some(state.selected_file));
         frame.render_stateful_widget(tree_list, left, &mut list_state);
+        tree_offset = list_state.offset();
 
         let file_name = state
-            .tree
-            .get(state.selected_file)
+            .selected_entry()
             .map(|e| e.path.as_str())
             .unwrap_or("no file");
 
+        let content_height = right.height.saturating_sub(2) as usize;
         let lines: Vec<Line> = match &state.file_content {
             FileContent::NotLoaded => {
                 vec![Line::from(Span::styled(
                     "(select a file to view)",
+                    Style::new().fg(palette.dim),
+                ))]
+            }
+            FileContent::Loading => {
+                vec![Line::from(Span::styled(
+                    "(loading...)",
                     Style::new().fg(palette.dim),
                 ))]
             }
@@ -104,9 +128,13 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             }
             FileContent::Text { highlighted, .. } => {
                 if !highlighted.is_empty() {
+                    // Materialize only the visible window; cloning every
+                    // line of a large file each frame stalls navigation.
                     highlighted
                         .iter()
                         .enumerate()
+                        .skip(state.scroll)
+                        .take(content_height)
                         .map(|(i, line)| {
                             let mut spans = vec![Span::styled(
                                 format!("{:>4} ", i + 1),
@@ -122,19 +150,22 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             }
         };
 
-        let content = Paragraph::new(lines)
-            .block(
-                Block::bordered()
-                    .title(format!(" {} ", file_name))
-                    .border_style(Style::new().fg(palette.border)),
-            )
-            .scroll((state.scroll as u16, 0));
+        let content = Paragraph::new(lines).block(
+            Block::bordered()
+                .title(format!(" {} ", file_name))
+                .border_style(Style::new().fg(palette.border)),
+        );
 
         frame.render_widget(content, right);
     }
 
+    app.view_tree_area = Some(left);
+    app.view_content_area = Some(right);
+    app.view_tree_offset = tree_offset;
+
     let mut hints = vec![
         ("[j/k]", "move"),
+        ("[h/l]", "fold"),
         ("[u/d]", "scroll"),
         ("[J/K]", "page"),
         ("[^P/^N]", "commit"),

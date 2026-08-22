@@ -84,6 +84,7 @@ impl PickState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileContent {
     NotLoaded,
+    Loading,
     Binary,
     Text {
         raw: String,
@@ -91,10 +92,15 @@ pub enum FileContent {
     },
 }
 
+/// `tree` is the full (possibly gitignore-filtered) DFS-ordered entry list;
+/// `visible` holds indices into `tree` after applying `collapsed` folds and
+/// `selected_file` indexes into `visible`, not `tree`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewState {
     pub commit: CommitInfo,
     pub tree: Vec<FileEntry>,
+    pub collapsed: std::collections::HashSet<String>,
+    pub visible: Vec<usize>,
     pub selected_file: usize,
     pub file_content: FileContent,
     pub scroll: usize,
@@ -105,9 +111,12 @@ pub struct ViewState {
 
 impl ViewState {
     pub fn new(commit: CommitInfo, tree: Vec<FileEntry>) -> Self {
+        let visible = (0..tree.len()).collect();
         Self {
             commit,
             tree,
+            collapsed: std::collections::HashSet::new(),
+            visible,
             selected_file: 0,
             file_content: FileContent::NotLoaded,
             scroll: 0,
@@ -120,6 +129,7 @@ impl ViewState {
     pub fn line_count(&self) -> usize {
         match &self.file_content {
             FileContent::NotLoaded => 0,
+            FileContent::Loading => 0,
             FileContent::Binary => 1,
             FileContent::Text { highlighted, raw } => {
                 if !highlighted.is_empty() {
@@ -130,6 +140,107 @@ impl ViewState {
             }
         }
     }
+
+    /// Recompute `visible` from `tree` and `collapsed`, clamping the selection.
+    pub fn rebuild_visible(&mut self) {
+        self.visible = compute_visible(&self.tree, &self.collapsed);
+        self.selected_file = self.selected_file.min(self.visible.len().saturating_sub(1));
+    }
+
+    pub fn visible_entry(&self, vis_idx: usize) -> Option<&FileEntry> {
+        self.visible.get(vis_idx).and_then(|&i| self.tree.get(i))
+    }
+
+    pub fn selected_entry(&self) -> Option<&FileEntry> {
+        self.visible_entry(self.selected_file)
+    }
+
+    /// Move selection to the visible entry with this exact path.
+    pub fn select_visible_path(&mut self, path: &str) -> bool {
+        let pos = self.visible.iter().position(|&i| self.tree[i].path == path);
+        if let Some(pos) = pos {
+            self.selected_file = pos;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Select the entry with this path, expanding collapsed ancestors so it
+    /// becomes visible. Returns false when the path is not in the tree.
+    pub fn select_path(&mut self, path: &str) -> bool {
+        let mut expanded = false;
+        let mut parent = path;
+        while let Some(pos) = parent.rfind('/') {
+            parent = &path[..pos];
+            if self.collapsed.remove(parent) {
+                expanded = true;
+            }
+        }
+        if expanded {
+            self.rebuild_visible();
+        }
+        self.select_visible_path(path)
+    }
+
+    /// Move selection to the parent directory of the selected entry.
+    pub fn select_parent(&mut self) -> bool {
+        let Some(entry) = self.selected_entry() else {
+            return false;
+        };
+        let path = entry.path.clone();
+        let Some(pos) = path.rfind('/') else {
+            return false;
+        };
+        self.select_visible_path(&path[..pos])
+    }
+
+    /// Fold/unfold the selected directory. Returns false when the selection
+    /// is not a directory.
+    pub fn toggle_fold(&mut self) -> bool {
+        let Some(entry) = self.selected_entry() else {
+            return false;
+        };
+        if !matches!(entry.kind, crate::git::tree::EntryKind::Directory) {
+            return false;
+        }
+        let path = entry.path.clone();
+        if !self.collapsed.remove(&path) {
+            self.collapsed.insert(path.clone());
+        }
+        self.rebuild_visible();
+        self.select_visible_path(&path);
+        true
+    }
+}
+
+/// Entries under a collapsed directory are hidden. The tree is DFS-ordered
+/// with each directory preceding its contents, so a single active skip
+/// prefix is enough.
+fn compute_visible(
+    tree: &[FileEntry],
+    collapsed: &std::collections::HashSet<String>,
+) -> Vec<usize> {
+    let mut visible = Vec::with_capacity(tree.len());
+    let mut skip: Option<&str> = None;
+    for (i, entry) in tree.iter().enumerate() {
+        if let Some(prefix) = skip {
+            if entry.path.len() > prefix.len()
+                && entry.path.starts_with(prefix)
+                && entry.path.as_bytes()[prefix.len()] == b'/'
+            {
+                continue;
+            }
+            skip = None;
+        }
+        visible.push(i);
+        if matches!(entry.kind, crate::git::tree::EntryKind::Directory)
+            && collapsed.contains(&entry.path)
+        {
+            skip = Some(&entry.path);
+        }
+    }
+    visible
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -402,6 +513,119 @@ mod tests {
             highlighted: vec![],
         };
         assert_eq!(state.line_count(), 3);
+    }
+
+    // ── Folding ──
+
+    fn make_entry(path: &str, kind: EntryKind) -> FileEntry {
+        let name = path.rsplit('/').next().unwrap().to_string();
+        FileEntry {
+            name,
+            path: path.into(),
+            kind,
+        }
+    }
+
+    fn folded_tree() -> Vec<FileEntry> {
+        vec![
+            make_entry("a.txt", EntryKind::File),
+            make_entry("src", EntryKind::Directory),
+            make_entry("src/nested", EntryKind::Directory),
+            make_entry("src/nested/deep.rs", EntryKind::File),
+            make_entry("src/main.rs", EntryKind::File),
+            make_entry("z.txt", EntryKind::File),
+        ]
+    }
+
+    #[test]
+    fn test_visible_defaults_to_full_tree() {
+        let state = ViewState::new(make_commit("C"), folded_tree());
+        assert_eq!(state.visible, vec![0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_toggle_fold_hides_and_restores_children() {
+        let mut state = ViewState::new(make_commit("C"), folded_tree());
+        state.selected_file = 1; // src
+        assert!(state.toggle_fold());
+        // src stays visible, everything under it is hidden
+        assert_eq!(state.visible, vec![0, 1, 5]);
+        assert_eq!(state.selected_entry().unwrap().path, "src");
+
+        assert!(state.toggle_fold());
+        assert_eq!(state.visible, vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(state.selected_entry().unwrap().path, "src");
+    }
+
+    #[test]
+    fn test_toggle_fold_on_file_is_noop() {
+        let mut state = ViewState::new(make_commit("C"), folded_tree());
+        state.selected_file = 0; // a.txt
+        assert!(!state.toggle_fold());
+        assert_eq!(state.visible.len(), 6);
+    }
+
+    #[test]
+    fn test_nested_collapse_inside_expanded_parent() {
+        let mut state = ViewState::new(make_commit("C"), folded_tree());
+        state.selected_file = 2; // src/nested
+        assert!(state.toggle_fold());
+        // Only deep.rs is hidden
+        assert_eq!(state.visible, vec![0, 1, 2, 4, 5]);
+    }
+
+    #[test]
+    fn test_collapse_does_not_hide_sibling_prefix_dir() {
+        // "src" collapsed must not hide "src2/..." (prefix but not a child)
+        let tree = vec![
+            make_entry("src", EntryKind::Directory),
+            make_entry("src/main.rs", EntryKind::File),
+            make_entry("src2", EntryKind::Directory),
+            make_entry("src2/other.rs", EntryKind::File),
+        ];
+        let mut state = ViewState::new(make_commit("C"), tree);
+        state.selected_file = 0;
+        state.toggle_fold();
+        assert_eq!(state.visible, vec![0, 2, 3]);
+    }
+
+    #[test]
+    fn test_select_path_expands_collapsed_ancestors() {
+        let mut state = ViewState::new(make_commit("C"), folded_tree());
+        state.selected_file = 1; // src
+        state.toggle_fold();
+        assert_eq!(state.visible.len(), 3);
+
+        assert!(state.select_path("src/nested/deep.rs"));
+        assert_eq!(state.selected_entry().unwrap().path, "src/nested/deep.rs");
+        assert!(!state.collapsed.contains("src"));
+    }
+
+    #[test]
+    fn test_select_path_missing_returns_false() {
+        let mut state = ViewState::new(make_commit("C"), folded_tree());
+        assert!(!state.select_path("does/not/exist.rs"));
+    }
+
+    #[test]
+    fn test_select_parent() {
+        let mut state = ViewState::new(make_commit("C"), folded_tree());
+        state.selected_file = 3; // src/nested/deep.rs
+        assert!(state.select_parent());
+        assert_eq!(state.selected_entry().unwrap().path, "src/nested");
+        assert!(state.select_parent());
+        assert_eq!(state.selected_entry().unwrap().path, "src");
+        // Top-level entry has no parent
+        assert!(!state.select_parent());
+    }
+
+    #[test]
+    fn test_rebuild_visible_clamps_selection() {
+        let mut state = ViewState::new(make_commit("C"), folded_tree());
+        state.selected_file = 5; // z.txt
+        state.collapsed.insert("src".into());
+        state.rebuild_visible();
+        assert!(state.selected_file < state.visible.len());
     }
 
     #[test]
