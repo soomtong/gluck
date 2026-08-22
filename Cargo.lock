@@ -1296,7 +1296,7 @@ dependencies = [
 
 [[package]]
 name = "gluck"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "anyhow",
  "blas-src",
