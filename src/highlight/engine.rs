@@ -149,6 +149,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_c_config() {
             self.configs.insert("c".to_string(), config);
         }
+        if let Ok(config) = Self::make_asm_config() {
+            self.configs.insert("asm".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -272,6 +275,18 @@ impl HighlightEngine {
             tree_sitter_c::LANGUAGE.into(),
             "c",
             tree_sitter_c::HIGHLIGHT_QUERY,
+            "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_asm_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_asm::LANGUAGE.into(),
+            "asm",
+            tree_sitter_asm::HIGHLIGHTS_QUERY,
             "",
             "",
         )?;
@@ -866,5 +881,21 @@ mod tests {
             "expected `static`/`if`/`return`/`int` to be colored in c, got spans: {:#?}",
             lines
         );
+    }
+
+    #[test]
+    fn test_asm_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            ".section .text\n.global _start\n_start:\n    mov $60, %rax  # exit\n    syscall\n",
+            "start.s",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in asm highlight output");
     }
 }
