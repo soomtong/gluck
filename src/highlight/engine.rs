@@ -146,6 +146,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_zig_config() {
             self.configs.insert("zig".to_string(), config);
         }
+        if let Ok(config) = Self::make_c_config() {
+            self.configs.insert("c".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -258,6 +261,18 @@ impl HighlightEngine {
             "zig",
             tree_sitter_zig::HIGHLIGHTS_QUERY,
             tree_sitter_zig::INJECTIONS_QUERY,
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_c_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_c::LANGUAGE.into(),
+            "c",
+            tree_sitter_c::HIGHLIGHT_QUERY,
+            "",
             "",
         )?;
         config.configure(HIGHLIGHT_NAMES);
@@ -810,6 +825,45 @@ mod tests {
         assert!(
             keyword_spans.len() >= 3,
             "expected `pub`/`fn`/`return` to be keyword-colored in zig, got spans: {:#?}",
+            lines
+        );
+    }
+
+    #[test]
+    fn test_c_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "#include <stdio.h>\n\nint main(void) {\n    printf(\"hi\\n\");\n    return 0;\n}\n",
+            "main.c",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in c highlight output");
+    }
+
+    #[test]
+    fn test_c_keywords_are_colored() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "static int add(int a, int b) {\n    if (a) { return a + b; }\n    return b;\n}\n",
+            "add.h",
+        );
+        let keyword_spans: Vec<_> = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| {
+                ["static", "if", "return", "int"].contains(&s.content.as_ref())
+                    && s.style.fg.is_some()
+            })
+            .collect();
+        assert!(
+            keyword_spans.len() >= 4,
+            "expected `static`/`if`/`return`/`int` to be colored in c, got spans: {:#?}",
             lines
         );
     }
