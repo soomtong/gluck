@@ -157,6 +157,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_linkerscript_config() {
             self.configs.insert("linkerscript".to_string(), config);
         }
+        if let Ok(config) = Self::make_go_config() {
+            self.configs.insert("go".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -304,6 +307,18 @@ impl HighlightEngine {
             tree_sitter_linkerscript::LANGUAGE.into(),
             "linkerscript",
             tree_sitter_linkerscript::HIGHLIGHTS_QUERY,
+            "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_go_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_go::LANGUAGE.into(),
+            "go",
+            tree_sitter_go::HIGHLIGHTS_QUERY,
             "",
             "",
         )?;
@@ -953,6 +968,45 @@ mod tests {
         assert!(
             keyword_spans.len() >= 2,
             "expected `MEMORY`/`SECTIONS` to be keyword-colored in linkerscript, got spans: {:#?}",
+            lines
+        );
+    }
+
+    #[test]
+    fn test_go_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "package main\n\nimport \"fmt\"\n\nfunc main() {\n    fmt.Println(\"hi\")\n}\n",
+            "main.go",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(has_color, "no colored spans in go highlight output");
+    }
+
+    #[test]
+    fn test_go_keywords_are_colored() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "func add(a int, b int) int {\n    if a > 0 {\n        return a + b\n    }\n    return b\n}\n",
+            "add.go",
+        );
+        let keyword_spans: Vec<_> = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| {
+                ["func", "if", "return", "int"].contains(&s.content.as_ref())
+                    && s.style.fg.is_some()
+            })
+            .collect();
+        assert!(
+            keyword_spans.len() >= 4,
+            "expected `func`/`if`/`return`/`int` to be colored in go, got spans: {:#?}",
             lines
         );
     }
