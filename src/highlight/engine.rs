@@ -75,7 +75,7 @@ impl HighlightEngine {
                             break;
                         }
                     }
-                    let text = String::from_utf8_lossy(&buf).into_owned();
+                    let text = expand_tabs(&String::from_utf8_lossy(&buf));
                     if text.contains('\n') {
                         let parts: Vec<&str> = text.split('\n').collect();
                         for (i, part) in parts.iter().enumerate() {
@@ -108,7 +108,7 @@ impl HighlightEngine {
     /// Unstyled per-line rendering; also the fast path for files too large
     /// to highlight.
     pub fn plain_lines(source: &str) -> Vec<Line<'static>> {
-        source.lines().map(|l| Line::from(l.to_string())).collect()
+        source.lines().map(|l| Line::from(expand_tabs(l))).collect()
     }
 
     fn detect_language(path: &str) -> String {
@@ -116,7 +116,15 @@ impl HighlightEngine {
             .map(|l| l.as_str().to_string())
             .unwrap_or_default()
     }
+}
 
+/// ratatui gives '\t' zero display width, so tab indentation silently
+/// disappears from rendered spans — expand tabs before building them.
+pub fn expand_tabs(text: &str) -> String {
+    text.replace('\t', "    ")
+}
+
+impl HighlightEngine {
     fn register_languages(&mut self) {
         if let Ok(config) = Self::make_rust_config() {
             self.configs.insert("rust".to_string(), config);
@@ -1064,5 +1072,26 @@ mod tests {
             "expected `fn`/`let`/`mut`/`match` to be keyword-colored in lisette, got spans: {:#?}",
             lines
         );
+    }
+
+    #[test]
+    fn test_tab_indentation_is_expanded_in_highlight() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight("func main() {\n\tfmt.Println(\"hi\")\n}\n", "main.go");
+        let second: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            second.starts_with("    "),
+            "expected tab indent expanded to spaces, got: {:?}",
+            second
+        );
+        assert!(!second.contains('\t'), "tab survived in: {:?}", second);
+    }
+
+    #[test]
+    fn test_tab_indentation_is_expanded_in_plain_lines() {
+        let lines = HighlightEngine::plain_lines("a\n\tindented\n");
+        let second: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(second, "    indented");
     }
 }
