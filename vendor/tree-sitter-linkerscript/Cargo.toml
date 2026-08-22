@@ -1,0 +1,18 @@
+[package]
+name = "tree-sitter-linkerscript"
+version = "1.0.0"
+description = "GNU linker script (ld) grammar for tree-sitter, vendored from tree-sitter-grammars/tree-sitter-linkerscript"
+license = "MIT"
+edition = "2021"
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+tree-sitter = "0.23"

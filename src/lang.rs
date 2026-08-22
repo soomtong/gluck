@@ -21,6 +21,7 @@ pub enum Language {
     Yaml,
     Zig,
     Asm,
+    LinkerScript,
 }
 
 impl Language {
@@ -39,6 +40,7 @@ impl Language {
             "sh" | "bash" | "zsh" => Some(Self::Bash),
             "zig" => Some(Self::Zig),
             "s" | "S" | "asm" => Some(Self::Asm),
+            "ld" | "lds" => Some(Self::LinkerScript),
             "toml" => Some(Self::Toml),
             "json" | "jsonc" => Some(Self::Json),
             "yaml" | "yml" => Some(Self::Yaml),
@@ -71,6 +73,7 @@ impl Language {
             Self::Yaml => "yaml",
             Self::Zig => "zig",
             Self::Asm => "asm",
+            Self::LinkerScript => "linkerscript",
         }
     }
 
@@ -138,5 +141,18 @@ mod tests {
         assert_eq!(Language::from_path("boot.S"), Some(Language::Asm));
         assert_eq!(Language::from_path("core.asm"), Some(Language::Asm));
         assert!(!Language::Asm.supports_symbol_chunking());
+    }
+
+    #[test]
+    fn detects_linker_scripts() {
+        assert_eq!(
+            Language::from_path("kernel.ld"),
+            Some(Language::LinkerScript)
+        );
+        assert_eq!(
+            Language::from_path("stm32.lds"),
+            Some(Language::LinkerScript)
+        );
+        assert!(!Language::LinkerScript.supports_symbol_chunking());
     }
 }
