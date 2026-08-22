@@ -20,6 +20,7 @@ pub enum Language {
     Swift,
     Yaml,
     Zig,
+    Asm,
 }
 
 impl Language {
@@ -37,6 +38,7 @@ impl Language {
             "java" => Some(Self::Java),
             "sh" | "bash" | "zsh" => Some(Self::Bash),
             "zig" => Some(Self::Zig),
+            "s" | "S" | "asm" => Some(Self::Asm),
             "toml" => Some(Self::Toml),
             "json" | "jsonc" => Some(Self::Json),
             "yaml" | "yml" => Some(Self::Yaml),
@@ -68,6 +70,7 @@ impl Language {
             Self::Swift => "swift",
             Self::Yaml => "yaml",
             Self::Zig => "zig",
+            Self::Asm => "asm",
         }
     }
 
@@ -127,5 +130,13 @@ mod tests {
         assert_eq!(Language::from_path("run.zsh"), Some(Language::Bash));
         assert!(!Language::Zig.supports_symbol_chunking());
         assert!(!Language::Bash.supports_symbol_chunking());
+    }
+
+    #[test]
+    fn detects_asm() {
+        assert_eq!(Language::from_path("start.s"), Some(Language::Asm));
+        assert_eq!(Language::from_path("boot.S"), Some(Language::Asm));
+        assert_eq!(Language::from_path("core.asm"), Some(Language::Asm));
+        assert!(!Language::Asm.supports_symbol_chunking());
     }
 }
