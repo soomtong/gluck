@@ -212,6 +212,33 @@ impl ViewState {
         self.select_visible_path(&path);
         true
     }
+
+    fn is_changed_file(&self, entry: &FileEntry) -> bool {
+        matches!(entry.kind, crate::git::tree::EntryKind::File)
+            && self.changed_paths.contains(&entry.path)
+    }
+
+    /// Path of the next changed file after the selection, in tree (DFS)
+    /// order. Scans the full tree so files hidden inside collapsed
+    /// directories are found too.
+    pub fn next_changed_path(&self) -> Option<String> {
+        let cur = self.visible.get(self.selected_file).copied()?;
+        self.tree
+            .iter()
+            .skip(cur + 1)
+            .find(|e| self.is_changed_file(e))
+            .map(|e| e.path.clone())
+    }
+
+    /// Path of the previous changed file before the selection, in tree order.
+    pub fn prev_changed_path(&self) -> Option<String> {
+        let cur = self.visible.get(self.selected_file).copied()?;
+        self.tree[..cur]
+            .iter()
+            .rev()
+            .find(|e| self.is_changed_file(e))
+            .map(|e| e.path.clone())
+    }
 }
 
 /// Entries under a collapsed directory are hidden. The tree is DFS-ordered
@@ -617,6 +644,64 @@ mod tests {
         assert_eq!(state.selected_entry().unwrap().path, "src");
         // Top-level entry has no parent
         assert!(!state.select_parent());
+    }
+
+    // ── Changed-file jump ──
+
+    fn changed_tree_state() -> ViewState {
+        let mut state = ViewState::new(make_commit("C"), folded_tree());
+        state.changed_paths.insert("src/nested/deep.rs".into());
+        state.changed_paths.insert("z.txt".into());
+        state
+    }
+
+    #[test]
+    fn test_next_changed_path_skips_unchanged_entries() {
+        let state = changed_tree_state(); // selection on a.txt
+        assert_eq!(
+            state.next_changed_path().as_deref(),
+            Some("src/nested/deep.rs")
+        );
+    }
+
+    #[test]
+    fn test_next_changed_path_moves_past_current_change() {
+        let mut state = changed_tree_state();
+        state.selected_file = 3; // src/nested/deep.rs
+        assert_eq!(state.next_changed_path().as_deref(), Some("z.txt"));
+        state.selected_file = 5; // z.txt, last change
+        assert_eq!(state.next_changed_path(), None);
+    }
+
+    #[test]
+    fn test_prev_changed_path() {
+        let mut state = changed_tree_state();
+        state.selected_file = 5; // z.txt
+        assert_eq!(
+            state.prev_changed_path().as_deref(),
+            Some("src/nested/deep.rs")
+        );
+        state.selected_file = 0; // a.txt
+        assert_eq!(state.prev_changed_path(), None);
+    }
+
+    #[test]
+    fn test_next_changed_path_finds_files_under_collapsed_dir() {
+        let mut state = changed_tree_state();
+        state.collapsed.insert("src".into());
+        state.rebuild_visible(); // visible: a.txt, src, z.txt
+        state.selected_file = 0;
+        assert_eq!(
+            state.next_changed_path().as_deref(),
+            Some("src/nested/deep.rs")
+        );
+    }
+
+    #[test]
+    fn test_changed_directory_is_not_a_jump_target() {
+        let mut state = ViewState::new(make_commit("C"), folded_tree());
+        state.changed_paths.insert("src".into());
+        assert_eq!(state.next_changed_path(), None);
     }
 
     #[test]
