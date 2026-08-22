@@ -152,6 +152,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_asm_config() {
             self.configs.insert("asm".to_string(), config);
         }
+        if let Ok(config) = Self::make_linkerscript_config() {
+            self.configs.insert("linkerscript".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -287,6 +290,18 @@ impl HighlightEngine {
             tree_sitter_asm::LANGUAGE.into(),
             "asm",
             tree_sitter_asm::HIGHLIGHTS_QUERY,
+            "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_linkerscript_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_linkerscript::LANGUAGE.into(),
+            "linkerscript",
+            tree_sitter_linkerscript::HIGHLIGHTS_QUERY,
             "",
             "",
         )?;
@@ -897,5 +912,46 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .any(|s| s.style.fg.is_some());
         assert!(has_color, "no colored spans in asm highlight output");
+    }
+
+    #[test]
+    fn test_linkerscript_highlight_produces_colors() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "ENTRY(_start)\n\nSECTIONS\n{\n  . = 0x10000;\n  .text : { *(.text) }\n  .data : { *(.data) }\n}\n",
+            "kernel.ld",
+        );
+        assert!(!lines.is_empty());
+        let has_color = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .any(|s| s.style.fg.is_some());
+        assert!(
+            has_color,
+            "no colored spans in linkerscript highlight output"
+        );
+    }
+
+    #[test]
+    fn test_linkerscript_keywords_are_colored() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(
+            "MEMORY\n{\n  FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 256K\n}\nSECTIONS { }\n",
+            "stm32.lds",
+        );
+        let keyword_spans: Vec<_> = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| {
+                ["MEMORY", "SECTIONS"].contains(&s.content.as_ref()) && s.style.fg.is_some()
+            })
+            .collect();
+        assert!(
+            keyword_spans.len() >= 2,
+            "expected `MEMORY`/`SECTIONS` to be keyword-colored in linkerscript, got spans: {:#?}",
+            lines
+        );
     }
 }
