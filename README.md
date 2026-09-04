@@ -79,6 +79,7 @@ glc index --force   # 인덱스 강제 재빌드
 | `J` / `K` | 내용 페이지 스크롤 |
 | `H` / `L` | 이전/다음 변경 파일(`*` 표시)로 이동 |
 | `.` | .gitignore 파일 필터 토글 |
+| `w` | 긴 줄 word wrap 토글 (기본 on) |
 | `Tab` | Diff 모드 전환 |
 | `Esc` / `h` | Pick 모드 |
 | `^N` / `^P` | 이전(older)/다음(newer) 커밋 이동 |
@@ -93,6 +94,7 @@ glc index --force   # 인덱스 강제 재빌드
 | `u` / `d` | diff 내용 스크롤 (3줄) |
 | `J` / `K` | diff 내용 페이지 스크롤 |
 | `v` | side-by-side / unified 토글 |
+| `w` | 긴 줄 word wrap 토글 (기본 on) |
 | `Tab` | View 모드 |
 | `Esc` | Pick 모드 |
 | `^N` / `^P` | 이전(older)/다음(newer) 커밋 쌍 이동 |
@@ -179,6 +181,8 @@ name = "plain"
 [ui]
 # u/d 키 스크롤 줄 수 (기본: 3)
 scroll_lines = 3
+# View/Diff 긴 줄 word wrap (기본: true, `w` 키로 토글 시 저장됨)
+word_wrap = true
 ```
 
 ## 배경

@@ -1,11 +1,14 @@
 use crate::app::App;
 use crate::git::tree::EntryKind;
 use crate::mode::{FileContent, Mode};
-use crate::ui::layout;
+use crate::ui::{layout, wrap};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
+
+/// Columns used by the `{:>4} ` line-number gutter.
+const GUTTER_WIDTH: usize = 5;
 
 fn entry_depth(entry: &crate::git::tree::FileEntry) -> usize {
     let path = entry.path.strip_suffix('/').unwrap_or(&entry.path);
@@ -130,20 +133,36 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
                 if !highlighted.is_empty() {
                     // Materialize only the visible window; cloning every
                     // line of a large file each frame stalls navigation.
-                    highlighted
-                        .iter()
-                        .enumerate()
-                        .skip(state.scroll)
-                        .take(content_height)
-                        .map(|(i, line)| {
-                            let mut spans = vec![Span::styled(
-                                format!("{:>4} ", i + 1),
-                                Style::new().fg(palette.dim),
-                            )];
-                            spans.extend(line.spans.clone());
-                            Line::from(spans)
-                        })
-                        .collect()
+                    // With wrap on, one logical line may take several rows,
+                    // so keep pulling lines until the pane is full.
+                    let wrap_width = if app.config.ui.word_wrap {
+                        (right.width as usize)
+                            .saturating_sub(2)
+                            .saturating_sub(GUTTER_WIDTH)
+                    } else {
+                        0
+                    };
+                    let gutter_style = Style::new().fg(palette.dim);
+                    let mut rows: Vec<Line> = Vec::with_capacity(content_height);
+                    for (i, line) in highlighted.iter().enumerate().skip(state.scroll) {
+                        if rows.len() >= content_height {
+                            break;
+                        }
+                        for (r, row) in wrap::wrap_spans(&line.spans, wrap_width)
+                            .into_iter()
+                            .enumerate()
+                        {
+                            let gutter = if r == 0 {
+                                format!("{:>4} ", i + 1)
+                            } else {
+                                " ".repeat(GUTTER_WIDTH)
+                            };
+                            let mut spans = vec![Span::styled(gutter, gutter_style)];
+                            spans.extend(row);
+                            rows.push(Line::from(spans));
+                        }
+                    }
+                    rows
                 } else {
                     vec![Line::raw("")]
                 }
@@ -171,6 +190,7 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
         ("[H/L]", "change"),
         ("[^P/^N]", "commit"),
         ("[.]", "ign"),
+        ("[w]", "wrap"),
         ("[Enter]", "open"),
         ("[Tab]", "diff"),
         ("[Esc]", "back"),

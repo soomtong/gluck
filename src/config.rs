@@ -50,11 +50,16 @@ impl Default for ThemeConfig {
 #[serde(default)]
 pub struct UiConfig {
     pub scroll_lines: usize,
+    /// Soft-wrap long lines in the View and Diff panes (toggled with `w`).
+    pub word_wrap: bool,
 }
 
 impl Default for UiConfig {
     fn default() -> Self {
-        Self { scroll_lines: 3 }
+        Self {
+            scroll_lines: 3,
+            word_wrap: true,
+        }
     }
 }
 
@@ -113,5 +118,13 @@ mod tests {
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
         assert_eq!(deserialized.theme.name, "nord");
+    }
+
+    #[test]
+    fn test_word_wrap_defaults_on_and_parses() {
+        assert!(Config::default().ui.word_wrap);
+        let config: Config = toml::from_str("[ui]\nword_wrap = false\n").unwrap();
+        assert!(!config.ui.word_wrap);
+        assert_eq!(config.ui.scroll_lines, 3);
     }
 }

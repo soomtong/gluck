@@ -61,6 +61,7 @@ Pick ──Enter──→ View ──Tab──→ Diff
 - **Pick**: commit list + inline diff preview. `/` opens prefix search (CommitIndex tree). Lazy-loads 200-batches; prefetches when selection within 50 of end.
 - **View**: file tree + syntax-highlighted content. `.` toggles gitignore filter. On a directory `Enter` toggles fold, `h` collapses (then jumps to parent), `l` expands (then steps into first child); on files `h`/`l` keep their Back/open bindings.
 - **Diff**: side-by-side default. `v` toggles unified. `h`/`l` and ←/→ navigate files.
+- **Word wrap**: `w` toggles `config.ui.word_wrap` (default on, persisted like theme) in View/Diff. Wrapping is done in `ui/wrap.rs::wrap_spans` (span-level, whitespace-preferring, unicode-width aware) so continuation rows get a blank gutter; ratatui `Wrap` is not used. `scroll` stays in logical lines. Side-by-side pads each aligned pair to the taller side's row count so panes stay in step. Diff panes now render only the `scroll..` window instead of `Paragraph::scroll`.
 - **Mouse**: capture enabled in `main.rs`. Wheel moves list selection (Pick, View tree) or scrolls content (View pane, Diff); click selects tree/commit rows (dirs toggle fold, Pick double-click opens View). Hit-testing uses panel `Rect`s + `ListState` offsets captured into `App` fields at render time — `App::render` takes `&mut self` for this.
 - **Ctrl+N/P** crosses commits while preserving selected file path.
 - **Ctrl+T** cycles theme and persists to config.
@@ -121,7 +122,7 @@ Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 5), `hea
 
 ### Config
 
-- `~/.config/gluck/config.toml` (`dirs::config_dir()`). Sections: `[theme]`, `[ui]` (scroll_lines), `[search]` (index_dir, batch_size, max_file_bytes, result_limit).
+- `~/.config/gluck/config.toml` (`dirs::config_dir()`). Sections: `[theme]`, `[ui]` (scroll_lines, word_wrap), `[search]` (index_dir, batch_size, max_file_bytes, result_limit).
 - Missing file → `Config::default()`; does NOT auto-create. Saved on theme cycle.
 
 ### Repo watch

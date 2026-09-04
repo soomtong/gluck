@@ -212,18 +212,20 @@ impl App {
                 self.store.exhausted,
             ),
             Mode::View(s) => format!(
-                "Mode: {} | File: {} | Files: {} | Scroll: {}",
+                "Mode: {} | File: {} | Files: {} | Scroll: {} | Wrap: {}",
                 mode_name,
                 s.selected_file,
                 s.tree.len(),
                 s.scroll,
+                self.config.ui.word_wrap,
             ),
             Mode::Diff(s) => format!(
-                "Mode: {} | File: {} | Files: {} | Side-by-side: {}",
+                "Mode: {} | File: {} | Files: {} | Side-by-side: {} | Wrap: {}",
                 mode_name,
                 s.selected_file,
                 s.diff_result.files.len(),
                 s.side_by_side,
+                self.config.ui.word_wrap,
             ),
         };
 
@@ -322,6 +324,7 @@ impl App {
             Action::ToggleGitignore => self.toggle_gitignore(),
             Action::ScrollDown => self.scroll_down(),
             Action::ScrollUp => self.scroll_up(),
+            Action::ToggleWrap => self.toggle_wrap(),
         }
     }
 
@@ -1097,6 +1100,19 @@ impl App {
     fn toggle_view(&mut self) {
         if let Mode::Diff(state) = &mut self.mode {
             state.side_by_side = !state.side_by_side;
+        }
+    }
+
+    /// Flip soft-wrap for the View/Diff content panes and persist it like
+    /// the theme choice. Scroll offsets are in logical lines, so they stay
+    /// valid across the toggle.
+    fn toggle_wrap(&mut self) {
+        if !matches!(self.mode, Mode::View(_) | Mode::Diff(_)) {
+            return;
+        }
+        self.config.ui.word_wrap = !self.config.ui.word_wrap;
+        if !cfg!(test) {
+            let _ = self.config.save();
         }
     }
 
@@ -2481,6 +2497,29 @@ mod tests {
     }
 
     #[test]
+    fn test_toggle_wrap_in_view_and_diff_modes() {
+        let (_dir, mut app) = test_app();
+        assert!(app.config.ui.word_wrap, "wrap defaults on");
+        app.handle_key(KeyCode::Enter);
+        assert!(matches!(app.mode, Mode::View(_)));
+        app.handle_key(KeyCode::Char('w'));
+        assert!(!app.config.ui.word_wrap);
+        app.handle_key(KeyCode::Tab);
+        assert!(matches!(app.mode, Mode::Diff(_)));
+        app.handle_key(KeyCode::Char('w'));
+        assert!(app.config.ui.word_wrap);
+    }
+
+    #[test]
+    fn test_toggle_wrap_in_pick_mode_does_nothing() {
+        let (_dir, mut app) = test_app();
+        assert!(matches!(app.mode, Mode::Pick(_)));
+        app.handle_key(KeyCode::Char('w'));
+        assert!(app.config.ui.word_wrap);
+        assert!(matches!(app.mode, Mode::Pick(_)));
+    }
+
+    #[test]
     fn test_toggle_view_in_pick_mode_does_nothing() {
         let (_dir, mut app) = test_app();
         assert!(matches!(app.mode, Mode::Pick(_)));
@@ -3150,6 +3189,98 @@ mod tests {
 
         app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, 2));
         assert!(matches!(app.mode, Mode::View(_)));
+    }
+
+    // ── Word wrap render tests ──
+
+    fn render_to_lines(app: &mut App, width: u16, height: u16) -> Vec<String> {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.render(f)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    /// Column-based slice; box-drawing borders are multi-byte so byte
+    /// indexing would drift.
+    fn cols(line: &str, range: std::ops::Range<usize>) -> String {
+        line.chars()
+            .skip(range.start)
+            .take(range.end - range.start)
+            .collect()
+    }
+
+    fn wrap_test_app() -> (tempfile::TempDir, App) {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"short\n", "A");
+        let long = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu\n";
+        add_file_commit(&repo, "a.txt", long.as_bytes(), "B");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let app = App::new(git_repo, Config::default()).unwrap();
+        (dir, app)
+    }
+
+    #[test]
+    fn test_view_wraps_long_line_with_blank_gutter() {
+        let (_dir, mut app) = wrap_test_app();
+        app.handle_key(KeyCode::Enter);
+        assert!(matches!(app.mode, Mode::View(_)));
+        let lines = render_to_lines(&mut app, 70, 12);
+        // Content pane starts at column 36; row 4 is the first content row.
+        let row1 = cols(&lines[4], 37..69);
+        let row2 = cols(&lines[5], 37..69);
+        assert!(row1.starts_with("   1 alpha"), "first row: {row1:?}");
+        assert!(
+            row2.starts_with("     ") && row2.trim_start().starts_with(char::is_alphabetic),
+            "continuation row should have a blank gutter: {row2:?}"
+        );
+        // Line 2 of the file must not appear on the continuation row.
+        assert!(
+            !row2.contains("   2 "),
+            "wrap should not renumber: {row2:?}"
+        );
+
+        app.handle_key(KeyCode::Char('w'));
+        let lines = render_to_lines(&mut app, 70, 12);
+        let row2 = cols(&lines[5], 37..69);
+        assert!(
+            row2.trim().is_empty(),
+            "with wrap off the long line is truncated, not continued: {row2:?}"
+        );
+    }
+
+    #[test]
+    fn test_diff_side_by_side_wrap_keeps_panes_aligned() {
+        let (_dir, mut app) = wrap_test_app();
+        app.handle_key(KeyCode::Enter);
+        app.handle_key(KeyCode::Tab);
+        assert!(matches!(app.mode, Mode::Diff(_)));
+        let lines = render_to_lines(&mut app, 80, 12);
+        // Body rows start after header (3) + tabs (1) + border (1) = row 5.
+        let old0 = cols(&lines[5], 0..40);
+        let new0 = cols(&lines[5], 40..80);
+        assert!(old0.contains("-    1 short"), "old pane: {old0:?}");
+        assert!(new0.contains("+    1 alpha"), "new pane: {new0:?}");
+        // The new side wraps; the old side pads with a blank row so the
+        // next rows stay in step.
+        let old1 = cols(&lines[6], 0..40);
+        let new1 = cols(&lines[6], 40..80);
+        assert!(
+            old1.trim_matches(|c| c == '│' || c == ' ').is_empty(),
+            "old pad: {old1:?}"
+        );
+        assert!(
+            new1.contains("+      "),
+            "new continuation keeps marker: {new1:?}"
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@ use crate::app::App;
 use crate::git::diff::{DiffFile, DiffLine};
 use crate::highlight::engine::expand_tabs;
 use crate::mode::Mode;
-use crate::ui::layout;
+use crate::ui::{layout, wrap};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -62,10 +62,11 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
             if let Some(file) = state.diff_result.files.get(state.selected_file) {
                 frame.render_widget(Clear, diff_area);
+                let word_wrap = app.config.ui.word_wrap;
                 if state.side_by_side {
-                    render_side_by_side(frame, diff_area, file, state.scroll, palette);
+                    render_side_by_side(frame, diff_area, file, state.scroll, word_wrap, palette);
                 } else {
-                    render_unified(frame, diff_area, file, state.scroll, palette);
+                    render_unified(frame, diff_area, file, state.scroll, word_wrap, palette);
                 }
             }
         }
@@ -76,6 +77,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         ("[u/d]", "scroll"),
         ("[J/K]", "page"),
         ("[^P/^N]", "commit"),
+        ("[w]", "wrap"),
         ("[s]", "view"),
         ("[Tab]", "back"),
         ("[Esc]", "pick"),
@@ -172,54 +174,103 @@ fn style_for_line(line: &DiffLine, palette: &crate::theme::Palette) -> Style {
     }
 }
 
+/// Width of the unified gutter: change marker + ` NNNN,NNNN `.
+const UNIFIED_GUTTER_WIDTH: usize = 1 + 11;
+/// Width of a side-by-side gutter: change marker + ` NNNN `.
+const SIDE_GUTTER_WIDTH: usize = 1 + 6;
+
+/// Wrap width for content inside a bordered pane whose gutter takes
+/// `gutter` columns; 0 turns wrapping off.
+fn wrap_width(pane: Rect, gutter: usize, word_wrap: bool) -> usize {
+    if word_wrap {
+        (pane.width as usize)
+            .saturating_sub(2)
+            .saturating_sub(gutter)
+    } else {
+        0
+    }
+}
+
+/// Render one diff line as display rows: the first carries the marker and
+/// line number, continuation rows repeat the marker over a blank gutter so
+/// added/removed runs stay scannable.
+fn diff_line_rows(
+    marker: &'static str,
+    line_no: String,
+    content: &str,
+    style: Style,
+    palette: &crate::theme::Palette,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let blank = " ".repeat(line_no.len());
+    let content = [Span::styled(expand_tabs(content), style)];
+    wrap::wrap_spans(&content, width)
+        .into_iter()
+        .enumerate()
+        .map(|(r, row)| {
+            let gutter = if r == 0 {
+                line_no.clone()
+            } else {
+                blank.clone()
+            };
+            let mut spans = vec![
+                Span::styled(marker, style),
+                Span::styled(gutter, Style::new().fg(palette.dim)),
+            ];
+            spans.extend(row);
+            Line::from(spans)
+        })
+        .collect()
+}
+
+fn unified_line_rows(
+    dl: &DiffLine,
+    palette: &crate::theme::Palette,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let style = style_for_line(dl, palette);
+    let (marker, line_no, content) = match dl {
+        DiffLine::Context {
+            old_line_no,
+            new_line_no,
+            content,
+        } => {
+            let no = if old_line_no == new_line_no {
+                format!(" {:>4}     ", old_line_no)
+            } else {
+                format!(" {:>4},{:<4} ", old_line_no, new_line_no)
+            };
+            (" ", no, content)
+        }
+        DiffLine::Removed { line_no, content } => ("-", format!(" {:>4},_    ", line_no), content),
+        DiffLine::Added { line_no, content } => ("+", format!(" _,{:<4}    ", line_no), content),
+    };
+    diff_line_rows(marker, line_no, content, style, palette, width)
+}
+
 fn render_unified(
     frame: &mut ratatui::Frame,
     area: Rect,
     file: &DiffFile,
     scroll: usize,
+    word_wrap: bool,
     palette: &crate::theme::Palette,
 ) {
-    let lines: Vec<Line> = file
-        .lines
-        .iter()
-        .map(|dl| {
-            let (prefix, line_no, content, style) = match dl {
-                DiffLine::Context {
-                    old_line_no,
-                    new_line_no,
-                    content,
-                } => {
-                    let no = if old_line_no == new_line_no {
-                        format!(" {:>4}     ", old_line_no)
-                    } else {
-                        format!(" {:>4},{:<4} ", old_line_no, new_line_no)
-                    };
-                    (" ", no, content.clone(), style_for_line(dl, palette))
-                }
-                DiffLine::Removed { line_no, content } => (
-                    "-",
-                    format!(" {:>4},_    ", line_no),
-                    content.clone(),
-                    style_for_line(dl, palette),
-                ),
-                DiffLine::Added { line_no, content } => (
-                    "+",
-                    format!(" _,{:<4}    ", line_no),
-                    content.clone(),
-                    style_for_line(dl, palette),
-                ),
-            };
-            Line::from(vec![
-                Span::styled(prefix, style),
-                Span::styled(line_no, Style::new().fg(palette.dim)),
-                Span::styled(expand_tabs(&content), style),
-            ])
-        })
-        .collect();
+    let height = area.height.saturating_sub(2) as usize;
+    let width = wrap_width(area, UNIFIED_GUTTER_WIDTH, word_wrap);
+
+    // Only the visible window is materialized; `scroll` counts logical
+    // diff lines, so a wrapped line scrolls as one unit.
+    let mut lines: Vec<Line> = Vec::with_capacity(height);
+    for dl in file.lines.iter().skip(scroll) {
+        if lines.len() >= height {
+            break;
+        }
+        lines.extend(unified_line_rows(dl, palette, width));
+    }
 
     let paragraph = Paragraph::new(lines)
-        .block(Block::bordered().border_style(Style::new().fg(palette.border)))
-        .scroll((scroll as u16, 0));
+        .block(Block::bordered().border_style(Style::new().fg(palette.border)));
 
     frame.render_widget(paragraph, area);
 }
@@ -285,81 +336,82 @@ fn render_side_by_side(
     area: Rect,
     file: &DiffFile,
     scroll: usize,
+    word_wrap: bool,
     palette: &crate::theme::Palette,
 ) {
     let (left, right) = layout::split_horizontal(area, area.width / 2);
+    let height = area.height.saturating_sub(2) as usize;
+    let old_width = wrap_width(left, SIDE_GUTTER_WIDTH, word_wrap);
+    let new_width = wrap_width(right, SIDE_GUTTER_WIDTH, word_wrap);
 
     let aligned = align_diff_lines(&file.lines);
 
-    let mut old_lines: Vec<Line> = Vec::new();
-    let mut new_lines: Vec<Line> = Vec::new();
+    let mut old_lines: Vec<Line> = Vec::with_capacity(height);
+    let mut new_lines: Vec<Line> = Vec::with_capacity(height);
 
-    for al in &aligned {
-        match al {
-            AlignedLine::Both { old, new } => {
-                old_lines.push(diff_line_span(old, palette, false));
-                new_lines.push(diff_line_span(new, palette, true));
-            }
-            AlignedLine::OldOnly { old } => {
-                old_lines.push(diff_line_span(old, palette, false));
-                new_lines.push(Line::from(""));
-            }
-            AlignedLine::NewOnly { new } => {
-                old_lines.push(Line::from(""));
-                new_lines.push(diff_line_span(new, palette, true));
-            }
+    // Each aligned pair must take the same number of rows on both sides
+    // so the panes stay in step when one side wraps further than the other.
+    for al in aligned.iter().skip(scroll) {
+        if old_lines.len() >= height {
+            break;
         }
+        let (mut old_rows, mut new_rows) = match al {
+            AlignedLine::Both { old, new } => (
+                diff_line_rows_side(old, palette, false, old_width),
+                diff_line_rows_side(new, palette, true, new_width),
+            ),
+            AlignedLine::OldOnly { old } => (
+                diff_line_rows_side(old, palette, false, old_width),
+                Vec::new(),
+            ),
+            AlignedLine::NewOnly { new } => (
+                Vec::new(),
+                diff_line_rows_side(new, palette, true, new_width),
+            ),
+        };
+        let rows = old_rows.len().max(new_rows.len());
+        old_rows.resize_with(rows, || Line::from(""));
+        new_rows.resize_with(rows, || Line::from(""));
+        old_lines.extend(old_rows);
+        new_lines.extend(new_rows);
     }
 
-    let old_widget = Paragraph::new(old_lines)
-        .block(
-            Block::bordered()
-                .title(" old ")
-                .border_style(Style::new().fg(palette.border)),
-        )
-        .scroll((scroll as u16, 0));
-    let new_widget = Paragraph::new(new_lines)
-        .block(
-            Block::bordered()
-                .title(" new ")
-                .border_style(Style::new().fg(palette.border)),
-        )
-        .scroll((scroll as u16, 0));
+    let old_widget = Paragraph::new(old_lines).block(
+        Block::bordered()
+            .title(" old ")
+            .border_style(Style::new().fg(palette.border)),
+    );
+    let new_widget = Paragraph::new(new_lines).block(
+        Block::bordered()
+            .title(" new ")
+            .border_style(Style::new().fg(palette.border)),
+    );
 
     frame.render_widget(old_widget, left);
     frame.render_widget(new_widget, right);
 }
 
-fn diff_line_span(dl: &DiffLine, palette: &crate::theme::Palette, is_new: bool) -> Line<'static> {
+/// Rows for one side of the side-by-side view; `width` 0 means no wrap.
+fn diff_line_rows_side(
+    dl: &DiffLine,
+    palette: &crate::theme::Palette,
+    is_new: bool,
+    width: usize,
+) -> Vec<Line<'static>> {
     let style = style_for_line(dl, palette);
-    match dl {
+    let (marker, line_no, content) = match dl {
         DiffLine::Context {
             old_line_no,
             new_line_no,
             content,
         } => {
-            let line_no = if is_new {
-                format!(" {:>4} ", new_line_no)
-            } else {
-                format!(" {:>4} ", old_line_no)
-            };
-            Line::from(vec![
-                Span::styled(" ", style),
-                Span::styled(line_no, Style::new().fg(palette.dim)),
-                Span::styled(expand_tabs(content), style),
-            ])
+            let no = if is_new { new_line_no } else { old_line_no };
+            (" ", format!(" {:>4} ", no), content)
         }
-        DiffLine::Removed { line_no, content } => Line::from(vec![
-            Span::styled("-", style),
-            Span::styled(format!(" {:>4} ", line_no), Style::new().fg(palette.dim)),
-            Span::styled(expand_tabs(content), style),
-        ]),
-        DiffLine::Added { line_no, content } => Line::from(vec![
-            Span::styled("+", style),
-            Span::styled(format!(" {:>4} ", line_no), Style::new().fg(palette.dim)),
-            Span::styled(expand_tabs(content), style),
-        ]),
-    }
+        DiffLine::Removed { line_no, content } => ("-", format!(" {:>4} ", line_no), content),
+        DiffLine::Added { line_no, content } => ("+", format!(" {:>4} ", line_no), content),
+    };
+    diff_line_rows(marker, line_no, content, style, palette, width)
 }
 
 #[cfg(test)]
@@ -520,8 +572,8 @@ mod tests {
             new_line_no: 20,
             content: "ctx".into(),
         };
-        let old_span = diff_line_span(&dl, &palette, false);
-        let new_span = diff_line_span(&dl, &palette, true);
+        let old_span = diff_line_rows_side(&dl, &palette, false, 0).remove(0);
+        let new_span = diff_line_rows_side(&dl, &palette, true, 0).remove(0);
         let old_text: String = old_span.spans.iter().map(|s| s.content.as_ref()).collect();
         let new_text: String = new_span.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(
@@ -533,6 +585,70 @@ mod tests {
             new_text.contains("20"),
             "new side should use new_line_no: {}",
             new_text
+        );
+    }
+
+    fn row_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn test_side_rows_unwrapped_is_single_row() {
+        let palette = crate::theme::Palette::plain();
+        let dl = DiffLine::Added {
+            line_no: 7,
+            content: "a very long added line that would wrap".into(),
+        };
+        let rows = diff_line_rows_side(&dl, &palette, true, 0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            row_text(&rows[0]),
+            "+    7 a very long added line that would wrap"
+        );
+    }
+
+    #[test]
+    fn test_side_rows_wrap_with_marker_and_blank_gutter() {
+        let palette = crate::theme::Palette::plain();
+        let dl = DiffLine::Removed {
+            line_no: 12,
+            content: "alpha beta gamma delta".into(),
+        };
+        let rows = diff_line_rows_side(&dl, &palette, false, 11);
+        let texts: Vec<String> = rows.iter().map(row_text).collect();
+        assert_eq!(texts, vec!["-   12 alpha beta ", "-      gamma delta"]);
+        // The removed style survives on the continuation row's content.
+        let style = style_for_line(&dl, &palette);
+        assert_eq!(rows[1].spans.last().unwrap().style, style);
+    }
+
+    #[test]
+    fn test_unified_rows_keep_gutter_width_on_continuation() {
+        let palette = crate::theme::Palette::plain();
+        let dl = DiffLine::Context {
+            old_line_no: 3,
+            new_line_no: 5,
+            content: "one two three".into(),
+        };
+        let rows = unified_line_rows(&dl, &palette, 8);
+        let texts: Vec<String> = rows.iter().map(row_text).collect();
+        assert_eq!(texts.len(), 2);
+        assert_eq!(texts[0], "     3,5    one two ");
+        assert_eq!(
+            texts[1],
+            format!("{}three", " ".repeat(UNIFIED_GUTTER_WIDTH))
+        );
+        assert_eq!(texts[0].len(), UNIFIED_GUTTER_WIDTH + "one two ".len());
+    }
+
+    #[test]
+    fn test_wrap_width_zero_when_disabled_or_too_narrow() {
+        let pane = Rect::new(0, 0, 40, 10);
+        assert_eq!(wrap_width(pane, SIDE_GUTTER_WIDTH, false), 0);
+        assert_eq!(wrap_width(pane, SIDE_GUTTER_WIDTH, true), 40 - 2 - 7);
+        assert_eq!(
+            wrap_width(Rect::new(0, 0, 5, 10), SIDE_GUTTER_WIDTH, true),
+            0
         );
     }
 

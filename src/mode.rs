@@ -312,6 +312,7 @@ pub enum Action {
     ToggleGitignore,
     ScrollDown,
     ScrollUp,
+    ToggleWrap,
 }
 
 #[derive(Debug, Clone)]
@@ -344,6 +345,7 @@ impl KeyBindings {
         bindings.insert(KeyCode::Char('d'), Action::ScrollDown);
         bindings.insert(KeyCode::Char('s'), Action::SemanticSearch);
         bindings.insert(KeyCode::Char('I'), Action::ForceIndex);
+        bindings.insert(KeyCode::Char('w'), Action::ToggleWrap);
         Self { bindings }
     }
 
@@ -378,6 +380,7 @@ mod tests {
         assert_eq!(kb.resolve(KeyCode::Char('k')), Some(Action::MoveUp));
         assert_eq!(kb.resolve(KeyCode::Enter), Some(Action::Enter));
         assert_eq!(kb.resolve(KeyCode::Esc), Some(Action::Back));
+        assert_eq!(kb.resolve(KeyCode::Char('w')), Some(Action::ToggleWrap));
         assert_eq!(kb.resolve(KeyCode::Char('x')), None);
     }
 
