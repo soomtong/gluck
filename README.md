@@ -1,6 +1,7 @@
 # gluck
 
-[![Version](https://img.shields.io/badge/version-0.3.1-blue)](https://github.com/soomtong/gluck)
+[![Version](https://img.shields.io/badge/version-0.13.0-blue)](https://github.com/soomtong/gluck)
+[![Homepage](https://img.shields.io/badge/homepage-soomtong.github.io%2Fgluck-7dd3a0)](https://soomtong.github.io/gluck/)
 [![Rust](https://img.shields.io/badge/rust-edition%202021-orange)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -12,6 +13,8 @@
 > **gluck**은 그 뒤에 *u*nfolding과 *k*nowing을 더한, 프로젝트의 온전한 이름이다.
 
 **Git history file viewer** — 터미널에서 git history의 파일을 탐색하고 읽는 TUI 도구.
+
+홈페이지(키 치트시트 포함): <https://soomtong.github.io/gluck/>
 
 ## 설치
 
