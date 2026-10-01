@@ -5,6 +5,7 @@ pub mod diff;
 pub mod embedding;
 pub mod indexer;
 pub mod modal_state;
+pub mod params;
 pub mod report;
 pub mod rrf;
 pub mod silence;
@@ -81,6 +82,7 @@ pub struct SearchEngine {
     pub embedding: embedding::EmbeddingModel,
     pub doc_store: HashMap<u64, DocMeta>,
     pub index_dir: PathBuf,
+    pub params: params::SearchParams,
 }
 
 /// `path:"..."` 절을 쿼리에서 분리한다.
@@ -157,6 +159,7 @@ impl SearchEngine {
             embedding,
             doc_store,
             index_dir: index_dir.to_path_buf(),
+            params: params::SearchParams::default(),
         })
     }
 
@@ -199,14 +202,22 @@ impl SearchEngine {
             // 벡터 후보를 limit*5 (min 50)로 늘려봤지만 하위권 노이즈가 RRF에 섞여
             // R@5/negative가 나빠졌다 (2026-10-01). BM25와 같은 깊이를 유지한다.
             let vec_k = candidate_limit;
-            let vec_hits = match &path_filter {
+            let p = &self.params;
+            // commit penalty가 있으면 밀려난 자리를 채울 여유분을 더 가져온다.
+            let fetch_k = if p.vec_commit_penalty > 0.0 {
+                vec_k * 3
+            } else {
+                vec_k
+            };
+            let raw_vec_hits = match &path_filter {
                 // path 필터는 해당 경로 문서만 대상으로 검색해야 후보 밖 누락이 없다.
                 Some(path) => {
                     let allow = path_doc_ids(&self.doc_store, path);
-                    self.vector.search_allowlist(&query_vec, vec_k, &allow)
+                    self.vector.search_allowlist(&query_vec, fetch_k, &allow)
                 }
-                None => self.vector.search(&query_vec, vec_k),
+                None => self.vector.search(&query_vec, fetch_k),
             };
+            let vec_hits = self.adjust_vec_hits(raw_vec_hits, vec_k);
             // 한국어 쿼리는 path 별칭으로 BM25가 정답을 잡지만 vector가 commit
             // 노이즈에 끌려가므로, BM25 top 3을 anchor해서 단일 강한 매칭을 보존한다.
             // 그 뒤는 weighted RRF로 채운다 (vec 1.5x — paraphrase 케이스 보호).
@@ -214,14 +225,21 @@ impl SearchEngine {
                 rrf::rrf_fuse_with_bm25_anchor(
                     &bm25_hits,
                     &vec_hits,
-                    60.0,
+                    p.rrf_k,
                     candidate_limit,
                     1.0,
-                    1.5,
-                    3,
+                    p.w_vec_korean,
+                    p.korean_anchor,
                 )
             } else {
-                rrf::rrf_fuse(&bm25_hits, &vec_hits, 60.0, candidate_limit)
+                rrf::rrf_fuse_weighted(
+                    &bm25_hits,
+                    &vec_hits,
+                    p.rrf_k,
+                    candidate_limit,
+                    1.0,
+                    p.w_vec,
+                )
             }
         };
 
@@ -234,6 +252,33 @@ impl SearchEngine {
         };
 
         Ok(result)
+    }
+
+    /// `vec_min_score` 미만 제거, Commit 문서 점수에 `vec_commit_penalty` 적용 후
+    /// 재정렬해서 상위 `k`개만 남긴다. 기본 파라미터에서는 입력 순서 그대로다.
+    fn adjust_vec_hits(&self, hits: Vec<(u64, f32)>, k: usize) -> Vec<(u64, f32)> {
+        let p = &self.params;
+        let mut out: Vec<(u64, f32)> = hits
+            .into_iter()
+            .filter(|(_, score)| *score >= p.vec_min_score)
+            .map(|(id, score)| {
+                let is_commit = self
+                    .doc_store
+                    .get(&id)
+                    .is_some_and(|m| m.kind == DocKind::Commit);
+                if is_commit {
+                    (id, score - p.vec_commit_penalty)
+                } else {
+                    (id, score)
+                }
+            })
+            .collect();
+        if p.vec_commit_penalty != 0.0 {
+            // stable sort: 동점은 원래 vector 순서 유지
+            out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        }
+        out.truncate(k);
+        out
     }
 
     fn hydrate(&self, hits: Vec<(u64, f32)>) -> Vec<SearchResult> {

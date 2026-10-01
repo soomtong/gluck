@@ -15,6 +15,8 @@ pub enum Category {
     Korean,
     Typo,
     Paraphrase,
+    /// 커밋 이력 검색. 정답은 `kind = "Commit"` + 커밋 제목.
+    Commit,
     Negative,
 }
 
@@ -36,7 +38,9 @@ pub struct FixtureQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ExpectedHit {
-    pub path: String,
+    /// File/Symbol 정답의 경로. Commit 정답은 경로가 없으므로 생략한다.
+    #[serde(default)]
+    pub path: Option<String>,
     #[serde(default)]
     pub kind: Option<DocKind>,
     #[serde(default)]
@@ -103,6 +107,21 @@ pub fn load(path: &Path) -> Result<FixtureSet, ReportError> {
                         reason: "positive queries must not have 'forbidden' entries".into(),
                     });
                 }
+                for (ei, e) in q.expected.iter().enumerate() {
+                    let is_commit = e.kind == Some(DocKind::Commit);
+                    let ok = if is_commit {
+                        e.path.is_none() && e.title.is_some()
+                    } else {
+                        e.path.is_some()
+                    };
+                    if !ok {
+                        return Err(ReportError::InvalidExpected {
+                            query_index: i,
+                            expected_index: ei,
+                            reason: "need 'path', or kind = \"Commit\" with 'title' and no 'path'",
+                        });
+                    }
+                }
             }
         }
     }
@@ -137,9 +156,51 @@ expected = [{ path = "src/main.rs" }]
         assert_eq!(set.queries.len(), 1);
         assert_eq!(set.queries[0].text, "hello");
         assert_eq!(set.queries[0].category, Category::ExactIdentifier);
-        assert_eq!(set.queries[0].expected[0].path, "src/main.rs");
+        assert_eq!(
+            set.queries[0].expected[0].path.as_deref(),
+            Some("src/main.rs")
+        );
         assert!(set.queries[0].expected[0].kind.is_none());
         assert!(set.queries[0].expected[0].title.is_none());
+    }
+
+    #[test]
+    fn loads_commit_expected_without_path() {
+        let dir = tempdir().unwrap();
+        let p = write(
+            &dir,
+            r#"
+[[query]]
+category = "commit"
+text = "turbovec upgrade"
+expected = [{ kind = "Commit", title = "turbovec 1.0 전환" }]
+"#,
+        );
+        let set = load(&p).unwrap();
+        assert_eq!(set.queries[0].category, Category::Commit);
+        assert!(set.queries[0].expected[0].path.is_none());
+    }
+
+    #[test]
+    fn rejects_malformed_expected() {
+        for body in [
+            // file/symbol entry without path
+            r#"expected = [{ kind = "Symbol", title = "f" }]"#,
+            // commit entry with a path
+            r#"expected = [{ path = "src/a.rs", kind = "Commit", title = "t" }]"#,
+            // commit entry without title
+            r#"expected = [{ kind = "Commit" }]"#,
+        ] {
+            let dir = tempdir().unwrap();
+            let p = write(
+                &dir,
+                &format!("[[query]]\ncategory = \"commit\"\ntext = \"q\"\n{body}\n"),
+            );
+            assert!(
+                matches!(load(&p), Err(ReportError::InvalidExpected { .. })),
+                "should reject: {body}"
+            );
+        }
     }
 
     #[test]
@@ -371,8 +432,8 @@ forbidden = [{ path_prefix = "src/" }]
                 set.queries.iter().map(|q| q.category).collect();
             assert_eq!(
                 categories.len(),
-                6,
-                "expected all 6 categories present, got {:?}",
+                7,
+                "expected all 7 categories present, got {:?}",
                 categories
             );
         }

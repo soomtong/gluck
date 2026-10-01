@@ -53,13 +53,22 @@ fn main() -> Result<()> {
             warmup,
             iters,
             limit,
+            params,
         }) => {
+            let mut search_params = gluck::search::params::SearchParams::default();
+            for p in &params {
+                if let Err(e) = search_params.set(p) {
+                    eprintln!("report error: --param {e}");
+                    std::process::exit(2);
+                }
+            }
             let opts = gluck::search::report::ReportOptions {
                 fixtures_path: PathBuf::from(fixtures),
                 out_markdown: out.map(PathBuf::from),
                 warmup,
                 iters,
                 limit,
+                params: search_params,
             };
             match gluck::search::report::run(&repo, &path, &opts) {
                 Ok(()) => return Ok(()),

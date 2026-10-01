@@ -17,6 +17,7 @@ fn category_abbrev(c: Category) -> &'static str {
         Category::Korean => "korean",
         Category::Typo => "typo",
         Category::Paraphrase => "paraphrase",
+        Category::Commit => "commit",
         Category::Negative => "negative",
     }
 }
@@ -28,6 +29,7 @@ fn category_full(c: Category) -> &'static str {
         Category::Korean => "korean",
         Category::Typo => "typo",
         Category::Paraphrase => "paraphrase",
+        Category::Commit => "commit",
         Category::Negative => "negative",
     }
 }
@@ -69,6 +71,7 @@ pub fn to_markdown_string(r: &Report) -> String {
         format_size(r.index.size_bytes, BINARY),
         r.index.doc_count_total
     );
+    let _ = writeln!(s, "- Search params: {}", r.params);
     if r.head_mismatch {
         let _ = writeln!(
             s,
@@ -218,6 +221,7 @@ pub fn to_stdout(r: &Report) {
         format_size(r.index.size_bytes, BINARY),
         r.index.doc_count_total
     );
+    println!("Params:      {}", r.params);
     if r.head_mismatch {
         println!(
             "WARNING:     HEAD != index.head_oid ({}); run `glc index` to refresh",
@@ -351,6 +355,7 @@ pub fn to_stdout(r: &Report) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::search::params::SearchParams;
     use crate::search::report::metrics::{
         AggregateEval, CategoryAggregate, NegativeEval, NegativeViolation, PositiveEval, QueryEval,
     };
@@ -366,6 +371,7 @@ mod tests {
             warmup: 3,
             iters: 10,
             limit: 10,
+            params: SearchParams::default(),
             aggregate: AggregateEval {
                 mrr: 0.75,
                 recall_at_5: 0.6,

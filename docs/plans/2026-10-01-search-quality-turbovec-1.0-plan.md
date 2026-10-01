@@ -109,6 +109,41 @@
 2. RRF `k=60`, 가중치 grid 탐색 (`k ∈ {20, 40, 60}`, `w_vec ∈ {1.0, 1.5, 2.0}`)을 `glc report`에 숨은 옵션으로 넣어 비교. 과적합 방지를 위해 fixture 쿼리를 카테고리당 5개 → 8개 이상으로 확장한 뒤 결정.
 3. typo: BM25에 identifier 전용 필드(심볼명 snake/camel 분해 후 ngram_3) 또는 tantivy `FuzzyTermQuery`(distance 1)를 영문 단일 토큰에만 적용하는 방안 비교. 범위가 커서 Phase 1~2 결과 본 뒤 별도 spec으로 분리.
 
+#### Phase 3 결과 (2026-10-01, 1차)
+
+준비:
+- fixture 스키마: `commit` 카테고리 추가, Commit 정답은 `{ kind = "Commit", title = "<커밋 제목>" }` (path 없음). 기존 fixture는 Commit 정답이 없어서 Commit 비중을 낮추면 커밋 검색이 망가져도 점수가 오르는 편향이 있었음.
+- fixture 63개로 확장 (positive 6개 카테고리 × 9, negative 9). 정답은 엔진을 돌리지 않고 코드/`git log`만 보고 작성.
+- `SearchParams` (`src/search/params.rs`) + `glc report --param key=value` (숨김). 기본값은 기존 동작과 per-query 결과 동일 확인.
+- 확장 기준선: `report-2026-10-01-5.md` — MRR 0.463, R@5 0.593, R@10 0.639, NDCG@10 0.498, negative pass 33.3%. commit 카테고리 MRR 0.250으로 가장 약함.
+
+sweep (`--warmup 0 --iters 1`, 쿼리 1개 MRR 변화 ≈ 집계 0.0185):
+
+| config | MRR | R@5 | R@10 | commit MRR | neg pass |
+|---|---|---|---|---|---|
+| baseline | 0.463 | 0.593 | 0.639 | 0.250 | 33.3% |
+| vec_min_score 0.25 / 0.30 / 0.35 | 0.459 / 0.454 / 0.449 | 0.574 | 0.620 / 0.620 / 0.602 | 0.250 | 33.3% |
+| vec_commit_penalty 0.03 / 0.08 / 0.15 | 0.473 / 0.471 / 0.497 | 0.611 / 0.593 / 0.593 | 0.657 / 0.639 / 0.639 | 0.250 / 0.222 / 0.222 | 33.3 / 22.2 / 22.2% |
+| rrf_k 10 / 20 / 40 | 0.474 / 0.463 / 0.463 | 0.593 | 0.639 | 0.250 | 33.3% |
+| w_vec 0.5 (=0.75) / 1.5 | 0.475 / 0.437 | 0.556 / 0.537 | 0.657 / 0.556 | 0.222 / 0.259 | 55.6 / 22.2% |
+| w_vec_korean 1.0 / 2.0 | 0.463 | 0.593 | 0.639 | 0.250 | 33.3% |
+| korean_anchor 0 / 1 | 0.365 / 0.457 | 0.491 / 0.574 | 0.537 / 0.620 | 0.139 / 0.250 | 33.3% |
+| 결과에서 vendor/ 제외 (임시 실험) | 0.463 | 0.593 | 0.639 | 0.250 | 33.3% |
+| 결과에서 vendor/, docs/, site/ 제외 (임시 실험) | 0.481 | 0.611 | 0.676 | 0.250 | 11.1% |
+
+결론:
+- 고정 vector 하한은 기각. negative 쿼리 vector top 점수(0.33~0.36)가 한국어 정답 쿼리 top 점수(~0.26)보다 높아서 분리 불가.
+- fusion 파라미터는 모두 쿼리 1~2개 수준의 변화이고 지표 간 trade-off가 있음 → 기본값 유지 (과적합 회피). korean_anchor=3은 유효함이 재확인됨.
+- 병목은 fusion이 아니라 검색 소스 쪽:
+  - commit: 맞힌 2개는 제목 단어를 그대로 쓴 쿼리. 회상형/언어 교차(한국어 쿼리 ↔ 영어 커밋) 쿼리는 전부 실패. 커밋 embed text가 제목+본문뿐이라 신호가 약함.
+  - negative: RRF는 항상 무언가를 반환하므로 fusion 단계에서 막을 수 없음. 관련성 판단(BM25 매칭 품질 + vector 점수의 상대 분포)이 필요.
+  - typo: 기존 계획대로 별도 spec.
+
+다음 후보 (사용자 결정 필요):
+1. 커밋 embed text 보강: 변경된 파일 경로(및 diff stat)를 붙여 임베딩. 인덱싱 시 커밋별 diff 계산 비용 발생, `INDEX_VERSION` 증가.
+2. negative 대응: "결과 없음" 판단 기준 설계 (예: BM25 hit 없음 + vector top 점수가 쿼리별 분포 대비 낮음).
+3. typo spec (fuzzy BM25 / identifier 필드).
+
 ## 4. 리스크
 
 - `statrs`/`rand_chacha`가 정확 버전 pin이라 다른 의존성과 충돌 시 resolver 실패 가능 → `cargo update -p turbovec` 단계에서 확인.

@@ -56,6 +56,11 @@ pub enum Commands {
         /// top-k for search() (k=10 covers NDCG@10/Recall@10)
         #[arg(long, default_value = "10")]
         limit: usize,
+
+        /// Override a search fusion param for tuning (repeatable), e.g.
+        /// `--param rrf_k=20 --param vec_min_score=0.3`
+        #[arg(long = "param", value_name = "KEY=VALUE", hide = true)]
+        params: Vec<String>,
     },
 
     /// Diagnose a single query: dump BM25 tokens, raw BM25/Vector/RRF rankings

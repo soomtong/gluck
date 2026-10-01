@@ -11,6 +11,7 @@ use thiserror::Error;
 
 use crate::git::repo::GitRepo;
 use crate::search::indexer::index_dir_for;
+use crate::search::params::SearchParams;
 use crate::search::report::metrics::{
     aggregate, aggregate_by_category, evaluate, AggregateEval, CategoryAggregate, NegativeEval,
     QueryEval,
@@ -27,6 +28,12 @@ pub enum ReportError {
     EmptyFixtures,
     #[error("query #{0} has empty `expected` array")]
     EmptyExpected(usize),
+    #[error("query #{query_index}, expected #{expected_index}: {reason}")]
+    InvalidExpected {
+        query_index: usize,
+        expected_index: usize,
+        reason: &'static str,
+    },
     #[error("query #{index}: invalid negative query: {reason}")]
     InvalidNegativeQuery { index: usize, reason: String },
     #[error("query #{query_index}, forbidden rule #{rule_index}: {reason}")]
@@ -73,6 +80,7 @@ pub struct Report {
     pub warmup: usize,
     pub iters: usize,
     pub limit: usize,
+    pub params: SearchParams,
     pub aggregate: AggregateEval,
     pub latency: LatencyStats,
     pub index: IndexStats,
@@ -87,6 +95,7 @@ pub struct ReportOptions {
     pub warmup: usize,
     pub iters: usize,
     pub limit: usize,
+    pub params: SearchParams,
 }
 
 impl Default for ReportOptions {
@@ -97,6 +106,7 @@ impl Default for ReportOptions {
             warmup: 3,
             iters: 10,
             limit: 10,
+            params: SearchParams::default(),
         }
     }
 }
@@ -142,7 +152,8 @@ pub fn run(repo: &GitRepo, repo_path: &Path, opts: &ReportOptions) -> Result<(),
             index_dir.clone(),
         )));
     }
-    let engine = SearchEngine::open(&index_dir)?;
+    let mut engine = SearchEngine::open(&index_dir)?;
+    engine.params = opts.params.clone();
 
     let meta_str = std::fs::read_to_string(index_dir.join("meta.toml"))?;
     let meta: IndexMeta = toml::from_str(&meta_str)?;
@@ -201,6 +212,7 @@ pub fn run(repo: &GitRepo, repo_path: &Path, opts: &ReportOptions) -> Result<(),
         warmup: opts.warmup,
         iters: opts.iters,
         limit: opts.limit,
+        params: opts.params.clone(),
         aggregate: aggregate_eval,
         latency,
         index: index_stats,
@@ -264,6 +276,7 @@ expected = [{ path = "beta.rs" }]
             warmup: 1,
             iters: 2,
             limit: 10,
+            params: SearchParams::default(),
         };
         run(&git_repo, dir.path(), &opts).unwrap();
 
@@ -300,6 +313,7 @@ expected = [{ path = "a.rs" }]
             warmup: 0,
             iters: 1,
             limit: 5,
+            params: SearchParams::default(),
         };
         let err = run(&git_repo, dir.path(), &opts).unwrap_err();
         assert!(
@@ -322,6 +336,7 @@ expected = [{ path = "a.rs" }]
             warmup: 0,
             iters: 1,
             limit: 5,
+            params: SearchParams::default(),
         };
         let err = run(&git_repo, dir.path(), &opts).unwrap_err();
         assert!(

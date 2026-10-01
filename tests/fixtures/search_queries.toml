@@ -1,7 +1,7 @@
 # gluck 자체 검색 회귀 추적용 fixture.
 # 정답은 path 위주. Symbol 정답을 명시할 때만 kind/title을 추가.
 # category는 쿼리의 의도/형태를 분류한다 (exact_identifier, natural_language,
-# korean, typo, paraphrase, negative). negative 쿼리는 expected 대신
+# korean, typo, paraphrase, commit, negative). negative 쿼리는 expected 대신
 # forbidden 으로 "이 결과가 상위 10에 들어오면 실패"를 표현한다.
 
 # ───────────────────────── exact_identifier (식별자 정확 매칭) ─────────────────────────
@@ -39,6 +39,34 @@ category = "exact_identifier"
 text = "delete_doc bm25"
 expected = [
     { path = "src/search/bm25.rs", kind = "Symbol", title = "delete_doc" },
+]
+
+[[query]]
+category = "exact_identifier"
+text = "wrap_spans"
+expected = [
+    { path = "src/ui/wrap.rs" },
+]
+
+[[query]]
+category = "exact_identifier"
+text = "head_info"
+expected = [
+    { path = "src/git/repo.rs" },
+]
+
+[[query]]
+category = "exact_identifier"
+text = "align_diff_lines"
+expected = [
+    { path = "src/ui/diff.rs", kind = "Symbol", title = "align_diff_lines" },
+]
+
+[[query]]
+category = "exact_identifier"
+text = "to_highlight_map palette"
+expected = [
+    { path = "src/theme.rs" },
 ]
 
 # ───────────────────────── natural_language (영어 자연어) ─────────────────────────
@@ -79,6 +107,34 @@ expected = [
     { path = "src/search/vector.rs" },
 ]
 
+[[query]]
+category = "natural_language"
+text = "LRU cache for diffs and trees"
+expected = [
+    { path = "src/git/cache.rs" },
+]
+
+[[query]]
+category = "natural_language"
+text = "detect binary blob before reading file"
+expected = [
+    { path = "src/git/tree.rs" },
+]
+
+[[query]]
+category = "natural_language"
+text = "load and save config toml"
+expected = [
+    { path = "src/config.rs" },
+]
+
+[[query]]
+category = "natural_language"
+text = "toggle directory fold in file tree"
+expected = [
+    { path = "src/mode.rs" },
+]
+
 # ───────────────────────── korean (한국어 자연어) ─────────────────────────
 
 [[query]]
@@ -115,6 +171,34 @@ text = "커밋 그래프 순회"
 expected = [
     { path = "src/git/store.rs" },
     { path = "src/git/commit.rs" },
+]
+
+[[query]]
+category = "korean"
+text = "색상 테마 팔레트"
+expected = [
+    { path = "src/theme.rs" },
+]
+
+[[query]]
+category = "korean"
+text = "단어 단위 줄바꿈"
+expected = [
+    { path = "src/ui/wrap.rs" },
+]
+
+[[query]]
+category = "korean"
+text = "커밋 목록 화면 렌더링"
+expected = [
+    { path = "src/ui/pick.rs" },
+]
+
+[[query]]
+category = "korean"
+text = "파일 확장자로 언어 감지"
+expected = [
+    { path = "src/lang.rs" },
 ]
 
 # ───────────────────────── typo (오타 내성) ─────────────────────────
@@ -154,6 +238,34 @@ expected = [
     { path = "src/git/store.rs" },
 ]
 
+[[query]]
+category = "typo"
+text = "is_binray_blob"
+expected = [
+    { path = "src/git/tree.rs" },
+]
+
+[[query]]
+category = "typo"
+text = "format_header_dat timezone"
+expected = [
+    { path = "src/ui/layout.rs" },
+]
+
+[[query]]
+category = "typo"
+text = "comit prefix serach"
+expected = [
+    { path = "src/git/store.rs" },
+]
+
+[[query]]
+category = "typo"
+text = "camel case splt"
+expected = [
+    { path = "src/search/text_prep.rs" },
+]
+
 # ───────────────────────── paraphrase (동의어/의역) ─────────────────────────
 
 [[query]]
@@ -191,6 +303,99 @@ expected = [
     { path = "src/search/bm25.rs" },
 ]
 
+[[query]]
+category = "paraphrase"
+text = "show removed and added lines next to each other"
+expected = [
+    { path = "src/ui/diff.rs" },
+]
+
+[[query]]
+category = "paraphrase"
+text = "외부에서 새 커밋이 생기면 자동으로 새로고침"
+expected = [
+    { path = "src/app.rs" },
+]
+
+[[query]]
+category = "paraphrase"
+text = "터미널 폭이 좁으면 상세 패널 숨기기"
+expected = [
+    { path = "src/ui/pick.rs" },
+]
+
+[[query]]
+category = "paraphrase"
+text = "hide noisy progress output while the model downloads"
+expected = [
+    { path = "src/search/silence.rs" },
+]
+
+# ─────────── commit (커밋 이력 — 정답은 커밋 제목, 제목을 그대로 베끼지 않은 회상형 쿼리) ───────────
+
+[[query]]
+category = "commit"
+text = "when did we add mouse support to the file tree"
+expected = [
+    { kind = "Commit", title = "View 파일 트리 폴딩·마우스 지원 및 대용량 파일 탐색 성능 개선" },
+]
+
+[[query]]
+category = "commit"
+text = "테마 바꾸면 설정 파일에 저장되도록 한 커밋"
+expected = [
+    { kind = "Commit", title = "Wire theme into App with Ctrl+T cycling and config persistence" },
+]
+
+[[query]]
+category = "commit"
+text = "한글 내용을 임베딩할 때 문자 경계에서 패닉 나던 문제"
+expected = [
+    { kind = "Commit", title = "Fix UTF-8 char boundary panic in embed_text for Korean content" },
+]
+
+[[query]]
+category = "commit"
+text = "탭 문자가 화면에서 안 보이던 버그 고친 것"
+expected = [
+    { kind = "Commit", title = "탭 들여쓰기가 렌더링에서 사라지는 문제 수정" },
+]
+
+[[query]]
+category = "commit"
+text = "한글 입력할 때 커서가 두 칸씩 밀리던 버그"
+expected = [
+    { kind = "Commit", title = "CJK 문자 입력 시 커서 위치가 두 글자씩 이동하는 버그 수정" },
+]
+
+[[query]]
+category = "commit"
+text = "when did the app start checking for new commits every few seconds"
+expected = [
+    { kind = "Commit", title = "메인 루프를 poll 기반으로 전환하고 5초 주기 HEAD 감시 연결" },
+]
+
+[[query]]
+category = "commit"
+text = "리눅스 CI에서 illegal instruction으로 죽던 문제 해결"
+expected = [
+    { kind = "Commit", title = "Linux에서 시스템 OpenBLAS 링크로 CI SIGILL 재발 방지" },
+]
+
+[[query]]
+category = "commit"
+text = "typing a letter in the query box kicked off a full rebuild"
+expected = [
+    { kind = "Commit", title = "Fix 'i' key triggering reindex in search modal" },
+]
+
+[[query]]
+category = "commit"
+text = "keep side-by-side or unified layout when moving to another commit"
+expected = [
+    { kind = "Commit", title = "Keep diff pane mode when navigating between commits" },
+]
+
 # ─────────── negative (gluck 도메인 밖 — src/ 안 정답이 떠오르면 안 됨) ───────────
 
 [[query]]
@@ -224,6 +429,34 @@ forbidden = [
 [[query]]
 category = "negative"
 text = "tensorflow model training loop"
+forbidden = [
+    { path_prefix = "src/" },
+]
+
+[[query]]
+category = "negative"
+text = "stripe payment checkout webhook"
+forbidden = [
+    { path_prefix = "src/" },
+]
+
+[[query]]
+category = "negative"
+text = "unity game physics rigidbody"
+forbidden = [
+    { path_prefix = "src/" },
+]
+
+[[query]]
+category = "negative"
+text = "pandas dataframe groupby aggregation"
+forbidden = [
+    { path_prefix = "src/" },
+]
+
+[[query]]
+category = "negative"
+text = "postgres streaming replication failover"
 forbidden = [
     { path_prefix = "src/" },
 ]

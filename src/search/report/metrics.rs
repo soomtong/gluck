@@ -1,7 +1,7 @@
 //! 검색 품질 메트릭 — MRR, Recall@k, NDCG@k + negative-query pass/fail.
 
 use crate::search::report::fixtures::{Category, ExpectedHit, FixtureQuery};
-use crate::search::SearchResult;
+use crate::search::{DocKind, SearchResult};
 
 #[derive(Debug, Clone)]
 pub enum QueryEval {
@@ -60,16 +60,17 @@ pub struct NegativeAggregate {
     pub pass_rate: f32,
 }
 
-const POSITIVE_CATEGORIES: [Category; 5] = [
+const POSITIVE_CATEGORIES: [Category; 6] = [
     Category::ExactIdentifier,
     Category::NaturalLanguage,
     Category::Korean,
     Category::Typo,
     Category::Paraphrase,
+    Category::Commit,
 ];
 
 fn matches(expected: &ExpectedHit, hit: &SearchResult) -> bool {
-    if hit.meta.path.as_deref() != Some(expected.path.as_str()) {
+    if hit.meta.path.as_deref() != expected.path.as_deref() {
         return false;
     }
     if let Some(k) = &expected.kind {
@@ -78,13 +79,16 @@ fn matches(expected: &ExpectedHit, hit: &SearchResult) -> bool {
         }
     }
     if let Some(t) = &expected.title {
-        // Symbol DocMeta.title은 "{symbol_name} ({path})" 형식.
-        let name = hit
-            .meta
-            .title
-            .split_once(" (")
-            .map(|(s, _)| s)
-            .unwrap_or(&hit.meta.title);
+        // Symbol DocMeta.title은 "{symbol_name} ({path})" 형식. Commit 제목은 그대로 비교.
+        let name = if hit.meta.kind == DocKind::Symbol {
+            hit.meta
+                .title
+                .split_once(" (")
+                .map(|(s, _)| s)
+                .unwrap_or(&hit.meta.title)
+        } else {
+            hit.meta.title.as_str()
+        };
         if name != t {
             return false;
         }
@@ -114,10 +118,15 @@ fn evaluate_positive(query: &FixtureQuery, results: &[SearchResult]) -> Positive
             if first_hit_rank.is_none() {
                 first_hit_rank = Some(rank);
             }
-            if let Some(p) = &r.meta.path {
-                if !hit_paths.iter().any(|x| x == p) {
-                    hit_paths.push(p.clone());
-                }
+            let label = match &r.meta.path {
+                Some(p) => p.clone(),
+                None => format!(
+                    "commit:{}",
+                    &r.meta.commit_oid[..r.meta.commit_oid.len().min(7)]
+                ),
+            };
+            if !hit_paths.contains(&label) {
+                hit_paths.push(label);
             }
         }
         let newly_claimed = query
@@ -351,7 +360,7 @@ mod tests {
 
     fn eh(path: &str) -> ExpectedHit {
         ExpectedHit {
-            path: path.to_string(),
+            path: Some(path.to_string()),
             kind: None,
             title: None,
         }
@@ -359,7 +368,7 @@ mod tests {
 
     fn eh_kind(path: &str, kind: DocKind) -> ExpectedHit {
         ExpectedHit {
-            path: path.to_string(),
+            path: Some(path.to_string()),
             kind: Some(kind),
             title: None,
         }
@@ -367,7 +376,7 @@ mod tests {
 
     fn eh_full(path: &str, kind: DocKind, title: &str) -> ExpectedHit {
         ExpectedHit {
-            path: path.to_string(),
+            path: Some(path.to_string()),
             kind: Some(kind),
             title: Some(title.to_string()),
         }
@@ -470,6 +479,35 @@ mod tests {
         assert!((p.recall_at_5 - 0.5).abs() < 1e-6);
         assert!((p.recall_at_10 - 0.5).abs() < 1e-6);
         assert!(p.ndcg_at_10 < 1.0);
+    }
+
+    fn commit_result(doc_id: u64, title: &str) -> SearchResult {
+        SearchResult {
+            score: 1.0,
+            meta: DocMeta {
+                path: None,
+                ..meta(doc_id, DocKind::Commit, "", title)
+            },
+        }
+    }
+
+    #[test]
+    fn commit_expected_matches_by_exact_title() {
+        let expected = ExpectedHit {
+            path: None,
+            kind: Some(DocKind::Commit),
+            // " (" must not be stripped for commit titles
+            title: Some("Fix scroll (Pick mode)".into()),
+        };
+        let q = fq_cat("x", Category::Commit, vec![expected]);
+        let res = vec![
+            commit_result(1, "Fix scroll"),
+            result(2, DocKind::File, "src/a.rs", "src/a.rs"),
+            commit_result(3, "Fix scroll (Pick mode)"),
+        ];
+        let p = unwrap_positive(evaluate(&q, &res));
+        assert_eq!(p.first_hit_rank, Some(3));
+        assert_eq!(p.hit_paths, vec![format!("commit:{}", "0".repeat(7))]);
     }
 
     #[test]
