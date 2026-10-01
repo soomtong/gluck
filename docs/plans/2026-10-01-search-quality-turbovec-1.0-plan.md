@@ -144,6 +144,23 @@ sweep (`--warmup 0 --iters 1`, 쿼리 1개 MRR 변화 ≈ 집계 0.0185):
 2. negative 대응: "결과 없음" 판단 기준 설계 (예: BM25 hit 없음 + vector top 점수가 쿼리별 분포 대비 낮음).
 3. typo spec (fuzzy BM25 / identifier 필드).
 
+#### tantivy 0.26.1 → 0.26.2 검토 (2026-10-01, 완료)
+
+변경사항 (0.26.2는 버그 수정만 포함, 인덱스 포맷 변경 없음):
+- term aggregation doc count overflow, nested aggregation buffer flush 누락 — aggregation은 사용하지 않으므로 무관.
+- `BufferedUnionScorer::seek_danger` override 비활성화 ([#3086](https://github.com/quickwit-oss/tantivy/issues/3086)) — `Must` intersection 안에 AND 자식을 가진 union이 있을 때 한쪽 term만 가진 문서가 매칭되던 버그. 우리 기본 쿼리는 `Should`만 쓰므로 영향 없고, 사용자가 `+a +b` / `AND` 문법을 직접 쓸 때만 해당. 비용 없이 받는 정합성 수정.
+- 0.27.0은 CHANGELOG에만 있고 미배포. breaking change는 `set_fast(&str)`뿐이고 우리 코드는 `set_fast`를 쓰지 않음.
+- `Cargo.lock`은 tantivy 항목만 수정 (`cargo update -p tantivy`가 windows-sys/darling 참조까지 다시 풀어서 되돌림).
+
+계측 중 발견: BM25 인덱스 재빌드가 비결정적이었음.
+- 기본 `Index::writer()`는 멀티스레드라 문서가 세그먼트 3개에 무작위로 나뉨 → 동점 BM25 점수의 순서(DocAddress)가 빌드마다 바뀜 → 같은 HEAD·같은 버전에서 재빌드만 해도 MRR이 0.443~0.459로 흔들림. 같은 인덱스로 검색을 반복하면 결과는 동일함.
+- turbovec 파일 해시도 빌드마다 다르지만 저장 시 nonce 때문이고 검색 결과에는 영향 없음.
+- 수정: `writer_with_num_threads(1, ..)`. 3회 재빌드 결과 완전 일치. 인덱싱 시간 1.31s → 1.49s (625 docs, 임베딩 포함).
+- 결정적 조건에서 0.26.1과 0.26.2의 54개 쿼리 결과는 완전히 같음.
+- 영향: Phase 1~2처럼 재빌드를 사이에 둔 비교에는 ±0.016 MRR 수준의 노이즈가 섞여 있었음. Phase 3 sweep은 같은 인덱스에서 `--param`만 바꿨으므로 유효함.
+
+새 기준선 `report-2026-10-01-6.md` (HEAD 51c4fd2, 625 docs, 결정적 빌드): MRR 0.450, R@5 0.574, R@10 0.620, NDCG@10 0.483, negative 33.3%, commit MRR 0.250.
+
 ## 4. 리스크
 
 - `statrs`/`rand_chacha`가 정확 버전 pin이라 다른 의존성과 충돌 시 resolver 실패 가능 → `cargo update -p turbovec` 단계에서 확인.

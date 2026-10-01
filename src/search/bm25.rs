@@ -131,7 +131,9 @@ impl Bm25Index {
     }
 
     pub fn writer(&self) -> Result<IndexWriter, TantivyError> {
-        self.index.writer(WRITER_HEAP)
+        // Single indexing thread: multi-threaded writers split docs across segments
+        // nondeterministically, which reorders score ties (DocAddress) between rebuilds.
+        self.index.writer_with_num_threads(1, WRITER_HEAP)
     }
 
     pub fn add_doc(
