@@ -123,13 +123,20 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                 })
                 .collect();
 
-            let files_list = List::new(file_items).block(
-                Block::bordered()
-                    .title(format!(" Files ({}) ", diff.files.len()))
-                    .border_style(Style::new().fg(palette.border)),
-            );
+            let files_list = List::new(file_items)
+                .block(
+                    Block::bordered()
+                        .title(format!(" Files ({}) ", diff.files.len()))
+                        .border_style(Style::new().fg(palette.border)),
+                )
+                .highlight_style(palette.highlight_style())
+                .scroll_padding(1);
 
-            frame.render_widget(files_list, files_area);
+            let mut files_state = ListState::default();
+            if !diff.files.is_empty() {
+                files_state.select(Some(state.selected_diff_file.min(diff.files.len() - 1)));
+            }
+            frame.render_stateful_widget(files_list, files_area, &mut files_state);
         } else {
             let no_diff = Paragraph::new(" (root commit) ")
                 .block(
@@ -203,6 +210,7 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
         ("[j/k]", "move"),
         ("[d/u]", "scroll"),
         ("[^f/b]", "page"),
+        ("[J/K]", "files"),
         ("[Enter]", "view"),
         ("[Tab]", "diff"),
         ("[/]", "search"),

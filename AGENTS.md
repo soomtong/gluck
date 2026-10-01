@@ -58,7 +58,7 @@ Pick ──Enter──→ View ──Tab──→ Diff
   └─── Esc/h ─────────────────┘
 ```
 
-- **Pick**: commit list + inline diff preview. `/` opens prefix search (CommitIndex tree). Lazy-loads 200-batches; prefetches when selection within 50 of end.
+- **Pick**: commit list + inline diff preview. `/` opens prefix search (CommitIndex tree). Lazy-loads 200-batches; prefetches when selection within 50 of end. `J`/`K` move `PickState.selected_diff_file` through the right-lower Files panel (reset on commit change); `Tab` carries that cursor into `DiffState.selected_file`.
 - **View**: file tree + syntax-highlighted content. `.` toggles gitignore filter. On a directory `Enter` toggles fold, `h` collapses (then jumps to parent), `l` expands (then steps into first child); on files `h`/`l` keep their Back/open bindings.
 - **Diff**: side-by-side default. `v` toggles unified. `h`/`l` and ←/→ navigate files.
 - **Word wrap**: `w` toggles `config.ui.word_wrap` (default on, persisted like theme) in View/Diff. Wrapping is done in `ui/wrap.rs::wrap_spans` (span-level, whitespace-preferring, unicode-width aware) so continuation rows get a blank gutter; ratatui `Wrap` is not used. `scroll` stays in logical lines. Side-by-side pads each aligned pair to the taller side's row count so panes stay in step. Diff panes now render only the `scroll..` window instead of `Paragraph::scroll`.

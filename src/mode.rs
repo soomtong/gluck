@@ -25,6 +25,8 @@ pub struct PickState {
     pub scroll: usize,
     pub search: SearchState,
     pub selected_diff: Option<DiffResult>,
+    /// Cursor into `selected_diff.files` (right-lower Files panel), moved by J/K.
+    pub selected_diff_file: usize,
 }
 
 impl PickState {
@@ -37,7 +39,24 @@ impl PickState {
             scroll: 0,
             search: SearchState::Idle { query: None },
             selected_diff: None,
+            selected_diff_file: 0,
         }
+    }
+
+    pub fn diff_file_count(&self) -> usize {
+        self.selected_diff
+            .as_ref()
+            .map(|d| d.files.len())
+            .unwrap_or(0)
+    }
+
+    pub fn next_diff_file(&mut self) {
+        let max = self.diff_file_count().saturating_sub(1);
+        self.selected_diff_file = (self.selected_diff_file + 1).min(max);
+    }
+
+    pub fn prev_diff_file(&mut self) {
+        self.selected_diff_file = self.selected_diff_file.saturating_sub(1);
     }
 
     pub fn visible_commits(&self) -> Vec<&CommitInfo> {

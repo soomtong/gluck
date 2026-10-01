@@ -805,6 +805,7 @@ impl App {
                 };
                 let commit = state.commits[idx].clone();
                 let saved_search = state.search.clone();
+                let selected_diff_file = state.selected_diff_file;
                 let parent_info = {
                     let repository = self.repo.repository();
                     repository
@@ -823,7 +824,10 @@ impl App {
                     .cloned();
                 if let Ok(diff_result) = diff_result {
                     self.saved_search = saved_search;
-                    self.mode = Mode::Diff(DiffState::new(parent_info, commit, diff_result));
+                    let mut diff_state = DiffState::new(parent_info, commit, diff_result);
+                    let last_file = diff_state.diff_result.files.len().saturating_sub(1);
+                    diff_state.selected_file = selected_diff_file.min(last_file);
+                    self.mode = Mode::Diff(diff_state);
                 }
             }
         }
@@ -986,7 +990,7 @@ impl App {
                 let max_scroll = line_count.saturating_sub(1);
                 state.scroll = (state.scroll + 20).min(max_scroll);
             }
-            _ => {}
+            Mode::Pick(state) => state.next_diff_file(),
         }
     }
 
@@ -998,7 +1002,7 @@ impl App {
             Mode::Diff(state) => {
                 state.scroll = state.scroll.saturating_sub(20);
             }
-            _ => {}
+            Mode::Pick(state) => state.prev_diff_file(),
         }
     }
 
@@ -1182,6 +1186,7 @@ impl App {
                 return;
             };
             state.selected_diff = None;
+            state.selected_diff_file = 0;
             let Some(&idx) = state.filtered_indices.get(state.selected) else {
                 return;
             };
@@ -2529,12 +2534,83 @@ mod tests {
 
     // ── Page scroll tests ──
 
+    fn pick_diff_file(app: &App) -> usize {
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        s.selected_diff_file
+    }
+
     #[test]
-    fn test_page_down_in_pick_does_nothing() {
-        let (_dir, mut app) = test_app();
+    fn test_shift_jk_in_pick_moves_diff_file_cursor() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"first", "First");
+        add_file_commit(&repo, "a.txt", b"second", "Second");
+        add_file_commit(&repo, "b.txt", b"b", "Add b");
+        add_file_commit(&repo, "c.txt", b"c", "Add c");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
         assert!(matches!(app.mode, Mode::Pick(_)));
+        // HEAD touches one file only: J clamps at the end, K at the start.
+        assert_eq!(pick_diff_file(&app), 0);
         app.handle_key(KeyCode::Char('J'));
-        assert!(matches!(app.mode, Mode::Pick(_)));
+        assert_eq!(pick_diff_file(&app), 0);
+        app.handle_key(KeyCode::Char('K'));
+        assert_eq!(pick_diff_file(&app), 0);
+        // Commit list selection stays on the commit list.
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.selected, 0);
+    }
+
+    #[test]
+    fn test_pick_diff_file_cursor_moves_and_resets_on_commit_change() {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"a", "Base");
+        {
+            // One commit touching two files.
+            let mut index = repo.index().unwrap();
+            std::fs::write(dir.path().join("x.txt"), b"x").unwrap();
+            std::fs::write(dir.path().join("y.txt"), b"y").unwrap();
+            index.add_path(std::path::Path::new("x.txt")).unwrap();
+            index.add_path(std::path::Path::new("y.txt")).unwrap();
+            index.write().unwrap();
+            let tree_id = index.write_tree().unwrap();
+            let tree = repo.find_tree(tree_id).unwrap();
+            let sig = repo.signature().unwrap();
+            let head = repo.head().unwrap().peel_to_commit().unwrap();
+            repo.commit(Some("HEAD"), &sig, &sig, "Two files", &tree, &[&head])
+                .unwrap();
+        }
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
+        let Mode::Pick(s) = &app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.diff_file_count(), 2);
+
+        app.handle_key(KeyCode::Char('J'));
+        assert_eq!(pick_diff_file(&app), 1);
+        app.handle_key(KeyCode::Char('J'));
+        assert_eq!(pick_diff_file(&app), 1);
+        app.handle_key(KeyCode::Char('K'));
+        assert_eq!(pick_diff_file(&app), 0);
+
+        // Tab carries the file cursor into Diff mode.
+        app.handle_key(KeyCode::Char('J'));
+        app.handle_key(KeyCode::Tab);
+        let Mode::Diff(d) = &app.mode else {
+            panic!("expected diff")
+        };
+        assert_eq!(d.selected_file, 1);
+        app.handle_key(KeyCode::Esc);
+
+        // Moving to another commit resets the cursor.
+        app.handle_key(KeyCode::Char('J'));
+        assert_eq!(pick_diff_file(&app), 1);
+        app.handle_key(KeyCode::Char('j'));
+        assert_eq!(pick_diff_file(&app), 0);
     }
 
     #[test]
