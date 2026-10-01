@@ -1,3 +1,34 @@
+# glc semantic-search index exclusions (gitignore syntax).
+# Only files tracked at HEAD are indexed; .gitignore'd files are already skipped.
+# Commit messages are always indexed. Edits trigger a full rebuild on `glc index`.
+
+# Vendored / third-party code
+vendor/
+third_party/
+external/
+
+# Lockfiles
+Cargo.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lock
+bun.lockb
+go.sum
+poetry.lock
+uv.lock
+Gemfile.lock
+composer.lock
+
+# Build output, generated and minified assets
+dist/
+build/
+out/
+*.min.js
+*.min.css
+*.map
+
+# --- gluck repo-specific ---
 # Search-evaluation artifacts. They quote the fixture queries and expected
 # paths verbatim, so indexing them contaminates `glc report` measurements.
 docs/reports/
@@ -5,3 +36,4 @@ tests/fixtures/
 docs/**/*search-quality*
 docs/**/*fixture-category-matrix*
 /검색 품질 리포트 학습 가이드.md
+/HANDOFF.md
