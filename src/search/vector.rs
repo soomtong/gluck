@@ -66,8 +66,27 @@ impl VectorIndex {
     }
 
     pub fn search(&self, query: &[f32], k: usize) -> Vec<(u64, f32)> {
+        self.search_inner(query, k, None)
+    }
+
+    /// Search only among `allowlist` ids. Ids absent from the index are
+    /// dropped (turbovec rejects unknown ids); an empty effective allowlist
+    /// returns no hits.
+    pub fn search_allowlist(&self, query: &[f32], k: usize, allowlist: &[u64]) -> Vec<(u64, f32)> {
+        let known: Vec<u64> = allowlist
+            .iter()
+            .copied()
+            .filter(|id| self.inner.contains(*id))
+            .collect();
+        if known.is_empty() {
+            return Vec::new();
+        }
+        self.search_inner(query, k.min(known.len()), Some(&known))
+    }
+
+    fn search_inner(&self, query: &[f32], k: usize, allowlist: Option<&[u64]>) -> Vec<(u64, f32)> {
         let q = l2_normalize(query);
-        match self.inner.try_search(&q, k) {
+        match self.inner.try_search_with_allowlist(&q, k, allowlist) {
             Ok(res) => res.ids.into_iter().zip(res.scores).collect(),
             Err(e) => {
                 tracing::warn!("vector search failed: {e}");
@@ -119,6 +138,27 @@ mod tests {
         let v = vec![0.0, 0.0, 0.0];
         let n = l2_normalize(&v);
         assert_eq!(n, v);
+    }
+
+    #[test]
+    fn test_search_allowlist_restricts_and_skips_unknown_ids() {
+        let dim = 16;
+        let mut idx = VectorIndex::new(dim);
+        idx.add(
+            &[1, 2, 3],
+            &[make_vec(1.0, dim), make_vec(0.9, dim), make_vec(-1.0, dim)],
+        )
+        .unwrap();
+        // id 99 is not in the index and must not turn the search into an error.
+        let hits = idx.search_allowlist(&make_vec(1.0, dim), 10, &[3, 99]);
+        let ids: Vec<u64> = hits.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, vec![3]);
+        assert!(idx
+            .search_allowlist(&make_vec(1.0, dim), 10, &[99])
+            .is_empty());
+        assert!(idx
+            .search_allowlist(&make_vec(1.0, dim), 10, &[])
+            .is_empty());
     }
 
     #[test]

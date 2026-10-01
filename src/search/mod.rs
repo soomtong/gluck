@@ -106,6 +106,17 @@ fn extract_path_filter(query: &str) -> (Option<String>, String) {
     (Some(path), remaining)
 }
 
+/// `path`와 정확히 일치하는 문서 id 목록 (id 오름차순).
+fn path_doc_ids(doc_store: &HashMap<u64, DocMeta>, path: &str) -> Vec<u64> {
+    let mut ids: Vec<u64> = doc_store
+        .values()
+        .filter(|m| m.path.as_deref() == Some(path))
+        .map(|m| m.doc_id)
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
 /// 결과 목록에서 path가 일치하는 항목만 limit개 유지. 상대 순서는 보존.
 fn apply_path_filter(hits: Vec<SearchResult>, path: &str, limit: usize) -> Vec<SearchResult> {
     hits.into_iter()
@@ -185,7 +196,17 @@ impl SearchEngine {
                 .embedding
                 .encode_single(embed_text)
                 .map_err(|e| SearchError::Embedding(e.to_string()))?;
-            let vec_hits = self.vector.search(&query_vec, candidate_limit);
+            // 벡터 후보를 limit*5 (min 50)로 늘려봤지만 하위권 노이즈가 RRF에 섞여
+            // R@5/negative가 나빠졌다 (2026-10-01). BM25와 같은 깊이를 유지한다.
+            let vec_k = candidate_limit;
+            let vec_hits = match &path_filter {
+                // path 필터는 해당 경로 문서만 대상으로 검색해야 후보 밖 누락이 없다.
+                Some(path) => {
+                    let allow = path_doc_ids(&self.doc_store, path);
+                    self.vector.search_allowlist(&query_vec, vec_k, &allow)
+                }
+                None => self.vector.search(&query_vec, vec_k),
+            };
             // 한국어 쿼리는 path 별칭으로 BM25가 정답을 잡지만 vector가 commit
             // 노이즈에 끌려가므로, BM25 top 3을 anchor해서 단일 강한 매칭을 보존한다.
             // 그 뒤는 weighted RRF로 채운다 (vec 1.5x — paraphrase 케이스 보호).
@@ -337,6 +358,21 @@ mod tests {
         ];
         let filtered = apply_path_filter(hits, "src/a.rs", 2);
         assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn path_doc_ids_matches_exact_path_sorted() {
+        let store: HashMap<u64, DocMeta> = [
+            sr(5, 0.0, "src/a.rs"),
+            sr(2, 0.0, "src/a.rs"),
+            sr(3, 0.0, "src/a.rs.bak"),
+            sr(4, 0.0, "src/b.rs"),
+        ]
+        .into_iter()
+        .map(|r| (r.meta.doc_id, r.meta))
+        .collect();
+        assert_eq!(path_doc_ids(&store, "src/a.rs"), vec![2, 5]);
+        assert!(path_doc_ids(&store, "src/none.rs").is_empty());
     }
 
     #[test]
