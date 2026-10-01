@@ -15,6 +15,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     debug::init_logging(&cli.log_level);
+    // turbovec defaults to eprintln!, which would corrupt the TUI alternate screen.
+    turbovec::set_warning_hook(Some(|msg| tracing::warn!(target: "turbovec", "{msg}")));
 
     let path = cli
         .path

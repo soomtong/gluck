@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use turbovec::IdMapIndex;
+use turbovec::{CalibrationState, IdMapIndex};
 
 use crate::search::SearchError;
 
@@ -19,6 +19,10 @@ pub fn l2_normalize(v: &[f32]) -> Vec<f32> {
     }
 }
 
+fn io_err(e: impl std::fmt::Display) -> SearchError {
+    SearchError::Io(std::io::Error::other(e.to_string()))
+}
+
 impl VectorIndex {
     pub fn new(dim: usize) -> Self {
         Self {
@@ -27,14 +31,33 @@ impl VectorIndex {
         }
     }
 
+    /// Fit TQ+ calibration from `vectors` before the first `add`.
+    ///
+    /// turbovec 1.0 no longer calibrates implicitly on the first add; an
+    /// uncalibrated index silently loses recall. Samples evenly spaced rows
+    /// (deterministic, so rebuilds are reproducible) up to turbovec's
+    /// recommended sample size. Too few rows leaves the index uncalibrated.
+    pub fn calibrate(&mut self, vectors: &[Vec<f32>]) -> Result<(), SearchError> {
+        if vectors.len() < turbovec::MIN_CALIBRATION_ROWS {
+            return Ok(());
+        }
+        let n = vectors.len().min(turbovec::RECOMMENDED_CALIBRATION_ROWS);
+        let sample: Vec<f32> = (0..n)
+            .flat_map(|i| l2_normalize(&vectors[i * vectors.len() / n]))
+            .collect();
+        self.inner.calibrate(&sample).map_err(io_err)
+    }
+
+    pub fn is_calibrated(&self) -> bool {
+        self.inner.calibration_state() == CalibrationState::Calibrated
+    }
+
     pub fn add(&mut self, ids: &[u64], vectors: &[Vec<f32>]) -> Result<(), SearchError> {
         if ids.is_empty() {
             return Ok(());
         }
         let flat: Vec<f32> = vectors.iter().flat_map(|v| l2_normalize(v)).collect();
-        self.inner
-            .add_with_ids(&flat, ids)
-            .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
+        self.inner.add_with_ids(&flat, ids).map_err(io_err)?;
         Ok(())
     }
 
@@ -44,18 +67,23 @@ impl VectorIndex {
 
     pub fn search(&self, query: &[f32], k: usize) -> Vec<(u64, f32)> {
         let q = l2_normalize(query);
-        let (scores, ids) = self.inner.search(&q, k);
-        ids.into_iter().zip(scores).collect()
+        match self.inner.try_search(&q, k) {
+            Ok(res) => res.ids.into_iter().zip(res.scores).collect(),
+            Err(e) => {
+                tracing::warn!("vector search failed: {e}");
+                Vec::new()
+            }
+        }
     }
 
-    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), SearchError> {
+    /// Persist via turbovec's incremental `sync`: the first call for a path
+    /// writes the whole index, later calls append only adds/removes.
+    pub fn save(&mut self, path: impl AsRef<Path>) -> Result<(), SearchError> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        self.inner
-            .write(path.to_str().unwrap_or("index.tvim"))
-            .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
+        self.inner.sync(path).map_err(io_err)?;
         Ok(())
     }
 
@@ -64,8 +92,9 @@ impl VectorIndex {
         if !path.exists() {
             return Err(SearchError::IndexNotFound(path.to_path_buf()));
         }
-        let inner = IdMapIndex::load(path.to_str().unwrap_or("index.tvim"))
-            .map_err(|e| SearchError::Io(std::io::Error::other(e.to_string())))?;
+        let inner = IdMapIndex::load(path).map_err(io_err)?;
+        // Build packed layout + id map now so the first search/remove doesn't stall.
+        inner.prepare();
         Ok(Self { inner })
     }
 }
@@ -135,5 +164,70 @@ mod tests {
         idx.add(&[42], &[make_vec(1.0, dim)]).unwrap();
         let err = idx.add(&[42], &[make_vec(0.5, dim)]);
         assert!(err.is_err(), "duplicate id should not be silently accepted");
+    }
+
+    fn varied_vecs(n: usize, dim: usize) -> Vec<Vec<f32>> {
+        (0..n)
+            .map(|i| (0..dim).map(|j| ((i * 31 + j * 7) as f32).sin()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn test_calibrate_persists_through_save_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.tvim");
+        let dim = 16;
+        let vecs = varied_vecs(64, dim);
+        let ids: Vec<u64> = (0..64).collect();
+        let mut idx = VectorIndex::new(dim);
+        assert!(!idx.is_calibrated());
+        idx.calibrate(&vecs).unwrap();
+        assert!(idx.is_calibrated());
+        idx.add(&ids, &vecs).unwrap();
+        idx.save(&path).unwrap();
+        let loaded = VectorIndex::load(&path).unwrap();
+        assert!(loaded.is_calibrated());
+        assert_eq!(loaded.search(&vecs[5], 1)[0].0, 5);
+    }
+
+    #[test]
+    fn test_calibrate_skips_tiny_sample() {
+        let mut idx = VectorIndex::new(16);
+        idx.calibrate(&varied_vecs(1, 16)).unwrap();
+        assert!(!idx.is_calibrated());
+    }
+
+    #[test]
+    fn test_incremental_save_after_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.tvim");
+        let dim = 16;
+        let vecs = varied_vecs(8, dim);
+        let mut idx = VectorIndex::new(dim);
+        idx.calibrate(&vecs).unwrap();
+        idx.add(&[1, 2, 3, 4], &vecs[..4]).unwrap();
+        idx.save(&path).unwrap();
+
+        let mut reopened = VectorIndex::load(&path).unwrap();
+        assert!(reopened.remove(2));
+        reopened.add(&[5, 6], &vecs[4..6]).unwrap();
+        reopened.save(&path).unwrap();
+
+        let loaded = VectorIndex::load(&path).unwrap();
+        let ids: Vec<u64> = loaded
+            .search(&vecs[4], 8)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(ids[0], 5);
+        assert!(!ids.contains(&2));
+        assert_eq!(ids.len(), 5);
+    }
+
+    #[test]
+    fn test_search_wrong_dim_returns_empty() {
+        let mut idx = VectorIndex::new(16);
+        idx.add(&[1], &[make_vec(1.0, 16)]).unwrap();
+        assert!(idx.search(&make_vec(1.0, 8), 1).is_empty());
     }
 }

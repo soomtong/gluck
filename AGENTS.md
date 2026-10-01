@@ -76,7 +76,7 @@ Pick ──Enter──→ View ──Tab──→ Diff
 
 Semantic-search threading: indexing and engine-load each run on their own thread, talk via `mpsc::channel` (`IndexMessage`, `EngineMessage`). `EngineMessage::Ready(Box<SearchEngine>)` hands the heap-allocated engine to the main thread. `with_silenced_stdio()` redirects stderr during model load to keep hf-hub progress bars out of the alternate screen — **Unix-only** (`libc::dup2`).
 
-Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 5), `head_oid`, per-component metadata. Mismatched version forces full rebuild. Mismatched `head_oid` triggers incremental update (BM25 `delete_term` + turbovec `remove` for stale docs, embed only the delta) when the old `head_oid` is still reachable; otherwise falls back to full rebuild.
+Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 8), `head_oid`, per-component metadata. Mismatched version forces full rebuild. Mismatched `head_oid` triggers incremental update (BM25 `delete_term` + turbovec `remove` for stale docs, embed only the delta) when the old `head_oid` is still reachable; otherwise falls back to full rebuild.
 
 검색 품질 회귀 추적은 `glc report`가 `tests/fixtures/search_queries.toml`의 쿼리/정답으로 MRR/Recall@k/NDCG@10 + latency p50/p95/p99를 계산해 stdout(및 `--out` markdown)에 출력한다.
 
@@ -137,7 +137,7 @@ Authoritative list lives in `Cargo.toml`. Non-obvious points:
 
 - `tree-sitter` 0.22 paired with language crates at 0.23 — bridged via `LANGUAGE.into_raw()` + `Language::from_raw(ptr as *const _)`.
 - `model2vec-rs` 0.2 with `hf-hub` feature pulls the embedding model at runtime on first index build.
-- `blas-src` is Accelerate on macOS, OpenBLAS on Linux (required by turbovec/model2vec). CI installs `libopenblas-dev`; Linux links the **system** OpenBLAS (`openblas-src` `system` feature) — a from-source build targets the build machine's CPU and SIGILLs on CI runners without those instructions once cached.
+- `turbovec` 1.0 is pure Rust (no BLAS). Its TQ+ calibration is explicit: `VectorIndex::calibrate()` must run before the first `add` on a full build, or the index silently loses recall. Incremental updates reuse the calibration stored in the file and persist via `sync` (append-only). Warnings go through `turbovec::set_warning_hook` → `tracing` (`main.rs`).
 - `silence.rs` uses `libc::dup2` — porting to Windows requires a no-op fallback.
 
 ## Planning artifacts

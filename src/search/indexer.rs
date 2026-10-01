@@ -203,6 +203,7 @@ where
 
     bm25.commit(bm25_writer).map_err(SearchError::Tantivy)?;
 
+    vector.calibrate(&all_vecs)?;
     vector.add(&all_ids, &all_vecs)?;
     let vector_dir = index_dir.join("vectors");
     vector.save(vector_dir.join("index.tvim"))?;
