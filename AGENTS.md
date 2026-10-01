@@ -38,6 +38,7 @@ src/
 ```bash
 cargo run --bin glc -- [PATH]                    # run TUI
 cargo run --bin glc -- index [--force]           # headless index build
+cargo run --bin glc -- ignore [--force]          # write default .glcignore (glcignore::DEFAULT_TEMPLATE)
 cargo run --bin glc -- report [--out FILE.md]    # search quality + perf report
 cargo test [name]
 cargo clippy                                     # CI: --all-targets -D warnings

@@ -47,6 +47,28 @@ fn main() -> Result<()> {
                 .map_err(|e| anyhow::anyhow!("index error: {}", e))?;
             return Ok(());
         }
+        Some(Commands::Ignore { force }) => {
+            use gluck::search::glcignore::{write_default, WriteOutcome, FILE_NAME};
+            let root = repo
+                .repository()
+                .workdir()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| path.clone());
+            let target = root.join(FILE_NAME);
+            match write_default(&root, force)? {
+                WriteOutcome::Created => eprintln!("created {}", target.display()),
+                WriteOutcome::Overwritten => eprintln!("overwrote {}", target.display()),
+                WriteOutcome::Exists => {
+                    eprintln!(
+                        "{} already exists; use --force to overwrite",
+                        target.display()
+                    );
+                    std::process::exit(1);
+                }
+            }
+            eprintln!("edit it as needed, then run `glc index` to rebuild");
+            return Ok(());
+        }
         Some(Commands::Report {
             fixtures,
             out,

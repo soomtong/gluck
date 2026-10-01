@@ -10,6 +10,64 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 pub const FILE_NAME: &str = ".glcignore";
 
+/// Written by `glc ignore`. Only files tracked at HEAD are indexed, so this
+/// targets committed noise rather than what `.gitignore` already hides.
+pub const DEFAULT_TEMPLATE: &str = "\
+# glc semantic-search index exclusions (gitignore syntax).
+# Only files tracked at HEAD are indexed; .gitignore'd files are already skipped.
+# Commit messages are always indexed. Edits trigger a full rebuild on `glc index`.
+
+# Vendored / third-party code
+vendor/
+third_party/
+external/
+
+# Lockfiles
+Cargo.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lock
+bun.lockb
+go.sum
+poetry.lock
+uv.lock
+Gemfile.lock
+composer.lock
+
+# Build output, generated and minified assets
+dist/
+build/
+out/
+*.min.js
+*.min.css
+*.map
+";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteOutcome {
+    Created,
+    Overwritten,
+    /// File already exists and `force` was not set; nothing written.
+    Exists,
+}
+
+/// Writes [`DEFAULT_TEMPLATE`] to `<root>/.glcignore`. An existing file is
+/// kept unless `force` is set.
+pub fn write_default(root: &Path, force: bool) -> std::io::Result<WriteOutcome> {
+    let path = root.join(FILE_NAME);
+    let existed = path.exists();
+    if existed && !force {
+        return Ok(WriteOutcome::Exists);
+    }
+    std::fs::write(&path, DEFAULT_TEMPLATE)?;
+    Ok(if existed {
+        WriteOutcome::Overwritten
+    } else {
+        WriteOutcome::Created
+    })
+}
+
 pub struct GlcIgnore {
     matcher: Option<Gitignore>,
     hash: Option<String>,
@@ -89,6 +147,37 @@ mod tests {
         let g = GlcIgnore::load(dir.path());
         assert!(g.hash().is_none());
         assert!(!g.is_ignored("anything.rs"));
+    }
+
+    #[test]
+    fn default_template_patterns() {
+        let g = ignore(DEFAULT_TEMPLATE);
+        assert!(g.is_ignored("vendor/lib/a.c"));
+        assert!(g.is_ignored("web/package-lock.json"));
+        assert!(g.is_ignored("static/app.min.js"));
+        assert!(!g.is_ignored("src/main.rs"));
+        assert!(!g.is_ignored("README.md"));
+    }
+
+    #[test]
+    fn write_default_keeps_existing_unless_forced() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE_NAME);
+        assert_eq!(
+            write_default(dir.path(), false).unwrap(),
+            WriteOutcome::Created
+        );
+        std::fs::write(&path, "custom/\n").unwrap();
+        assert_eq!(
+            write_default(dir.path(), false).unwrap(),
+            WriteOutcome::Exists
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "custom/\n");
+        assert_eq!(
+            write_default(dir.path(), true).unwrap(),
+            WriteOutcome::Overwritten
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULT_TEMPLATE);
     }
 
     #[test]

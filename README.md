@@ -58,6 +58,7 @@ glc                 # 현재 디렉토리의 git history 열기
 glc /path/to/repo   # 특정 저장소 열기
 glc index           # 시맨틱 검색 인덱스 빌드
 glc index --force   # 인덱스 강제 재빌드
+glc ignore          # 기본 제외 목록으로 .glcignore 생성 (--force: 덮어쓰기)
 ```
 
 ### Pick 모드 — 커밋 탐색
@@ -145,6 +146,14 @@ glc index --force   # 인덱스 강제 재빌드
 ### 인덱싱 제외 (`.glcignore`)
 
 레포 루트에 `.glcignore`를 두면 해당 파일을 시맨틱 검색 인덱스에서 뺍니다. 문법은 `.gitignore`와 같습니다 (디렉터리 패턴, `*`/`**` glob, `!` 부정, `#` 주석).
+
+`glc ignore`를 실행하면 기본 제외 목록이 담긴 `.glcignore`가 레포 루트에 생성됩니다. 인덱스는 HEAD에 커밋된 파일만 대상으로 하므로, 기본 목록은 커밋되어 있지만 검색에는 잡음인 것들입니다.
+
+- vendored 코드: `vendor/`, `third_party/`, `external/`
+- lockfile: `Cargo.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `go.sum`, `poetry.lock`, `uv.lock` 등
+- 빌드 산출물과 minified 파일: `dist/`, `build/`, `out/`, `*.min.js`, `*.min.css`, `*.map`
+
+이미 파일이 있으면 덮어쓰지 않습니다 (`glc ignore --force`로 덮어쓰기). 생성 후 프로젝트에 맞게 고치면 됩니다. 직접 작성한 예:
 
 ```
 # 생성물이나 검색에 방해되는 문서

@@ -35,6 +35,13 @@ pub enum Commands {
         max_file_bytes: usize,
     },
 
+    /// Create a .glcignore with default index exclusions (vendored code, lockfiles, build output)
+    Ignore {
+        /// Overwrite an existing .glcignore
+        #[arg(long)]
+        force: bool,
+    },
+
     /// Generate search quality + performance report
     Report {
         /// Fixture TOML path
