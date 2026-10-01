@@ -165,6 +165,8 @@
   └── RRF (k=60) ──→ 순위 융합 ──→ 결과</pre>
 <ul>
   <li>한국어는 형태소 사전 없이 character bigram으로 버틴다. 의외로 잘 버틴다.</li>
+  <li>영문 오타는 알아서 고친다. <code>build_index_incremntal</code>은 <code>incremental</code>로 함께 검색된다. 맞게 쓴 단어는 건드리지 않는다.</li>
+  <li>저장소와 상관없는 질문이면 결과 제목에 <code>· no strong match</code>가 붙는다. 결과는 그대로 보여주니 판단은 사람이 한다.</li>
   <li><code>path:"src/search/rrf.rs"</code>처럼 경로 한정, <code>"rrf.rs fuse"</code>처럼 파일+함수명 좁히기 가능.</li>
   <li>커밋은 메시지에 더해 바꾼 파일 경로까지 임베딩한다. "레이아웃 고친 커밋"이 <code>src/ui/layout.rs</code>를 건드린 커밋을 찾아낸다.</li>
   <li><code>glc ignore</code>가 만들어주는 <code>.glcignore</code>(문법은 <code>.gitignore</code>와 같음)로 <code>vendor/</code>, 생성된 리포트 같은 잡음을 인덱스에서 뺄 수 있다. 바꾸면 다음 <code>glc index</code>가 알아서 재빌드한다.</li>

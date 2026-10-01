@@ -1,6 +1,6 @@
 # gluck
 
-[![Version](https://img.shields.io/badge/version-0.14.0-blue)](https://github.com/soomtong/gluck)
+[![Version](https://img.shields.io/badge/version-0.15.0-blue)](https://github.com/soomtong/gluck)
 [![Homepage](https://img.shields.io/badge/homepage-soomtong.github.io%2Fgluck-7dd3a0)](https://soomtong.github.io/gluck/)
 [![Rust](https://img.shields.io/badge/rust-edition%202021-orange)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -134,6 +134,8 @@ glc ignore          # 기본 제외 목록으로 .glcignore 생성 (--force: 덮
    - **Symbol 검색**: 심볼은 `path::symbol_name` 형태로 인덱싱되어 `"error.rs handle"`처럼 파일 범위와 함수명을 한 쿼리로 좁힐 수 있습니다.
 2. **벡터 검색**: 쿼리를 256차원 임베딩으로 변환한 뒤 turbovec 4-bit 양자화 인덱스에서 유사도를 계산합니다.
 3. **RRF 융합**: 두 검색 결과를 Reciprocal Rank Fusion(k=60)으로 병합하여 최종 순위를 결정합니다.
+4. **오타 교정**: 영문 쿼리 단어가 인덱스 어휘에 없으면 한 글자 누락·인접 글자 뒤바뀜·같은 글자 중복 같은 타이핑 실수로 보고 가장 가까운 단어를 BM25 쿼리에 덧붙입니다 (`is_binray_blob` → `binary`). 철자가 맞는 단어는 건드리지 않습니다.
+5. **정답 없음 표시**: 쿼리 단어가 파일·심볼 이름과 경로에 하나도 맞지 않고 벡터 유사도도 고르게 낮으면, 결과는 그대로 보여 주되 제목에 `· no strong match`를 붙입니다. 이 저장소와 무관한 질문(예: `django orm migrations`)을 알아보기 위한 표시입니다.
 
 ### 인덱싱 전략
 
