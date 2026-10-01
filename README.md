@@ -1,6 +1,6 @@
 # gluck
 
-[![Version](https://img.shields.io/badge/version-0.13.0-blue)](https://github.com/soomtong/gluck)
+[![Version](https://img.shields.io/badge/version-0.14.0-blue)](https://github.com/soomtong/gluck)
 [![Homepage](https://img.shields.io/badge/homepage-soomtong.github.io%2Fgluck-7dd3a0)](https://soomtong.github.io/gluck/)
 [![Rust](https://img.shields.io/badge/rust-edition%202021-orange)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
