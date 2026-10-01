@@ -4,7 +4,7 @@
 `glc` 시맨틱 검색(BM25 + turbovec 벡터 + RRF)의 품질 개선. 전체 계획과 단계별 실측 결과는 `docs/plans/2026-10-01-search-quality-turbovec-1.0-plan.md`에 있음 (먼저 읽을 것).
 
 ## 현재 브랜치
-`main`. 이번 세션 커밋:
+`main` (v0.15.0 릴리즈, origin push 완료). 이번 세션 커밋:
 - `75c15dd` .glcignore에 기본 제외 목록과 HANDOFF.md 추가
 - `d632bf9` typo 쿼리 교정 추가 (INDEX_VERSION 10, `typo_mode`)
 - `fdb0841` negative 쿼리 "no strong match" 표시 (`weak_gap`)
@@ -32,7 +32,7 @@ MRR 0.508, R@5 0.648, R@10 0.694, NDCG@10 0.545, negative 88.9%, 표시가 붙�
 - [ ] paraphrase(0.343), korean(0.556) 개선 여지
 - [ ] `weak_gap` 양쪽 여유가 0.006뿐. 커밋이 쌓인 뒤 리포트의 "answered in top 10" 수치(오경보)를 다시 확인
 - [ ] 남은 negative 실패 1개: `spring boot dependency injection` (word hit 1건)
-- [ ] 다음 릴리즈 때 Windows 빌드 확인. INDEX_VERSION 11이라 사용자 인덱스가 full rebuild됨. README/site에 typo 교정과 no strong match 표시 문서화
+- [x] v0.15.0 릴리즈 완료 (2026-10-01): CI/Release 성공, darwin-aarch64 + windows-x86_64 빌드 생성, README/site 문서화. INDEX_VERSION 11이라 사용자 인덱스는 첫 실행 때 full rebuild
 
 ## 핵심 파일
 - `src/search/mod.rs` — `SearchEngine::search_scored`, `SearchOutcome`, 교정 적용 지점
