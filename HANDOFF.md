@@ -7,7 +7,9 @@
 `main`. 이번 세션 커밋:
 - `75c15dd` .glcignore에 기본 제외 목록과 HANDOFF.md 추가
 - `d632bf9` typo 쿼리 교정 추가 (INDEX_VERSION 10, `typo_mode`)
-- (이 파일과 함께) negative 쿼리 "no strong match" 표시 (`weak_gap`)
+- `fdb0841` negative 쿼리 "no strong match" 표시 (`weak_gap`)
+- `5b25fb9` glc에 -V/--version 옵션 추가
+- `38e90dd` 검색 결과 제목이 camelCase 분해된 채 저장되던 문제 수정 (INDEX_VERSION 11)
 
 ## 완료된 작업
 - [x] `.glcignore` 정리: `glc ignore` 기본 목록 병합, `/HANDOFF.md` 제외(typo 쿼리 원문을 인용해 측정을 오염시키고 있었음. report-8, report-9는 오염된 측정)
@@ -17,20 +19,20 @@
 - [x] cargo test 382 통과, clippy `--all-targets -D warnings` 통과, 수정 파일 rustfmt
 
 ## 현재 기준선
-`docs/reports/report-2026-10-01-12.md` (HEAD 0b0e66f 기준 인덱스, 597 docs, typo_mode=1, weak_gap=0.055):
-MRR 0.517, R@5 0.648, R@10 0.657, NDCG@10 0.543, negative 88.9%, 표시가 붙은 positive 5/54(오경보 0), commit MRR 0.222.
-교정과 표시를 모두 끈 비교용 기준선: report-10 (`--param typo_mode=0 --param weak_gap=0`).
+`docs/reports/report-2026-10-01-14.md` (HEAD 5b25fb9 기준 인덱스, 630 docs, INDEX_VERSION 11):
+MRR 0.508, R@5 0.648, R@10 0.694, NDCG@10 0.545, negative 88.9%, 표시가 붙은 positive 4/54(오경보 0), commit MRR 0.278.
+같은 HEAD에서 제목 버그 수정 전 값: report-13 (MRR 0.498). report-12 이전과는 HEAD가 달라 직접 비교 불가.
 
 ## 시도했으나 실패한 접근
 - 이전 세션: 벡터 후보 확대, exact rerank, 고정 vec_min_score, fusion 튜닝, 커밋 경로 stem, 후보 2 절대 임계값
 - 후보 3: FuzzyTermQuery, title/path_terms만 어휘로 쓰기, 편집거리 2, 임베딩 텍스트 교정(typo_mode 2/3)
 
 ## 남은 작업 / 아이디어
-- [ ] commit 카테고리(MRR 0.222)가 가장 약함. 회상형 질문("when did we add…")과 한영 교차 쿼리. 새 후보로 검토할 가치 있음
+- [ ] commit 카테고리(MRR 0.278): 분석 완료, 사용자 결정 대기. 병목은 한영 교차 의미 매칭(정답이 vector 165~517위). 선택지: (a) 더 강한 다국어 임베딩 모델, (b) 색인 시 커밋 메시지 번역·동의어 확장. 계획서 "commit 카테고리 분석" 절 참고. `examples/commit_probe.rs`로 재측정
 - [ ] paraphrase(0.343), korean(0.556) 개선 여지
 - [ ] `weak_gap` 양쪽 여유가 0.006뿐. 커밋이 쌓인 뒤 리포트의 "answered in top 10" 수치(오경보)를 다시 확인
 - [ ] 남은 negative 실패 1개: `spring boot dependency injection` (word hit 1건)
-- [ ] 다음 릴리즈 때 Windows 빌드 확인. INDEX_VERSION 10이라 사용자 인덱스가 full rebuild됨. README/site에 typo 교정과 no strong match 표시 문서화
+- [ ] 다음 릴리즈 때 Windows 빌드 확인. INDEX_VERSION 11이라 사용자 인덱스가 full rebuild됨. README/site에 typo 교정과 no strong match 표시 문서화
 
 ## 핵심 파일
 - `src/search/mod.rs` — `SearchEngine::search_scored`, `SearchOutcome`, 교정 적용 지점
@@ -38,7 +40,7 @@ MRR 0.517, R@5 0.648, R@10 0.657, NDCG@10 0.543, negative 88.9%, 표시가 붙�
 - `src/search/params.rs` — `typo_mode`, `weak_gap`
 - `src/search/report/{metrics,render,perf}.rs` — `evaluate_outcome`, `weak_positive_summary`
 - `src/search/modal_state.rs`, `src/ui/search_modal.rs`, `src/app.rs`(search worker) — UI 표시
-- `examples/neg_probe.rs`(fix_hits 열 추가), `examples/typo_probe.rs`
+- `examples/neg_probe.rs`(fix_hits 열 추가), `examples/typo_probe.rs`, `examples/commit_probe.rs`
 - `tests/fixtures/search_queries.toml` — 63개 정답 세트 (튜닝에 맞춰 수정 금지)
 
 ## 다음 에이전트에게
