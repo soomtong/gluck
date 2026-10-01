@@ -224,10 +224,15 @@ mod tests {
         idx.calibrate(&vecs).unwrap();
         assert!(idx.is_calibrated());
         idx.add(&ids, &vecs).unwrap();
+        // Compare against the in-memory index rather than asserting an exact top-1:
+        // 4-bit ties at dim 16 can resolve differently per SIMD kernel (runner CPU).
+        let ids_of = |hits: Vec<(u64, f32)>| hits.into_iter().map(|h| h.0).collect::<Vec<_>>();
+        let before = ids_of(idx.search(&vecs[5], 5));
+        assert!(before.contains(&5));
         idx.save(&path).unwrap();
         let loaded = VectorIndex::load(&path).unwrap();
         assert!(loaded.is_calibrated());
-        assert_eq!(loaded.search(&vecs[5], 1)[0].0, 5);
+        assert_eq!(ids_of(loaded.search(&vecs[5], 5)), before);
     }
 
     #[test]
