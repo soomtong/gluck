@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "glc", about = "Terminal git history file viewer")]
+#[command(name = "glc", version, about = "Terminal git history file viewer")]
 pub struct Cli {
     /// Git repository path
     pub path: Option<String>,
