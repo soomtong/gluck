@@ -59,6 +59,11 @@ impl PickState {
         self.selected_diff_file = self.selected_diff_file.saturating_sub(1);
     }
 
+    /// Set the Files-panel cursor, clamped to the current diff's file range.
+    pub fn set_diff_file(&mut self, idx: usize) {
+        self.selected_diff_file = idx.min(self.diff_file_count().saturating_sub(1));
+    }
+
     pub fn visible_commits(&self) -> Vec<&CommitInfo> {
         self.filtered_indices
             .iter()

@@ -719,12 +719,10 @@ impl App {
         }
         match &self.mode {
             Mode::View(_) | Mode::Diff(_) => {
-                let target_id = if let Mode::View(vs) = &self.mode {
-                    Some(vs.commit.id)
-                } else if let Mode::Diff(ds) = &self.mode {
-                    Some(ds.to.id)
-                } else {
-                    None
+                let (target_id, prev_diff_file) = match &self.mode {
+                    Mode::View(vs) => (Some(vs.commit.id), None),
+                    Mode::Diff(ds) => (Some(ds.to.id), Some(ds.selected_file)),
+                    Mode::Pick(_) => (None, None),
                 };
 
                 let mut pick = PickState::new(self.store.loaded.clone());
@@ -748,6 +746,11 @@ impl App {
 
                 self.mode = Mode::Pick(pick);
                 self.update_pick_diff();
+                // Returning from Diff: keep the Files-panel cursor where the
+                // user left it (clamped, in case the diff changed size).
+                if let (Some(idx), Mode::Pick(pick)) = (prev_diff_file, &mut self.mode) {
+                    pick.set_diff_file(idx);
+                }
             }
             Mode::Pick(_) => {}
         }
@@ -2606,11 +2609,38 @@ mod tests {
         assert_eq!(d.selected_file, 1);
         app.handle_key(KeyCode::Esc);
 
+        // Esc from Diff restores the Files-panel cursor instead of resetting it.
+        assert_eq!(pick_diff_file(&app), 1);
+
+        // Navigating files inside Diff is reflected back in Pick.
+        app.handle_key(KeyCode::Tab);
+        app.handle_key(KeyCode::Char('h'));
+        let Mode::Diff(d) = &app.mode else {
+            panic!("expected diff")
+        };
+        assert_eq!(d.selected_file, 0);
+        app.handle_key(KeyCode::Esc);
+        assert_eq!(pick_diff_file(&app), 0);
+
         // Moving to another commit resets the cursor.
         app.handle_key(KeyCode::Char('J'));
         assert_eq!(pick_diff_file(&app), 1);
         app.handle_key(KeyCode::Char('j'));
         assert_eq!(pick_diff_file(&app), 0);
+    }
+
+    #[test]
+    fn test_pick_set_diff_file_clamps_to_range() {
+        let (_dir, mut app) = test_app();
+        let Mode::Pick(s) = &mut app.mode else {
+            panic!("expected pick")
+        };
+        assert_eq!(s.diff_file_count(), 1);
+        s.set_diff_file(99);
+        assert_eq!(s.selected_diff_file, 0);
+        s.selected_diff = None;
+        s.set_diff_file(5);
+        assert_eq!(s.selected_diff_file, 0);
     }
 
     #[test]
