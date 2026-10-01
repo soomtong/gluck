@@ -102,6 +102,11 @@ fn evaluate_positive(query: &FixtureQuery, results: &[SearchResult]) -> Positive
     let mut hit_count_at_5 = 0usize;
     let mut hit_count_at_10 = 0usize;
     let mut dcg10 = 0.0_f64;
+    // Each expected entry is credited once, at its first matching rank.
+    // A path-only entry matches every chunk of that file, so counting every
+    // matching result pushed DCG past IDCG (NDCG > 1) and let duplicates of
+    // one entry stand in for a missed one in recall.
+    let mut claimed = vec![false; query.expected.len()];
 
     for (i, r) in results.iter().take(10).enumerate() {
         let rank = i + 1;
@@ -114,6 +119,15 @@ fn evaluate_positive(query: &FixtureQuery, results: &[SearchResult]) -> Positive
                     hit_paths.push(p.clone());
                 }
             }
+        }
+        let newly_claimed = query
+            .expected
+            .iter()
+            .enumerate()
+            .find(|(j, e)| !claimed[*j] && matches(e, r))
+            .map(|(j, _)| j);
+        if let Some(j) = newly_claimed {
+            claimed[j] = true;
             if rank <= 5 {
                 hit_count_at_5 += 1;
             }
@@ -123,8 +137,8 @@ fn evaluate_positive(query: &FixtureQuery, results: &[SearchResult]) -> Positive
     }
 
     let n_expected = query.expected.len().max(1);
-    let recall_at_5 = (hit_count_at_5.min(query.expected.len()) as f32) / (n_expected as f32);
-    let recall_at_10 = (hit_count_at_10.min(query.expected.len()) as f32) / (n_expected as f32);
+    let recall_at_5 = hit_count_at_5 as f32 / n_expected as f32;
+    let recall_at_10 = hit_count_at_10 as f32 / n_expected as f32;
 
     let ideal_k = query.expected.len().min(10);
     let mut idcg10 = 0.0_f64;
@@ -424,6 +438,38 @@ mod tests {
             p.hit_paths,
             vec!["src/a.rs".to_string(), "src/b.rs".to_string()]
         );
+    }
+
+    #[test]
+    fn duplicate_chunks_of_one_expected_do_not_inflate_ndcg() {
+        let q = fq("x", vec![eh("src/a.rs")]);
+        let res = vec![
+            result(1, DocKind::File, "src/c.rs", "src/c.rs"),
+            result(2, DocKind::Symbol, "src/a.rs", "f1 (src/a.rs)"),
+            result(3, DocKind::Symbol, "src/a.rs", "f2 (src/a.rs)"),
+        ];
+        let p = unwrap_positive(evaluate(&q, &res));
+        // Only rank 2 counts: (1/log2(3)) / 1.
+        let expected = (1.0 / 3f64.log2()) as f32;
+        assert!(
+            (p.ndcg_at_10 - expected).abs() < 1e-6,
+            "got {}",
+            p.ndcg_at_10
+        );
+        assert!(p.ndcg_at_10 <= 1.0);
+    }
+
+    #[test]
+    fn duplicate_chunks_do_not_stand_in_for_missed_expected() {
+        let q = fq("x", vec![eh("src/a.rs"), eh("src/b.rs")]);
+        let res = vec![
+            result(1, DocKind::Symbol, "src/a.rs", "f1 (src/a.rs)"),
+            result(2, DocKind::Symbol, "src/a.rs", "f2 (src/a.rs)"),
+        ];
+        let p = unwrap_positive(evaluate(&q, &res));
+        assert!((p.recall_at_5 - 0.5).abs() < 1e-6);
+        assert!((p.recall_at_10 - 0.5).abs() < 1e-6);
+        assert!(p.ndcg_at_10 < 1.0);
     }
 
     #[test]
