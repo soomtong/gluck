@@ -96,6 +96,13 @@
 3. exact rerank: `vectors/raw.f32`에 id 순서대로 float32 원본 저장 (meta에 경로/개수 기록). 벡터 상위 `vec_candidates`를 exact cosine으로 재정렬 후 RRF 투입. 증분 업데이트 시 삭제/추가 반영 필요 — id→offset 맵을 같이 저장하거나 compaction 시점에 재작성.
    - 진행 전 계측: 리포트에 "4-bit top-10 vs exact top-10 overlap" 지표를 추가해 양자화 오차가 실제로 순위를 흔드는지 먼저 확인. overlap이 0.95 이상이면 3번은 보류.
 
+#### Phase 2 결과 (2026-10-01, 완료)
+
+- 벡터 후보 확대 (`max(limit*5, 50)`): 기각. R@5 0.760→0.720, negative pass 40%→20%. 벡터 하위권 노이즈가 RRF에 섞임. `candidate_limit` 유지.
+- path 필터 allowlist (`2bbf8ad`): 적용. 경로 쿼리 7개 수동 비교에서 이전 0건이던 쿼리 2개 포함 모두 결과를 채움. path 없는 쿼리는 기준선과 동일.
+- exact rerank: 보류. 4-bit vs exact (620 chunks, fixture 30개) 평균 overlap@10 0.950 / @20 0.953 / @50 0.964, exact top-1은 30/30 동일, 점수 오차 평균 0.0037. 정답 순위 변화 7건 모두 1~5칸이고 RRF 입력 범위(top 20/40) 경계를 넘는 경우 없음.
+- 관찰: 벡터가 정답을 놓치는 원인은 양자화가 아니라 임베딩/chunk 텍스트. positive 25개 중 7개는 exact로도 top 50 밖이고, 벡터 top-10의 약 51%가 Commit 문서. Phase 3에서 다룰 대상.
+
 ### Phase 3. 노이즈 억제 / fusion 튜닝
 
 1. 벡터 hit 최소 유사도 threshold (exact cosine 기준). negative 쿼리 5개와 positive 25개의 정답 hit 점수 분포를 리포트에 덤프해 값 결정.
