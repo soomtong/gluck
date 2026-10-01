@@ -1,0 +1,7 @@
+# Search-evaluation artifacts. They quote the fixture queries and expected
+# paths verbatim, so indexing them contaminates `glc report` measurements.
+docs/reports/
+tests/fixtures/
+docs/**/*search-quality*
+docs/**/*fixture-category-matrix*
+/검색 품질 리포트 학습 가이드.md

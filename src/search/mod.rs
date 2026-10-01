@@ -3,6 +3,7 @@ pub mod chunk;
 pub mod diagnose;
 pub mod diff;
 pub mod embedding;
+pub mod glcignore;
 pub mod indexer;
 pub mod modal_state;
 pub mod params;
@@ -318,6 +319,7 @@ mod tests {
             vector: VectorMeta {
                 backend: "test".to_string(),
             },
+            ignore_hash: None,
         };
         let s = toml::to_string_pretty(&meta).unwrap();
         std::fs::write(dir.path().join("meta.toml"), s).unwrap();
@@ -443,6 +445,9 @@ pub struct IndexMeta {
     pub embedding: EmbeddingMeta,
     pub bm25: Bm25Meta,
     pub vector: VectorMeta,
+    /// Blob oid of `.glcignore` at build time; a mismatch forces a full rebuild.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignore_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

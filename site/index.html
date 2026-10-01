@@ -166,6 +166,8 @@
 <ul>
   <li>한국어는 형태소 사전 없이 character bigram으로 버틴다. 의외로 잘 버틴다.</li>
   <li><code>path:"src/search/rrf.rs"</code>처럼 경로 한정, <code>"rrf.rs fuse"</code>처럼 파일+함수명 좁히기 가능.</li>
+  <li>커밋은 메시지에 더해 바꾼 파일 경로까지 임베딩한다. "레이아웃 고친 커밋"이 <code>src/ui/layout.rs</code>를 건드린 커밋을 찾아낸다.</li>
+  <li>레포 루트의 <code>.glcignore</code>(문법은 <code>.gitignore</code>와 같음)로 <code>vendor/</code>, 생성된 리포트 같은 잡음을 인덱스에서 뺄 수 있다. 바꾸면 다음 <code>glc index</code>가 알아서 재빌드한다.</li>
   <li>HEAD가 바뀌면 바뀐 만큼만 증분 인덱싱. 스키마가 바뀌면 <code>meta.toml</code>이 알아채고 재빌드를 요구한다.</li>
   <li>첫 <code>glc index</code>는 임베딩 모델(약 500MB)을 HuggingFace 캐시로 받는다. 커피 한 잔이면 충분하다.</li>
   <li><code>glc report</code>가 MRR / Recall@k / NDCG@10과 지연시간 p50/p95/p99를 찍어준다. 검색이 나빠지면 숫자가 먼저 안다.</li>

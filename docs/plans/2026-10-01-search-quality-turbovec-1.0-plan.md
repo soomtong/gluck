@@ -181,6 +181,15 @@ sweep (`--warmup 0 --iters 1`, 쿼리 1개 MRR 변화 ≈ 집계 0.0185):
 - 1~2쿼리 수준이 아닌 여러 카테고리에 걸친 일관된 변화라 채택. commit 카테고리의 회상형/한영 교차 쿼리는 여전히 미해결.
 - `report-2026-10-01-7.md`가 새 기준선.
 
+#### 측정 오염 제거: `.glcignore` (2026-10-01, 완료)
+
+후보 2를 보려고 negative 쿼리를 `diagnose`하다 발견: 인덱스에 `docs/reports/*.md`, `tests/fixtures/search_queries.toml`, 평가 세트를 인용한 설계 문서와 학습 가이드가 들어 있었음. 이 문서들에 fixture 쿼리 문장과 정답 경로가 그대로 있어서 "django orm migrations" 같은 negative도 BM25에서 리포트 파일과 정확히 매칭됨. 리포트를 만들 때마다 오염 문서가 하나씩 늘어 측정마다 코퍼스가 조금씩 달라지는 문제도 있었음.
+
+- 일반 기능으로 `.glcignore` 추가 (repo 루트, gitignore 문법, `ignore` crate). HEAD 파일에만 적용, 커밋 문서는 제외 대상 아님. 내용의 blob oid를 `meta.toml` `ignore_hash`에 저장해 바뀌면 full rebuild.
+- 이 저장소의 `.glcignore`: `docs/reports/`, `tests/fixtures/`, `docs/**/*search-quality*`, `docs/**/*fixture-category-matrix*`, 학습 가이드. 기준은 "평가 세트를 인용하는 문서"로, 식별자 쿼리에 정상 매칭되는 문서(`repo-watch` 계획의 `head_info` 등)는 남김.
+- 결과 (`report-2026-10-01-8.md`, 609 docs): MRR 0.479 → 0.487, R@5 0.583 → 0.611, R@10 0.602 → 0.620, NDCG@10 0.502 → 0.512. typo가 가장 크게 오름 (0.292 → 0.383; 오타 쿼리의 bigram이 리포트 속 원문 쿼리와 겹치던 노이즈가 사라짐). natural 3개는 소폭 하락. negative는 33.3% 그대로.
+- 이전 기준선들(report-5~7)은 오염된 코퍼스 기준이라 report-8 이후와 직접 비교하지 말 것.
+
 ## 4. 리스크
 
 - `statrs`/`rand_chacha`가 정확 버전 pin이라 다른 의존성과 충돌 시 resolver 실패 가능 → `cargo update -p turbovec` 단계에서 확인.

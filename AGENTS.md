@@ -78,6 +78,8 @@ Semantic-search threading: indexing and engine-load each run on their own thread
 
 Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 9), `head_oid`, per-component metadata. Mismatched version forces full rebuild. Mismatched `head_oid` triggers incremental update (BM25 `delete_term` + turbovec `remove` for stale docs, embed only the delta) when the old `head_oid` is still reachable; otherwise falls back to full rebuild.
 
+`.glcignore` (repo work-tree root, gitignore syntax via the `ignore` crate, `src/search/glcignore.rs`) excludes HEAD files from indexing — full and incremental builds; commit docs are never filtered. Its blob oid is stored as `meta.toml` `ignore_hash`; a mismatch forces a full rebuild on the next `build_index`. This repo's `.glcignore` excludes search-eval artifacts (reports, fixtures, docs quoting the query set) so `glc report` isn't scored against its own outputs. Commit chunks embed changed paths (first-parent name-only diff, max 20) after the message.
+
 검색 품질 회귀 추적은 `glc report`가 `tests/fixtures/search_queries.toml`의 쿼리/정답으로 MRR/Recall@k/NDCG@10 + latency p50/p95/p99를 계산해 stdout(및 `--out` markdown)에 출력한다.
 
 ## Architecture gotchas

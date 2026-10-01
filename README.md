@@ -138,15 +138,31 @@ glc index --force   # 인덱스 강제 재빌드
 
 `glc index`는 커밋 메시지와 HEAD의 파일을 대상으로 인덱스를 빌드합니다.
 
-- **커밋 메시지**: 제목과 본문을 그대로 인덱싱
-- **파일**: 4KB 미만은 전체 파일(`WholeFile`), 그 이상은 tree-sitter로 심볼(`function`, `struct`, `impl`) 단위로 분할하여 인덱싱
-- 현재 Rust(`.rs`) 파일에 한해 tree-sitter 기반 심볼 추출을 지원합니다
+- **커밋 메시지**: 제목과 본문을 인덱싱. 임베딩에는 그 커밋이 바꾼 파일 경로(최대 20개)를 덧붙여 "어느 파일을 고친 커밋인지"도 의미 검색에 반영
+- **파일**: 8KB 이하는 전체 파일(`WholeFile`), 그보다 크면 tree-sitter로 심볼(함수, 메서드, 타입) 단위로 분할하여 인덱싱
+- 심볼 추출 지원 언어: Rust, Python, JavaScript, TypeScript, TSX, Go. 그 외 파일은 크기 기준으로만 분할
+
+### 인덱싱 제외 (`.glcignore`)
+
+레포 루트에 `.glcignore`를 두면 해당 파일을 시맨틱 검색 인덱스에서 뺍니다. 문법은 `.gitignore`와 같습니다 (디렉터리 패턴, `*`/`**` glob, `!` 부정, `#` 주석).
+
+```
+# 생성물이나 검색에 방해되는 문서
+vendor/
+docs/reports/
+*.lock
+!Cargo.lock
+```
+
+- HEAD의 파일 내용(파일·심볼 문서)에만 적용되고, 커밋 메시지는 항상 인덱싱됩니다.
+- 커밋하지 않은 작업 트리의 `.glcignore`를 읽습니다.
+- 내용이 바뀌면 다음 `glc index`(또는 모달의 `I`)에서 자동으로 전체 재빌드합니다.
 
 ### 인덱스 구조
 
 ```
 .glc-index/
-├── meta.toml      # 버전, HEAD OID, 토크나이저 식별자, 도큐먼트 수, 인덱싱 시각
+├── meta.toml      # 버전, HEAD OID, 토크나이저 식별자, 도큐먼트 수, 인덱싱 시각, .glcignore 해시
 ├── bm25/          # Tantivy BM25 인덱스 (ngram_2_2 + LowerCaser, 구조화 필드)
 └── vectors/       # turbovec 4-bit 양자화 벡터 인덱스
 ```

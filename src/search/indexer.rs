@@ -7,6 +7,7 @@ use crate::search::bm25::{Bm25Index, TOKENIZER as BM25_TOKENIZER};
 use crate::search::chunk::{changed_paths, commit_to_chunk, split_file, Chunk};
 use crate::search::diff::{commits_since, compute_file_changes};
 use crate::search::embedding::EmbeddingModel;
+use crate::search::glcignore::GlcIgnore;
 use crate::search::vector::VectorIndex;
 use crate::search::{
     Bm25Meta, DocKind, DocMeta, EmbeddingMeta, IndexMeta, SearchError, VectorMeta, INDEX_DIR_NAME,
@@ -64,6 +65,7 @@ where
     F: Fn(&str),
 {
     let index_dir = index_dir_for(repo_path);
+    let ignore = GlcIgnore::load(repo.repository().workdir().unwrap_or(repo_path));
 
     if index_dir.exists() {
         if opts.force {
@@ -75,6 +77,10 @@ where
                     .ok()
                     .and_then(|s| toml::from_str::<IndexMeta>(&s).ok())
                 {
+                    Some(meta) if meta.ignore_hash.as_deref() != ignore.hash() => {
+                        progress(".glcignore changed; full rebuild required");
+                        std::fs::remove_dir_all(&index_dir)?;
+                    }
                     Some(meta) if meta.version == INDEX_VERSION => {
                         let current_oid = head_oid(repo)?;
                         if meta.head_oid == current_oid {
@@ -100,6 +106,7 @@ where
                                 &meta,
                                 &current_oid,
                                 opts,
+                                &ignore,
                                 progress_dyn,
                             ) {
                                 Ok(()) => return Ok(()),
@@ -160,6 +167,9 @@ where
 
     for entry in &head_tree {
         if !matches!(entry.kind, crate::git::tree::EntryKind::File) {
+            continue;
+        }
+        if ignore.is_ignored(&entry.path) {
             continue;
         }
         if is_binary_blob(repo, &head_commit, &entry.path).unwrap_or(true) {
@@ -223,6 +233,7 @@ where
         vector: VectorMeta {
             backend: "turboquant_4bit".to_string(),
         },
+        ignore_hash: ignore.hash().map(str::to_string),
     };
 
     let meta_str = toml::to_string_pretty(&meta)?;
@@ -237,6 +248,7 @@ fn build_index_incremental(
     old_meta: &IndexMeta,
     current_oid: &str,
     opts: &IndexOptions,
+    ignore: &GlcIgnore,
     progress: &dyn Fn(&str),
 ) -> Result<(), SearchError> {
     progress("Opening existing index...");
@@ -285,6 +297,9 @@ fn build_index_incremental(
     };
 
     for path in changes.added.iter().chain(changes.modified.iter()) {
+        if ignore.is_ignored(path) {
+            continue;
+        }
         if is_binary_blob(repo, &new_commit, path).unwrap_or(true) {
             continue;
         }
@@ -346,6 +361,7 @@ fn build_index_incremental(
         embedding: old_meta.embedding.clone(),
         bm25: old_meta.bm25.clone(),
         vector: old_meta.vector.clone(),
+        ignore_hash: old_meta.ignore_hash.clone(),
     };
     let meta_str = toml::to_string_pretty(&meta)?;
     std::fs::write(index_dir.join("meta.toml"), meta_str)?;
