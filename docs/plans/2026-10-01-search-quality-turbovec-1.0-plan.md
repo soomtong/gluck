@@ -83,6 +83,12 @@
 - 결론: 품질과 성능 모두 동등하거나 약간 개선됨. NDCG@10은 리포트 버그(값이 1을 넘음)로 비교에서 제외 — Phase 0 항목이라 아직 수정하지 않음.
 - 미검증: Linux/Windows에서 BLAS 없이 빌드되는지는 CI에서 확인해야 함 (로컬은 macOS만).
 
+#### Phase 0 보완 (2026-10-01, 완료)
+
+- NDCG/Recall 버그 수정 (`ad601cc`): 정답 항목별로 첫 매칭 순위만 인정. 이전 리포트의 NDCG는 비교 불가.
+- RRF 동점 비결정성 수정: `HashMap` 순회 순서에 따라 동점 결과 순서가 실행마다 바뀌었음. 개별 리스트 최고 순위 → id 순으로 tie-break. 리포트 3회 연속 per-query 결과 동일 확인.
+- Phase 2 이후 비교 기준선: `report-2026-10-01-4.md` (MRR 0.607, R@5 0.760, R@10 0.820, NDCG@10 0.641, negative pass 40%).
+
 ### Phase 2. 벡터 recall 확보
 
 1. 벡터 후보 수 분리: `vec_candidates = max(limit * 5, 50)`. BM25 후보는 현행 유지. RRF 출력은 `candidate_limit`로 자름.

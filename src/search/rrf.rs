@@ -51,17 +51,30 @@ pub fn rrf_fuse_weighted(
     w_bm25: f32,
     w_vec: f32,
 ) -> Vec<(u64, f32)> {
-    let mut scores: HashMap<u64, f32> = HashMap::new();
-    for (rank, (id, _)) in bm25.iter().enumerate() {
-        *scores.entry(*id).or_insert(0.0) += w_bm25 / (k + rank as f32 + 1.0);
+    // id -> (fused score, best rank in either list)
+    let mut scores: HashMap<u64, (f32, usize)> = HashMap::new();
+    for (list, w) in [(bm25, w_bm25), (vec, w_vec)] {
+        for (rank, (id, _)) in list.iter().enumerate() {
+            let e = scores.entry(*id).or_insert((0.0, usize::MAX));
+            e.0 += w / (k + rank as f32 + 1.0);
+            e.1 = e.1.min(rank);
+        }
     }
-    for (rank, (id, _)) in vec.iter().enumerate() {
-        *scores.entry(*id).or_insert(0.0) += w_vec / (k + rank as f32 + 1.0);
-    }
-    let mut out: Vec<(u64, f32)> = scores.into_iter().collect();
-    out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+    // Equal weights make ties common (bm25 rank i vs vec rank i). Break them
+    // by best single-list rank, then id, so results don't depend on HashMap
+    // iteration order.
+    let mut out: Vec<(u64, (f32, usize))> = scores.into_iter().collect();
+    out.sort_by(|a, b| {
+        b.1 .0
+            .partial_cmp(&a.1 .0)
+            .unwrap_or(Ordering::Equal)
+            .then(a.1 .1.cmp(&b.1 .1))
+            .then(a.0.cmp(&b.0))
+    });
     out.truncate(limit);
-    out
+    out.into_iter()
+        .map(|(id, (score, _))| (id, score))
+        .collect()
 }
 
 #[cfg(test)]
@@ -144,5 +157,31 @@ mod tests {
         let bm25: Vec<(u64, f32)> = (0..20).map(|i| (i, 1.0)).collect();
         let result = rrf_fuse(&bm25, &[], 60.0, 5);
         assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_rrf_ties_are_deterministic() {
+        // bm25 rank i and vec rank i on distinct docs score identically.
+        let bm25: Vec<(u64, f32)> = (0..10).map(|i| (100 + i, 1.0)).collect();
+        let vec: Vec<(u64, f32)> = (0..10).map(|i| (10 - i, 1.0)).collect();
+        let first = rrf_fuse(&bm25, &vec, 60.0, 20);
+        for _ in 0..20 {
+            assert_eq!(rrf_fuse(&bm25, &vec, 60.0, 20), first);
+        }
+        // Tie at rank 0: lower id first.
+        assert_eq!(first[0].0, 10);
+        assert_eq!(first[1].0, 100);
+    }
+
+    #[test]
+    fn test_rrf_tie_prefers_better_single_rank() {
+        // k=0, w_bm25=2: doc 1 (bm25 rank 1) scores 2/2 = 1.0, doc 9 (vec
+        // rank 0) scores 1/1 = 1.0. Exact tie -> doc 9 wins on best rank
+        // even though its id is larger.
+        let bm25 = vec![(3u64, 1.0), (1, 1.0)];
+        let vec = vec![(9u64, 1.0)];
+        let result = rrf_fuse_weighted(&bm25, &vec, 0.0, 10, 2.0, 1.0);
+        let ids: Vec<u64> = result.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, vec![3, 9, 1]);
     }
 }
