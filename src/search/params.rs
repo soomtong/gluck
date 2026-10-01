@@ -21,6 +21,10 @@ pub struct SearchParams {
     /// list. Commit messages are short and generic, so they crowd the vector
     /// top-k for code queries.
     pub vec_commit_penalty: f32,
+    /// Typo correction against the BM25 word vocabulary (non-Korean queries).
+    /// 0 off, 1 append corrections to the BM25 query (default), 2 also append
+    /// them to the embedded text, 3 replace typos in the embedded text.
+    pub typo_mode: usize,
 }
 
 impl Default for SearchParams {
@@ -32,6 +36,7 @@ impl Default for SearchParams {
             korean_anchor: 3,
             vec_min_score: f32::NEG_INFINITY,
             vec_commit_penalty: 0.0,
+            typo_mode: 1,
         }
     }
 }
@@ -57,6 +62,9 @@ impl SearchParams {
             }
             "vec_min_score" => self.vec_min_score = f()?,
             "vec_commit_penalty" => self.vec_commit_penalty = f()?,
+            "typo_mode" => {
+                self.typo_mode = value.trim().parse().map_err(|e| format!("{key}: {e}"))?
+            }
             other => return Err(format!("unknown search param '{other}'")),
         }
         Ok(())
@@ -67,7 +75,7 @@ impl fmt::Display for SearchParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "rrf_k={} w_vec={} w_vec_korean={} korean_anchor={} vec_min_score={} vec_commit_penalty={}",
+            "rrf_k={} w_vec={} w_vec_korean={} korean_anchor={} vec_min_score={} vec_commit_penalty={} typo_mode={}",
             self.rrf_k,
             self.w_vec,
             self.w_vec_korean,
@@ -77,7 +85,8 @@ impl fmt::Display for SearchParams {
             } else {
                 "off".into()
             },
-            self.vec_commit_penalty
+            self.vec_commit_penalty,
+            self.typo_mode
         )
     }
 }

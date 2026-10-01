@@ -190,6 +190,39 @@ sweep (`--warmup 0 --iters 1`, 쿼리 1개 MRR 변화 ≈ 집계 0.0185):
 - 결과 (`report-2026-10-01-8.md`, 609 docs): MRR 0.479 → 0.487, R@5 0.583 → 0.611, R@10 0.602 → 0.620, NDCG@10 0.502 → 0.512. typo가 가장 크게 오름 (0.292 → 0.383; 오타 쿼리의 bigram이 리포트 속 원문 쿼리와 겹치던 노이즈가 사라짐). natural 3개는 소폭 하락. negative는 33.3% 그대로.
 - 이전 기준선들(report-5~7)은 오염된 코퍼스 기준이라 report-8 이후와 직접 비교하지 말 것.
 
+#### 기준선 재측정: `glc ignore` 기본 목록 병합 (2026-10-01, 완료)
+
+이 저장소 `.glcignore` 앞부분에 `DEFAULT_TEMPLATE`을 합침. 실제로 빠지는 추적 파일은 `vendor/` 아래 19개(linkerscript, lisette 문법)와 `Cargo.lock`. fixture 정답 가운데 이 파일들을 가리키는 항목은 없음.
+
+- 결과 (`report-2026-10-01-9.md`, HEAD 0b0e66f, 598 docs = Commit 338 / File 78 / Symbol 182): MRR 0.487 → 0.493, R@5 0.611 그대로, R@10 0.620 → 0.639, NDCG@10 0.512 → 0.521, negative 33.3%, commit MRR 0.222.
+- 쿼리별 변화: #11, #29, #36 개선 (#36 `camel case splt`는 순위권 밖에서 rank 3으로), #15, #17, #35, #39 하락. report-8 이후 커밋이 5개 늘어 HEAD가 다르므로 이 차이를 `.glcignore` 효과로만 볼 수는 없음. 단순 기준선 교체로 취급함.
+- 이후 후보 3 작업 중 `HANDOFF.md`(git 추적, typo 쿼리 원문 인용)가 색인되고 있었음을 발견해 `/HANDOFF.md`도 제외함. report-8, report-9는 이 오염을 포함하고 있음. 오염을 뺀 기준선은 아래 report-10.
+
+#### 후보 2/3 진행 결정 (2026-10-01)
+
+- 순서: 후보 3(typo/fuzzy)을 먼저 진행함. 후보 2 규칙이 숨기는 positive 가운데 `is_binray_blob`, `reciprical rank fussion`이 후보 3의 대상이라, 후보 3을 적용한 뒤 후보 2 규칙을 다시 측정함.
+- 후보 2 동작: 결과는 비우지 않고 "강한 매칭 없음" 표시만 붙임. 리포트의 negative 판정은 "low-confidence 표시가 붙으면 pass"로 바꿈.
+
+#### 후보 3: typo 쿼리 교정 (2026-10-01, 채택)
+
+설계는 `docs/superpowers/specs/2026-10-01-search-quality-typo-correction-design.md`. 요약하면 어휘(title + path_terms + 새 `body_words` 필드)에 없는 쿼리 단어를 거리 1의 타이핑 실수 유형으로만 교정하고, 교정 단어를 BM25 쿼리에 덧붙인다. `INDEX_VERSION` 10, `typo_mode` 파라미터(기본 1).
+
+같은 인덱스(HEAD 0b0e66f, 597 docs, `HANDOFF.md` 제외)에서 비교:
+
+| typo_mode | MRR | R@5 | R@10 | NDCG@10 | typo MRR | negative |
+|---|---|---|---|---|---|---|
+| 0 끔 (report-10, 기준선) | 0.494 | 0.630 | 0.639 | 0.521 | 0.420 | 33.3% |
+| 1 BM25에 덧붙임 (report-11, 채택) | 0.517 | 0.648 | 0.657 | 0.543 | 0.559 | 33.3% |
+| 2 임베딩에도 덧붙임 | 0.511 | 0.630 | 0.657 | 0.539 | 0.525 | 33.3% |
+| 3 임베딩에서 치환 | 0.509 | 0.611 | 0.639 | 0.533 | 0.516 | 33.3% |
+
+- 모드 1: #29, #32(순위 밖 → 5), #35, #36(3 → 1) 개선, 악화 0. typo가 아닌 쿼리 54개와 negative 9개는 순위가 완전히 같음 (fixture에서 교정이 걸리는 쿼리가 typo 8개뿐).
+- 임베딩 텍스트를 바꾸는 모드 2, 3은 typo 개선 폭이 작음. model2vec가 오타 subword로도 어느 정도 의미를 잡고 있어, 바꾸면 오히려 흔들림.
+- 규칙 다듬기 과정(전부 모드 1 기준): title/path_terms만 어휘로 쓰면(633 term) `while`→`whale`, `boot`→`bool` 등 오교정 때문에 negative가 33.3% → 22.2%로 떨어짐. `body_words` 어휘 + 짧은 단어 치환 금지 + 복수형 제외 + 거리 2 제거로 오교정을 0건까지 줄임.
+- 비용: 인덱스 891 → 979 KiB, 검색 p50 0.09 → 0.10 ms.
+- 남은 typo 실패: #31 `reciprical rank fussion`(정답 `rrf.rs` 본문에 "reciprocal" 없음), #33 `is_binray_blob`(교정은 되지만 순위 밖), #28의 `trm`(3글자라 대상 아님).
+- 새 기준선은 `report-2026-10-01-11.md`.
+
 ## 4. 리스크
 
 - `statrs`/`rand_chacha`가 정확 버전 pin이라 다른 의존성과 충돌 시 resolver 실패 가능 → `cargo update -p turbovec` 단계에서 확인.

@@ -11,6 +11,7 @@ pub mod report;
 pub mod rrf;
 pub mod silence;
 pub mod text_prep;
+pub mod typo;
 pub mod vector;
 
 use std::collections::HashMap;
@@ -82,6 +83,8 @@ pub struct SearchEngine {
     pub vector: vector::VectorIndex,
     pub embedding: embedding::EmbeddingModel,
     pub doc_store: HashMap<u64, DocMeta>,
+    /// title + path_terms word vocabulary for typo correction.
+    pub vocab: HashMap<String, u32>,
     pub index_dir: PathBuf,
     pub params: params::SearchParams,
 }
@@ -153,12 +156,14 @@ impl SearchEngine {
         let vector = vector::VectorIndex::load(index_dir.join("vectors").join("index.tvim"))?;
         let embedding = embedding::EmbeddingModel::load()?;
         let doc_store = bm25.scan_doc_store()?;
+        let vocab = bm25.word_vocab()?;
 
         Ok(Self {
             bm25,
             vector,
             embedding,
             doc_store,
+            vocab,
             index_dir: index_dir.to_path_buf(),
             params: params::SearchParams::default(),
         })
@@ -174,10 +179,17 @@ impl SearchEngine {
         } else {
             limit * 2
         };
-        let bm25_hits = if text_prep::is_korean_query(query) {
+        let korean = text_prep::is_korean_query(query);
+        let corrections = if korean || self.params.typo_mode == 0 {
+            Vec::new()
+        } else {
+            typo::correct(&typo::query_words(&semantic_query), &self.vocab)
+        };
+        let bm25_hits = if korean {
             self.bm25.search_path_title_only(query, candidate_limit)?
         } else {
-            self.bm25.search(query, candidate_limit)?
+            let bm25_query = typo::append_corrections(query, &corrections);
+            self.bm25.search(&bm25_query, candidate_limit)?
         };
 
         // 벡터 검색은 필드 문법을 모르므로 path:"..."가 제거된 의미 부분으로 임베딩
@@ -191,6 +203,13 @@ impl SearchEngine {
         } else {
             query
         };
+        let embed_text = match self.params.typo_mode {
+            _ if corrections.is_empty() => embed_text.to_string(),
+            2 => typo::append_corrections(embed_text, &corrections),
+            3 => typo::replace_corrections(embed_text, &corrections),
+            _ => embed_text.to_string(),
+        };
+        let embed_text = embed_text.as_str();
 
         let fused = if embed_text.is_empty() {
             // 벡터 검색을 건너뛰고 BM25 결과만 사용
@@ -295,7 +314,9 @@ impl SearchEngine {
 }
 
 // 8: turbovec 1.0 (v7 file format, explicit TQ+ calibration)
-pub const INDEX_VERSION: u32 = 9;
+// 9: changed paths in commit embed text
+// 10: BM25 body_words field (typo-correction vocabulary)
+pub const INDEX_VERSION: u32 = 10;
 pub const INDEX_DIR_NAME: &str = ".glc-index";
 
 #[cfg(test)]

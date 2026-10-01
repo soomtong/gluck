@@ -46,6 +46,7 @@ tree-sitter-asm = "0.24"
 tree-sitter-linkerscript = { path = "vendor/tree-sitter-linkerscript" }
 tree-sitter-lisette = { path = "vendor/tree-sitter-lisette" }
 ignore = "0.4"
+strsim = "0.11"
 
 [dev-dependencies]
 tempfile = "3"

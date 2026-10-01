@@ -22,6 +22,7 @@ pub struct Bm25Fields {
     pub body: Field,
     pub path: Field,
     pub path_terms: Field,
+    pub body_words: Field,
     pub commit_oid: Field,
     pub line_start: Field,
     pub line_end: Field,
@@ -53,6 +54,14 @@ fn make_schema() -> (Schema, Bm25Fields) {
             .set_index_option(IndexRecordOption::WithFreqs),
     );
 
+    // Body words: never queried. Word-level terms of the body exist only so
+    // typo correction has a vocabulary beyond titles and paths.
+    let body_words_opts = TextOptions::default().set_indexing_options(
+        TextFieldIndexing::default()
+            .set_tokenizer(WORD_TOKENIZER)
+            .set_index_option(IndexRecordOption::Basic),
+    );
+
     // Body: ngram_2_2 유지 — 한글/임의 텍스트 부분 매칭. 멀티-토큰 쿼리(phrase)를 위해 positions 필요.
     let body_opts = TextOptions::default().set_indexing_options(
         TextFieldIndexing::default()
@@ -66,6 +75,7 @@ fn make_schema() -> (Schema, Bm25Fields) {
     let body = builder.add_text_field("body", body_opts);
     let path = builder.add_text_field("path", STRING | STORED);
     let path_terms = builder.add_text_field("path_terms", path_terms_opts);
+    let body_words = builder.add_text_field("body_words", body_words_opts);
     let commit_oid = builder.add_text_field("commit_oid", STRING | STORED);
     let line_start = builder.add_u64_field("line_start", STORED);
     let line_end = builder.add_u64_field("line_end", STORED);
@@ -78,6 +88,7 @@ fn make_schema() -> (Schema, Bm25Fields) {
         body,
         path,
         path_terms,
+        body_words,
         commit_oid,
         line_start,
         line_end,
@@ -148,6 +159,7 @@ impl Bm25Index {
         doc.add_text(self.fields.kind, meta.kind.as_str());
         doc.add_text(self.fields.title, split_camel_case(&meta.title));
         doc.add_text(self.fields.body, body);
+        doc.add_text(self.fields.body_words, split_camel_case(body));
         doc.add_text(self.fields.commit_oid, &meta.commit_oid);
         if let Some(p) = &meta.path {
             doc.add_text(self.fields.path, p);
@@ -249,6 +261,34 @@ impl Bm25Index {
             }
         }
         Ok(results)
+    }
+
+    /// Word-level vocabulary of title, path_terms and body words: ASCII-alphabetic
+    /// terms of 3+ letters mapped to their summed doc frequency. Feeds typo
+    /// correction.
+    pub fn word_vocab(&self) -> Result<HashMap<String, u32>, SearchError> {
+        let searcher = self.reader.searcher();
+        let mut vocab: HashMap<String, u32> = HashMap::new();
+        for segment in searcher.segment_readers() {
+            for field in [
+                self.fields.title,
+                self.fields.path_terms,
+                self.fields.body_words,
+            ] {
+                let inverted = segment.inverted_index(field)?;
+                let mut stream = inverted.terms().stream()?;
+                while stream.advance() {
+                    let key = stream.key();
+                    if key.len() < 3 || !key.iter().all(u8::is_ascii_alphabetic) {
+                        continue;
+                    }
+                    // ASCII-only, checked above.
+                    let term = String::from_utf8_lossy(key).into_owned();
+                    *vocab.entry(term).or_default() += stream.value().doc_freq;
+                }
+            }
+        }
+        Ok(vocab)
     }
 
     pub fn scan_doc_store(&self) -> Result<HashMap<u64, DocMeta>, SearchError> {
