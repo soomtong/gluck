@@ -235,6 +235,36 @@ sweep (`--warmup 0 --iters 1`, 쿼리 1개 MRR 변화 ≈ 집계 0.0185):
 - 남은 실패: `spring boot dependency injection`. 쿼리 단어 하나가 title/path_terms와 맞아 word hit이 1건 생긴다.
 - 주의: 임계값 양쪽 여유가 0.006뿐이라 코퍼스가 바뀌면 판정이 뒤집힐 수 있다. 커밋이 쌓이면 리포트의 "answered in top 10" 수치(오경보)를 확인한다.
 
+#### 버그 수정: doc_store 제목이 camelCase 분해된 값으로 저장됨 (2026-10-01)
+
+commit 카테고리 분석(`examples/commit_probe.rs`) 중 발견. BM25 `title` 필드는 `split_camel_case`를 적용한 텍스트를 색인하면서 `STORED`이기도 했다. 그래서 `scan_doc_store`가 돌려주는 `DocMeta.title`이 `Open BLAS`, `design-v 2.md`처럼 분해된 값이었다. 영향은 두 가지였다.
+- 리포트: fixture 정답 제목 `Linux에서 시스템 OpenBLAS 링크로 CI SIGILL 재발 방지`와 일치할 수 없어서, `리눅스 CI에서 illegal instruction…` 쿼리는 원리상 맞힐 수 없었다 (실제로는 벡터 1위).
+- UI: 검색 모달에 분해된 제목이 표시됐다.
+
+수정: `title`은 색인 전용으로 바꾸고, 원문은 저장 전용 `title_raw` 필드에 둔다. `INDEX_VERSION` 11.
+같은 HEAD(5b25fb9, 630 docs)에서 비교: report-13(수정 전) MRR 0.498, R@10 0.676, commit MRR 0.222 → report-14(수정 후) MRR 0.508, R@10 0.694, commit MRR 0.278. 바뀐 쿼리는 이 하나뿐이다(rank 2).
+
+#### commit 카테고리 분석 (2026-10-01)
+
+`examples/commit_probe.rs`로 정답 커밋의 원시 순위를 확인했다(630 docs, report-14 인덱스).
+
+| 쿼리 | BM25 | BM25(커밋만) | vector | vector(커밋만) | 최종 |
+|---|---|---|---|---|---|
+| when did we add mouse support to the file tree | 177 | 25 | 165 | 58 | 190 |
+| 테마 바꾸면 설정 파일에 저장되도록 한 커밋 | - | - | 224 | 95 | 228 |
+| 한글 내용을 임베딩할 때 문자 경계에서 패닉 나던 문제 | - | - | 517 | 254 | 517 |
+| 탭 문자가 화면에서 안 보이던 버그 고친 것 | 1 | 1 | 12 | 11 | 1 |
+| 한글 입력할 때 커서가 두 칸씩 밀리던 버그 | 1 | 1 | 10 | 8 | 1 |
+| when did the app start checking for new commits every few seconds | - | - | 283 | 120 | 398 |
+| 리눅스 CI에서 illegal instruction으로 죽던 문제 해결 | - | - | 1 | 1 | 2 |
+| typing a letter in the query box kicked off a full rebuild | 179 | 27 | 181 | 37 | 179 |
+| keep side-by-side or unified layout when moving to another commit | 83 | 7 | 14 | 5 | 25 |
+
+- 성공한 2개는 쿼리와 커밋 메시지의 언어가 같다(한국어 ↔ 한국어). 실패한 쿼리는 대부분 언어가 다르다(영어 쿼리 ↔ 한국어 커밋, 한국어 쿼리 ↔ 영어 커밋).
+- 언어가 다르면 정답이 vector 순위에서도 165~517위로, 사실상 무작위다. potion-multilingual(정적 임베딩)은 한영 교차 의미 매칭을 거의 하지 못한다.
+- 커밋 문서로만 좁혀도 대부분 수십~수백 위라, 커밋 의도 쿼리를 커밋으로 라우팅하는 방식으로는 해결되지 않는다.
+- 결론: commit 카테고리의 병목은 랭킹·fusion이 아니라 교차 언어 표현력이다. 해결하려면 (a) 더 강한 다국어 임베딩 모델(transformer 계열, 의존성·속도 비용 큼), (b) 색인할 때 커밋 메시지에 번역·동의어 확장(사전 유지 비용, 평가 세트 과적합 위험) 중 하나가 필요하다. 둘 다 비용이 커서 사용자 결정 전까지 보류한다.
+
 ## 4. 리스크
 
 - `statrs`/`rand_chacha`가 정확 버전 pin이라 다른 의존성과 충돌 시 resolver 실패 가능 → `cargo update -p turbovec` 단계에서 확인.

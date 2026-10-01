@@ -357,7 +357,8 @@ impl SearchEngine {
 // 8: turbovec 1.0 (v7 file format, explicit TQ+ calibration)
 // 9: changed paths in commit embed text
 // 10: BM25 body_words field (typo-correction vocabulary)
-pub const INDEX_VERSION: u32 = 10;
+// 11: BM25 title_raw stored field (doc_store titles were camelCase-split)
+pub const INDEX_VERSION: u32 = 11;
 pub const INDEX_DIR_NAME: &str = ".glc-index";
 
 #[cfg(test)]

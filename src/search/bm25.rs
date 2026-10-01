@@ -19,6 +19,7 @@ pub struct Bm25Fields {
     pub id: Field,
     pub kind: Field,
     pub title: Field,
+    pub title_raw: Field,
     pub body: Field,
     pub path: Field,
     pub path_terms: Field,
@@ -38,14 +39,13 @@ fn make_schema() -> (Schema, Bm25Fields) {
     let mut builder = Schema::builder();
 
     // Title: SimpleTokenizer + LowerCaser. `_` / `/` / `.` / `-` 자동 분해.
-    // camelCase는 add_doc에서 write-time으로 split.
-    let title_opts = TextOptions::default()
-        .set_indexing_options(
-            TextFieldIndexing::default()
-                .set_tokenizer(WORD_TOKENIZER)
-                .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-        )
-        .set_stored();
+    // camelCase는 add_doc에서 write-time으로 split. 저장값이 split된 텍스트가
+    // 되므로 저장하지 않고, 원문은 `title_raw`에 둔다.
+    let title_opts = TextOptions::default().set_indexing_options(
+        TextFieldIndexing::default()
+            .set_tokenizer(WORD_TOKENIZER)
+            .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+    );
 
     // Path terms: 검색 전용 (STORED 없음). path를 단어 단위로 매칭.
     let path_terms_opts = TextOptions::default().set_indexing_options(
@@ -72,6 +72,7 @@ fn make_schema() -> (Schema, Bm25Fields) {
     let id = builder.add_u64_field("id", FAST | STORED | INDEXED);
     let kind = builder.add_text_field("kind", STRING | STORED);
     let title = builder.add_text_field("title", title_opts);
+    let title_raw = builder.add_text_field("title_raw", STORED);
     let body = builder.add_text_field("body", body_opts);
     let path = builder.add_text_field("path", STRING | STORED);
     let path_terms = builder.add_text_field("path_terms", path_terms_opts);
@@ -85,6 +86,7 @@ fn make_schema() -> (Schema, Bm25Fields) {
         id,
         kind,
         title,
+        title_raw,
         body,
         path,
         path_terms,
@@ -158,6 +160,7 @@ impl Bm25Index {
         doc.add_u64(self.fields.id, meta.doc_id);
         doc.add_text(self.fields.kind, meta.kind.as_str());
         doc.add_text(self.fields.title, split_camel_case(&meta.title));
+        doc.add_text(self.fields.title_raw, &meta.title);
         doc.add_text(self.fields.body, body);
         doc.add_text(self.fields.body_words, split_camel_case(body));
         doc.add_text(self.fields.commit_oid, &meta.commit_oid);
@@ -310,7 +313,7 @@ impl Bm25Index {
                 continue;
             };
             let Some(title) = doc
-                .get_first(self.fields.title)
+                .get_first(self.fields.title_raw)
                 .and_then(value_as_str)
                 .map(str::to_owned)
             else {
@@ -510,6 +513,19 @@ mod tests {
         assert_eq!(got.path.as_deref(), Some("src/foo.rs"));
         assert_eq!(got.line_start, Some(10));
         assert_eq!(got.line_end, Some(20));
+    }
+
+    #[test]
+    fn test_scan_doc_store_keeps_title_unsplit() {
+        let (_dir, idx) = tmp_index();
+        let mut w = idx.writer().unwrap();
+        let meta = commit_meta(1, "Link OpenBLAS for CI v2");
+        idx.add_doc(&mut w, &meta, "").unwrap();
+        idx.commit(w).unwrap();
+        let store = idx.scan_doc_store().unwrap();
+        assert_eq!(store[&1].title, "Link OpenBLAS for CI v2");
+        // The indexed title is still camelCase-split for word matching.
+        assert_eq!(idx.search_path_title_only("blas", 10).unwrap().len(), 1);
     }
 
     #[test]
