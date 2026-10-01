@@ -2,7 +2,7 @@ mod commit;
 mod file;
 mod symbol;
 
-pub use commit::commit_to_chunk;
+pub use commit::{changed_paths, commit_to_chunk};
 pub use file::split_file;
 pub use symbol::{extract_symbols, SymbolKind, SymbolSpan};
 
@@ -15,6 +15,8 @@ pub enum Chunk {
         title: String,
         body: String,
         author_time: i64,
+        /// Paths changed relative to the first parent (capped). Embedded only.
+        paths: Vec<String>,
     },
     WholeFile {
         commit_oid: String,
@@ -35,12 +37,19 @@ pub enum Chunk {
 impl Chunk {
     pub fn embed_text(&self) -> String {
         match self {
-            Chunk::CommitMessage { title, body, .. } => {
-                if body.is_empty() {
-                    title.clone()
-                } else {
-                    format!("{}\n{}", title, body)
+            Chunk::CommitMessage {
+                title, body, paths, ..
+            } => {
+                let mut text = title.clone();
+                if !body.is_empty() {
+                    text.push('\n');
+                    text.push_str(body);
                 }
+                if !paths.is_empty() {
+                    text.push('\n');
+                    text.push_str(&paths.join(" "));
+                }
+                text
             }
             Chunk::WholeFile { path, content, .. } => {
                 let end = content.floor_char_boundary(content.len().min(2048));
@@ -131,6 +140,7 @@ mod tests {
             title: "Fix bug".into(),
             body: String::new(),
             author_time: 0,
+            paths: vec![],
         };
         assert_eq!(c.embed_text(), "Fix bug");
     }
@@ -142,8 +152,21 @@ mod tests {
             title: "Fix bug".into(),
             body: "details".into(),
             author_time: 0,
+            paths: vec![],
         };
         assert!(c.embed_text().contains("Fix bug"));
         assert!(c.embed_text().contains("details"));
+    }
+
+    #[test]
+    fn commit_embed_text_appends_paths() {
+        let c = Chunk::CommitMessage {
+            oid: "abc".into(),
+            title: "Fix bug".into(),
+            body: String::new(),
+            author_time: 0,
+            paths: vec!["src/ui/view.rs".into(), "src/app.rs".into()],
+        };
+        assert_eq!(c.embed_text(), "Fix bug\nsrc/ui/view.rs src/app.rs");
     }
 }

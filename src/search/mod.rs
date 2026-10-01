@@ -294,7 +294,7 @@ impl SearchEngine {
 }
 
 // 8: turbovec 1.0 (v7 file format, explicit TQ+ calibration)
-pub const INDEX_VERSION: u32 = 8;
+pub const INDEX_VERSION: u32 = 9;
 pub const INDEX_DIR_NAME: &str = ".glc-index";
 
 #[cfg(test)]

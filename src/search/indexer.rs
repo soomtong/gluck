@@ -4,7 +4,7 @@ use crate::git::commit::CommitInfo;
 use crate::git::repo::GitRepo;
 use crate::git::tree::{is_binary_blob, read_blob};
 use crate::search::bm25::{Bm25Index, TOKENIZER as BM25_TOKENIZER};
-use crate::search::chunk::{commit_to_chunk, split_file, Chunk};
+use crate::search::chunk::{changed_paths, commit_to_chunk, split_file, Chunk};
 use crate::search::diff::{commits_since, compute_file_changes};
 use crate::search::embedding::EmbeddingModel;
 use crate::search::vector::VectorIndex;
@@ -141,7 +141,7 @@ where
 
     progress("Indexing commit messages...");
     let commits = collect_commits(repo)?;
-    let mut chunks: Vec<Chunk> = commits.iter().map(commit_to_chunk).collect();
+    let mut chunks: Vec<Chunk> = commit_chunks(repo, &commits);
 
     progress("Indexing HEAD files...");
     let head_oid_str = head_oid(repo)?;
@@ -273,7 +273,7 @@ fn build_index_incremental(
     }
 
     // 신규 chunk 수집: 신규 커밋 메시지 + (added + modified) 파일
-    let mut new_chunks: Vec<Chunk> = new_commits.iter().map(commit_to_chunk).collect();
+    let mut new_chunks: Vec<Chunk> = commit_chunks(repo, &new_commits);
 
     let new_oid = git2::Oid::from_str(current_oid).map_err(|e| SearchError::Git(e.to_string()))?;
     let new_commit = {
@@ -362,6 +362,20 @@ fn build_index_incremental(
         ));
     }
     Ok(())
+}
+
+fn commit_chunks(repo: &GitRepo, commits: &[CommitInfo]) -> Vec<Chunk> {
+    let rep = repo.repository();
+    commits
+        .iter()
+        .map(|info| {
+            let paths = rep
+                .find_commit(info.id)
+                .map(|c| changed_paths(rep, &c))
+                .unwrap_or_default();
+            commit_to_chunk(info, paths)
+        })
+        .collect()
 }
 
 fn collect_commits(repo: &GitRepo) -> Result<Vec<CommitInfo>, SearchError> {
