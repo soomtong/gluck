@@ -83,6 +83,8 @@ Index dir `.glc-index/` has `meta.toml` with `INDEX_VERSION` (currently 10), `he
 
 Typo correction (`src/search/typo.rs`, `SearchParams.typo_mode`, default 1): non-Korean query words (4+ ASCII letters) missing from the BM25 word vocabulary (title + path_terms + the query-unused `body_words` field, cached as `SearchEngine.vocab`) are mapped to a term one OSA edit away with the same first letter — short words (<8) only via dropped letter / adjacent swap / doubled key, never plural forms — and the corrections are appended to the BM25 query. The embedded text is left as is. `examples/typo_probe.rs` prints the corrections per fixture query.
 
+Low-confidence flag: `SearchEngine::search_scored` returns `SearchOutcome { results, weak }` (`search` is a wrapper returning only results). `weak` = no query word (incl. typo corrections) hits title/path_terms AND vector top1 − top10 mean < `SearchParams.weak_gap` (0.055); skipped for `path:` queries. Results are never dropped — the modal shows `· no strong match`, and `glc report` counts a flagged negative as PASS and prints how many positives were flagged (and how many of those had the answer in the top 10 = false alarms).
+
 검색 품질 회귀 추적은 `glc report`가 `tests/fixtures/search_queries.toml`의 쿼리/정답으로 MRR/Recall@k/NDCG@10 + latency p50/p95/p99를 계산해 stdout(및 `--out` markdown)에 출력한다.
 
 ## Architecture gotchas

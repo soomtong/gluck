@@ -13,8 +13,8 @@ use crate::git::repo::GitRepo;
 use crate::search::indexer::index_dir_for;
 use crate::search::params::SearchParams;
 use crate::search::report::metrics::{
-    aggregate, aggregate_by_category, evaluate, AggregateEval, CategoryAggregate, NegativeEval,
-    QueryEval,
+    aggregate, aggregate_by_category, evaluate_outcome, AggregateEval, CategoryAggregate,
+    NegativeEval, QueryEval,
 };
 use crate::search::report::perf::{run_perf, LatencyStats};
 use crate::search::report::render::{to_markdown_string, to_stdout};
@@ -168,7 +168,7 @@ pub fn run(repo: &GitRepo, repo_path: &Path, opts: &ReportOptions) -> Result<(),
         .queries
         .iter()
         .zip(last_results.iter())
-        .map(|(q, r)| evaluate(q, r))
+        .map(|(q, r)| evaluate_outcome(q, r))
         .collect();
     let aggregate_eval = aggregate(&per_query);
     let by_category = aggregate_by_category(&per_query);

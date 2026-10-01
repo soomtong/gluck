@@ -8,7 +8,7 @@ use crate::highlight::HighlightEngine;
 use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, SearchState, ViewState};
 use crate::search::modal_state::SemanticSearchModal;
 use crate::search::SearchEngine;
-use crate::search::SearchResult;
+use crate::search::SearchOutcome;
 use crate::theme::Palette;
 use crate::ui;
 use anyhow::Result;
@@ -105,7 +105,7 @@ pub struct App {
     pub search_modal: SemanticSearchModal,
     pub search_engine: Option<SearchEngine>,
     pub search_tx: Option<mpsc::Sender<String>>,
-    pub search_rx: Option<mpsc::Receiver<Vec<SearchResult>>>,
+    pub search_rx: Option<mpsc::Receiver<SearchOutcome>>,
     pub search_pending: bool,
     pub engine_error: Option<String>,
     pub needs_clear: bool,
@@ -1601,18 +1601,18 @@ impl App {
     fn spawn_search_worker(&mut self, engine: SearchEngine) {
         self.search_engine = None;
         let (stx, worker_rx) = mpsc::channel::<String>();
-        let (worker_tx, srx) = mpsc::channel::<Vec<SearchResult>>();
+        let (worker_tx, srx) = mpsc::channel::<SearchOutcome>();
         self.search_tx = Some(stx);
         self.search_rx = Some(srx);
         let limit = self.config.search.result_limit;
         std::thread::spawn(move || {
             while let Ok(query) = worker_rx.recv() {
                 if query.is_empty() {
-                    let _ = worker_tx.send(vec![]);
+                    let _ = worker_tx.send(SearchOutcome::default());
                     continue;
                 }
-                let results = engine.search(&query, limit).unwrap_or_default();
-                let _ = worker_tx.send(results);
+                let outcome = engine.search_scored(&query, limit).unwrap_or_default();
+                let _ = worker_tx.send(outcome);
             }
         });
     }
@@ -1671,8 +1671,8 @@ impl App {
         };
         loop {
             match rx.try_recv() {
-                Ok(results) => {
-                    self.search_modal.set_results(results);
+                Ok(outcome) => {
+                    self.search_modal.set_outcome(outcome);
                     self.search_pending = false;
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
@@ -2358,6 +2358,7 @@ mod tests {
         app.search_modal.state = ModalState::Results {
             input: "test".into(),
             results,
+            weak: false,
         };
         assert_eq!(app.search_modal.selected, 0);
         app.handle_ctrl_key(KeyCode::Char('n'));
@@ -2386,6 +2387,7 @@ mod tests {
         app.search_modal.state = ModalState::Results {
             input: "test".into(),
             results,
+            weak: false,
         };
         app.search_modal.selected = 2;
         app.handle_ctrl_key(KeyCode::Char('p'));
@@ -2414,6 +2416,7 @@ mod tests {
         app.search_modal.state = ModalState::Results {
             input: "test".into(),
             results,
+            weak: false,
         };
         let Mode::Pick(s) = &app.mode else {
             panic!("expected pick")

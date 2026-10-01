@@ -223,6 +223,18 @@ sweep (`--warmup 0 --iters 1`, 쿼리 1개 MRR 변화 ≈ 집계 0.0185):
 - 남은 typo 실패: #31 `reciprical rank fussion`(정답 `rrf.rs` 본문에 "reciprocal" 없음), #33 `is_binray_blob`(교정은 되지만 순위 밖), #28의 `trm`(3글자라 대상 아님).
 - 새 기준선은 `report-2026-10-01-11.md`.
 
+#### 후보 2: negative 쿼리 "no strong match" 표시 (2026-10-01, 채택)
+
+결과는 그대로 두고 표시만 붙인다(사용자 결정). `SearchEngine::search_scored`가 `SearchOutcome { results, weak }`를 돌려준다. `search`는 결과만 꺼내 쓰는 래퍼로 남겼다.
+
+- 규칙: `weak` = 쿼리 단어가 title/path_terms에 하나도 맞지 않음(typo 교정 단어 포함, 한국어는 기존 BM25 결과 재사용) AND 벡터 top1 − top10 평균 < `weak_gap`. `path:` 필터 쿼리는 판정하지 않는다. 두 신호 모두 코퍼스 스케일에 의존하지 않는다. 절대 점수 임계값이 실패한 이유는 위 "시도했으나 실패한 접근" 참고.
+- `weak_gap` 기본 0.055. 판정이 바뀌는 경계는 negative 마지막(`kubernetes pod scheduling`, gap 0.049)과, 단어 매칭은 없지만 정답을 맞히는 positive 첫 번째(`format_header_dat timezone`, gap 0.061)이고, 그 중간값으로 정했다. sweep: 0.02 → 44.4%, 0.03 → 55.6%, 0.04 → 66.7%, 0.05~0.06 → 88.9%(오경보 0), 0.08 이상에서는 정답을 맞힌 positive에도 표시가 붙음.
+- 리포트: negative는 표시가 붙으면 `PASS (no strong match)`. 표시가 붙은 positive 수와 그중 top 10 안에 정답이 있는 수(오경보)를 따로 출력한다.
+- UI: 모달 결과 제목에 노란색 `· no strong match`.
+- 결과 (`report-2026-10-01-12.md`): negative 33.3% → 88.9%. 순위 지표는 그대로(MRR 0.517). 표시가 붙은 positive 5/54(`reciprical rank fussion`, `is_binray_blob`, `합치는 점수 알고리즘`, `터미널 폭…`, `단어 단위 줄바꿈`)는 모두 원래 top 10에 정답이 없던 쿼리라 오경보 0. p50 0.10 → 0.11 ms (단어 매칭 확인용 BM25 쿼리 1회 추가, gap이 임계값 미만일 때만 실행).
+- 남은 실패: `spring boot dependency injection`. 쿼리 단어 하나가 title/path_terms와 맞아 word hit이 1건 생긴다.
+- 주의: 임계값 양쪽 여유가 0.006뿐이라 코퍼스가 바뀌면 판정이 뒤집힐 수 있다. 커밋이 쌓이면 리포트의 "answered in top 10" 수치(오경보)를 확인한다.
+
 ## 4. 리스크
 
 - `statrs`/`rand_chacha`가 정확 버전 pin이라 다른 의존성과 충돌 시 resolver 실패 가능 → `cargo update -p turbovec` 단계에서 확인.

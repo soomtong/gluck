@@ -31,8 +31,20 @@ pub fn render_search_modal(frame: &mut Frame, app: &App) {
         ModalState::Typing { input } => {
             render_input(frame, area, input.as_str(), app);
         }
-        ModalState::Results { input, results } => {
-            render_results(frame, area, input.as_str(), results, modal.selected, app);
+        ModalState::Results {
+            input,
+            results,
+            weak,
+        } => {
+            render_results(
+                frame,
+                area,
+                input.as_str(),
+                results,
+                *weak,
+                modal.selected,
+                app,
+            );
         }
     }
 }
@@ -98,6 +110,7 @@ fn render_results(
     area: Rect,
     input: &str,
     results: &[crate::search::SearchResult],
+    weak: bool,
     selected: usize,
     app: &App,
 ) {
@@ -116,8 +129,15 @@ fn render_results(
         })
         .collect();
 
+    let mut title = vec![Span::raw(format!(" {} results ", results.len()))];
+    if weak {
+        title.push(Span::styled(
+            "· no strong match ",
+            Style::default().fg(Color::Yellow),
+        ));
+    }
     let results_block = Block::default()
-        .title(format!(" {} results ", results.len()))
+        .title(Line::from(title))
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
         .border_style(Style::default().fg(app.palette.accent));
 

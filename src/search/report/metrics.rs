@@ -1,7 +1,7 @@
 //! 검색 품질 메트릭 — MRR, Recall@k, NDCG@k + negative-query pass/fail.
 
 use crate::search::report::fixtures::{Category, ExpectedHit, FixtureQuery};
-use crate::search::{DocKind, SearchResult};
+use crate::search::{DocKind, SearchOutcome, SearchResult};
 
 #[derive(Debug, Clone)]
 pub enum QueryEval {
@@ -19,12 +19,17 @@ pub struct PositiveEval {
     pub ndcg_at_10: f32,
     pub first_hit_rank: Option<usize>,
     pub hit_paths: Vec<String>,
+    /// Engine flagged the query as having no strong match.
+    pub weak: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct NegativeEval {
     pub query: String,
+    /// No forbidden hit in the top 10, or the engine flagged the query as
+    /// having no strong match (results are shown but labelled).
     pub passed: bool,
+    pub weak: bool,
     pub violations: Vec<NegativeViolation>,
 }
 
@@ -171,6 +176,7 @@ fn evaluate_positive(query: &FixtureQuery, results: &[SearchResult]) -> Positive
         ndcg_at_10,
         first_hit_rank,
         hit_paths,
+        weak: false,
     }
 }
 
@@ -204,6 +210,7 @@ fn evaluate_negative(query: &FixtureQuery, results: &[SearchResult]) -> Negative
     NegativeEval {
         query: query.text.clone(),
         passed: violations.is_empty(),
+        weak: false,
         violations,
     }
 }
@@ -212,6 +219,21 @@ pub fn evaluate(query: &FixtureQuery, results: &[SearchResult]) -> QueryEval {
     match query.category {
         Category::Negative => QueryEval::Negative(evaluate_negative(query, results)),
         _ => QueryEval::Positive(evaluate_positive(query, results)),
+    }
+}
+
+/// `evaluate` plus the engine's low-confidence flag.
+pub fn evaluate_outcome(query: &FixtureQuery, outcome: &SearchOutcome) -> QueryEval {
+    match evaluate(query, &outcome.results) {
+        QueryEval::Negative(mut n) => {
+            n.weak = outcome.weak;
+            n.passed |= outcome.weak;
+            QueryEval::Negative(n)
+        }
+        QueryEval::Positive(mut p) => {
+            p.weak = outcome.weak;
+            QueryEval::Positive(p)
+        }
     }
 }
 
@@ -560,6 +582,7 @@ mod tests {
             ndcg_at_10: 1.0,
             first_hit_rank: Some(1),
             hit_paths: vec![],
+            weak: false,
         });
         let q2 = QueryEval::Positive(PositiveEval {
             query: "b".into(),
@@ -570,10 +593,12 @@ mod tests {
             ndcg_at_10: 0.0,
             first_hit_rank: None,
             hit_paths: vec![],
+            weak: false,
         });
         let q3 = QueryEval::Negative(NegativeEval {
             query: "n".into(),
             passed: true,
+            weak: false,
             violations: vec![],
         });
         let agg = aggregate(&[q1, q2, q3]);
@@ -629,6 +654,37 @@ mod tests {
     }
 
     #[test]
+    fn evaluate_outcome_weak_negative_passes_despite_violation() {
+        let q = fq_negative(
+            "react component lifecycle",
+            vec![ForbiddenRule {
+                path: None,
+                path_prefix: Some("src/".into()),
+            }],
+        );
+        let outcome = SearchOutcome {
+            results: vec![result(1, DocKind::File, "src/app.rs", "app.rs")],
+            weak: true,
+        };
+        let n = unwrap_negative(evaluate_outcome(&q, &outcome));
+        assert!(n.passed);
+        assert!(n.weak);
+        assert_eq!(n.violations.len(), 1);
+    }
+
+    #[test]
+    fn evaluate_outcome_propagates_weak_to_positive() {
+        let q = fq("rrf", vec![eh("src/search/rrf.rs")]);
+        let outcome = SearchOutcome {
+            results: vec![result(1, DocKind::File, "src/search/rrf.rs", "rrf.rs")],
+            weak: true,
+        };
+        let p = unwrap_positive(evaluate_outcome(&q, &outcome));
+        assert!(p.weak);
+        assert_eq!(p.first_hit_rank, Some(1));
+    }
+
+    #[test]
     fn evaluate_negative_fails_on_exact_path() {
         let q = fq_negative(
             "django migrations",
@@ -655,6 +711,7 @@ mod tests {
                 ndcg_at_10: 1.0,
                 first_hit_rank: Some(1),
                 hit_paths: vec![],
+                weak: false,
             }),
             QueryEval::Positive(PositiveEval {
                 query: "exact2".into(),
@@ -665,6 +722,7 @@ mod tests {
                 ndcg_at_10: 0.5,
                 first_hit_rank: Some(2),
                 hit_paths: vec![],
+                weak: false,
             }),
             QueryEval::Positive(PositiveEval {
                 query: "natural1".into(),
@@ -675,10 +733,12 @@ mod tests {
                 ndcg_at_10: 0.0,
                 first_hit_rank: None,
                 hit_paths: vec![],
+                weak: false,
             }),
             QueryEval::Negative(NegativeEval {
                 query: "neg".into(),
                 passed: true,
+                weak: false,
                 violations: vec![],
             }),
         ];
@@ -710,6 +770,7 @@ mod tests {
             ndcg_at_10: 1.0,
             first_hit_rank: Some(1),
             hit_paths: vec![],
+            weak: false,
         })];
         let agg = aggregate_by_category(&queries);
         let order: Vec<Category> = agg.iter().map(|c| c.category).collect();
@@ -722,11 +783,13 @@ mod tests {
             QueryEval::Negative(NegativeEval {
                 query: "a".into(),
                 passed: true,
+                weak: false,
                 violations: vec![],
             }),
             QueryEval::Negative(NegativeEval {
                 query: "b".into(),
                 passed: false,
+                weak: false,
                 violations: vec![NegativeViolation {
                     rank: 1,
                     path: "src/a.rs".into(),
@@ -736,11 +799,13 @@ mod tests {
             QueryEval::Negative(NegativeEval {
                 query: "c".into(),
                 passed: true,
+                weak: false,
                 violations: vec![],
             }),
             QueryEval::Negative(NegativeEval {
                 query: "d".into(),
                 passed: false,
+                weak: false,
                 violations: vec![],
             }),
             QueryEval::Positive(PositiveEval {
@@ -752,6 +817,7 @@ mod tests {
                 ndcg_at_10: 1.0,
                 first_hit_rank: Some(1),
                 hit_paths: vec![],
+                weak: false,
             }),
         ];
         let agg = aggregate_negatives(&queries);

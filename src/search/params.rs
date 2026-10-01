@@ -25,6 +25,11 @@ pub struct SearchParams {
     /// 0 off, 1 append corrections to the BM25 query (default), 2 also append
     /// them to the embedded text, 3 replace typos in the embedded text.
     pub typo_mode: usize,
+    /// `SearchOutcome::weak` fires when no query word hits title/path_terms and
+    /// the vector top-1 exceeds the top-10 mean by less than this. 0 disables.
+    /// 0.055 sits between the last flagged negative (0.049) and the first
+    /// answered positive without word hits (0.061) on the fixture set.
+    pub weak_gap: f32,
 }
 
 impl Default for SearchParams {
@@ -37,6 +42,7 @@ impl Default for SearchParams {
             vec_min_score: f32::NEG_INFINITY,
             vec_commit_penalty: 0.0,
             typo_mode: 1,
+            weak_gap: 0.055,
         }
     }
 }
@@ -62,6 +68,7 @@ impl SearchParams {
             }
             "vec_min_score" => self.vec_min_score = f()?,
             "vec_commit_penalty" => self.vec_commit_penalty = f()?,
+            "weak_gap" => self.weak_gap = f()?,
             "typo_mode" => {
                 self.typo_mode = value.trim().parse().map_err(|e| format!("{key}: {e}"))?
             }
@@ -75,7 +82,7 @@ impl fmt::Display for SearchParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "rrf_k={} w_vec={} w_vec_korean={} korean_anchor={} vec_min_score={} vec_commit_penalty={} typo_mode={}",
+            "rrf_k={} w_vec={} w_vec_korean={} korean_anchor={} vec_min_score={} vec_commit_penalty={} typo_mode={} weak_gap={}",
             self.rrf_k,
             self.w_vec,
             self.w_vec_korean,
@@ -86,7 +93,8 @@ impl fmt::Display for SearchParams {
                 "off".into()
             },
             self.vec_commit_penalty,
-            self.typo_mode
+            self.typo_mode,
+            self.weak_gap
         )
     }
 }

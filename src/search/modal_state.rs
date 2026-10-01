@@ -1,4 +1,4 @@
-use crate::search::SearchResult;
+use crate::search::{SearchOutcome, SearchResult};
 use crossterm::event::KeyCode;
 
 #[derive(Debug, Clone)]
@@ -14,6 +14,8 @@ pub enum ModalState {
     Results {
         input: String,
         results: Vec<SearchResult>,
+        /// `SearchOutcome::weak`: label the list as having no strong match.
+        weak: bool,
     },
 }
 
@@ -104,8 +106,19 @@ impl SemanticSearchModal {
     }
 
     pub fn set_results(&mut self, results: Vec<SearchResult>) {
+        self.set_outcome(SearchOutcome {
+            results,
+            weak: false,
+        });
+    }
+
+    pub fn set_outcome(&mut self, outcome: SearchOutcome) {
         let input = self.state.input().to_string();
-        self.state = ModalState::Results { input, results };
+        self.state = ModalState::Results {
+            input,
+            results: outcome.results,
+            weak: outcome.weak,
+        };
         self.selected = 0;
     }
 

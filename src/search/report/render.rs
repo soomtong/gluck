@@ -47,7 +47,9 @@ fn split_positive_negative(qs: &[QueryEval]) -> (Vec<&PositiveEval>, Vec<&Negati
 }
 
 fn negative_result_str(n: &NegativeEval) -> String {
-    if n.passed {
+    if n.weak {
+        "PASS (no strong match)".into()
+    } else if n.passed {
         "PASS".into()
     } else {
         let parts: Vec<String> = n
@@ -57,6 +59,32 @@ fn negative_result_str(n: &NegativeEval) -> String {
             .collect();
         format!("FAIL ({})", parts.join("; "))
     }
+}
+
+/// Positive queries the engine flagged as having no strong match. A flag on
+/// a query whose answer is in the top 10 is a false alarm.
+fn weak_positive_summary(r: &Report) -> Option<String> {
+    let (pos, _) = split_positive_negative(&r.per_query);
+    let weak: Vec<&&PositiveEval> = pos.iter().filter(|p| p.weak).collect();
+    if pos.is_empty() {
+        return None;
+    }
+    let answered: Vec<&str> = weak
+        .iter()
+        .filter(|p| p.first_hit_rank.is_some())
+        .map(|p| p.query.as_str())
+        .collect();
+    let mut s = format!(
+        "Positive queries flagged \"no strong match\": {}/{} (answered in top 10: {}",
+        weak.len(),
+        pos.len(),
+        answered.len()
+    );
+    if !answered.is_empty() {
+        s.push_str(&format!(" — {}", answered.join(", ")));
+    }
+    s.push(')');
+    Some(s)
 }
 
 pub fn to_markdown_string(r: &Report) -> String {
@@ -133,6 +161,9 @@ pub fn to_markdown_string(r: &Report) -> String {
             );
         }
         let _ = writeln!(s);
+    }
+    if let Some(line) = weak_positive_summary(r) {
+        let _ = writeln!(s, "{line}\n");
     }
 
     let _ = writeln!(
@@ -292,6 +323,9 @@ pub fn to_stdout(r: &Report) {
         println!("{t}");
         println!();
     }
+    if let Some(line) = weak_positive_summary(r) {
+        println!("{line}\n");
+    }
 
     let mut t = Table::new();
     t.load_preset(UTF8_FULL)
@@ -410,6 +444,7 @@ mod tests {
                 ndcg_at_10: 1.0,
                 first_hit_rank: Some(1),
                 hit_paths: vec!["src/a.rs".into()],
+                weak: false,
             })],
             by_category: vec![CategoryAggregate {
                 category: Category::ExactIdentifier,
@@ -454,11 +489,13 @@ mod tests {
             NegativeEval {
                 query: "react component".into(),
                 passed: true,
+                weak: false,
                 violations: vec![],
             },
             NegativeEval {
                 query: "django migrations".into(),
                 passed: false,
+                weak: false,
                 violations: vec![NegativeViolation {
                     rank: 3,
                     path: "src/main.rs".into(),

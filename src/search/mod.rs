@@ -42,6 +42,16 @@ pub struct SearchResult {
     pub meta: DocMeta,
 }
 
+/// Results plus a low-confidence flag for queries the index likely can't
+/// answer (see `SearchEngine::search_scored`).
+#[derive(Debug, Clone, Default)]
+pub struct SearchOutcome {
+    pub results: Vec<SearchResult>,
+    /// No query word matches a title or path term, and the vector top-1 barely
+    /// stands out from the top 10. Results are kept; the UI only labels them.
+    pub weak: bool,
+}
+
 #[derive(Debug, Error)]
 pub enum SearchError {
     #[error("index not found at {0}")]
@@ -170,6 +180,14 @@ impl SearchEngine {
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>, SearchError> {
+        Ok(self.search_scored(query, limit)?.results)
+    }
+
+    /// `search` plus the `weak` flag. Neither signal alone separates negative
+    /// queries: BM25 always finds some bigram overlap, and absolute cosine or
+    /// BM25 scores vary per corpus. A missing word-level match combined with a
+    /// flat vector top-10 (`top1 - mean < weak_gap`) is scale-free.
+    pub fn search_scored(&self, query: &str, limit: usize) -> Result<SearchOutcome, SearchError> {
         let (path_filter, semantic_query) = extract_path_filter(query);
 
         // BM25는 path:"..." 문법을 QueryParser가 그대로 처리하므로 원본 쿼리 전달
@@ -185,12 +203,15 @@ impl SearchEngine {
         } else {
             typo::correct(&typo::query_words(&semantic_query), &self.vocab)
         };
+        let bm25_query = typo::append_corrections(query, &corrections);
         let bm25_hits = if korean {
             self.bm25.search_path_title_only(query, candidate_limit)?
         } else {
-            let bm25_query = typo::append_corrections(query, &corrections);
             self.bm25.search(&bm25_query, candidate_limit)?
         };
+        let any_bm25_hit = !bm25_hits.is_empty();
+        // Vector top-1 minus top-10 mean; only measured on unfiltered queries.
+        let mut vec_gap: Option<f32> = None;
 
         // 벡터 검색은 필드 문법을 모르므로 path:"..."가 제거된 의미 부분으로 임베딩
         let embed_text = if path_filter.is_some() {
@@ -237,6 +258,13 @@ impl SearchEngine {
                 }
                 None => self.vector.search(&query_vec, fetch_k),
             };
+            if path_filter.is_none() {
+                let top = &raw_vec_hits[..raw_vec_hits.len().min(10)];
+                if let Some(&(_, top1)) = top.first() {
+                    let mean = top.iter().map(|h| h.1).sum::<f32>() / top.len() as f32;
+                    vec_gap = Some(top1 - mean);
+                }
+            }
             let vec_hits = self.adjust_vec_hits(raw_vec_hits, vec_k);
             // 한국어 쿼리는 path 별칭으로 BM25가 정답을 잡지만 vector가 commit
             // 노이즈에 끌려가므로, BM25 top 3을 anchor해서 단일 강한 매칭을 보존한다.
@@ -263,15 +291,28 @@ impl SearchEngine {
             }
         };
 
+        let weak = match vec_gap {
+            Some(gap) if gap < self.params.weak_gap => {
+                // Korean BM25 already searched title + path_terms only.
+                let word_hits = if korean {
+                    any_bm25_hit
+                } else {
+                    !self.bm25.search_path_title_only(&bm25_query, 1)?.is_empty()
+                };
+                !word_hits
+            }
+            _ => false,
+        };
+
         let hydrated = self.hydrate(fused);
 
-        let result = if let Some(path) = path_filter {
+        let results = if let Some(path) = path_filter {
             apply_path_filter(hydrated, &path, limit)
         } else {
             hydrated.into_iter().take(limit).collect()
         };
 
-        Ok(result)
+        Ok(SearchOutcome { results, weak })
     }
 
     /// `vec_min_score` 미만 제거, Commit 문서 점수에 `vec_commit_penalty` 적용 후

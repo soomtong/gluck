@@ -4,8 +4,7 @@ use std::time::Instant;
 
 use crate::search::report::fixtures::FixtureQuery;
 use crate::search::report::ReportError;
-use crate::search::SearchEngine;
-use crate::search::SearchResult;
+use crate::search::{SearchEngine, SearchOutcome};
 
 #[derive(Debug, Clone)]
 pub struct LatencyStats {
@@ -57,15 +56,15 @@ pub fn run_perf(
     warmup: usize,
     iters: usize,
     limit: usize,
-) -> Result<(LatencyStats, Vec<Vec<SearchResult>>), ReportError> {
+) -> Result<(LatencyStats, Vec<SearchOutcome>), ReportError> {
     for _ in 0..warmup {
         for q in queries {
-            let _ = engine.search(&q.text, limit)?;
+            let _ = engine.search_scored(&q.text, limit)?;
         }
     }
 
     let mut latencies_ms: Vec<f64> = Vec::with_capacity(iters * queries.len());
-    let mut last_results: Vec<Vec<SearchResult>> = Vec::with_capacity(queries.len());
+    let mut last_results: Vec<SearchOutcome> = Vec::with_capacity(queries.len());
 
     let total_start = Instant::now();
     for iter_i in 0..iters {
@@ -74,7 +73,7 @@ pub fn run_perf(
         }
         for q in queries {
             let t0 = Instant::now();
-            let r = engine.search(&q.text, limit)?;
+            let r = engine.search_scored(&q.text, limit)?;
             let dt_ms = t0.elapsed().as_secs_f64() * 1000.0;
             latencies_ms.push(dt_ms);
             if iter_i == iters - 1 {
