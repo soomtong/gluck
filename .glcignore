@@ -37,3 +37,6 @@ docs/**/*search-quality*
 docs/**/*fixture-category-matrix*
 /검색 품질 리포트 학습 가이드.md
 /HANDOFF.md
+
+# Project site: the showreel embeds src/search/rrf.rs code and quotes fixture queries
+site/
