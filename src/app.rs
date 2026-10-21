@@ -334,9 +334,18 @@ impl App {
         }
 
         // Diff mode: h/l and ←/→ navigate files; j/k scroll the diff one
-        // line (J/K page). With the Ask panel open j/k went to it above.
+        // line, ↑/↓ page like J/K. With the Ask panel open j/k went to it
+        // above.
         if matches!(self.mode, Mode::Diff(_)) {
             match code {
+                KeyCode::Down => {
+                    self.page_down();
+                    return;
+                }
+                KeyCode::Up => {
+                    self.page_up();
+                    return;
+                }
                 KeyCode::Char('j') => {
                     self.scroll_diff(1, true);
                     return;
@@ -3853,6 +3862,39 @@ mod tests {
         app.handle_key(KeyCode::Char('j'));
         let Mode::Diff(s) = &app.mode else { panic!() };
         assert_eq!(s.scroll, 1);
+    }
+
+    #[test]
+    fn test_arrows_page_diff_like_shift_jk() {
+        let (_dir, mut app) = test_app_with_repo_long_diff();
+        let state = |app: &App| match &app.mode {
+            Mode::Diff(s) => (s.scroll, s.selected_file),
+            _ => panic!(),
+        };
+        app.handle_key(KeyCode::Down);
+        let paged = state(&app);
+        app.handle_key(KeyCode::Up);
+        app.handle_key(KeyCode::Char('J'));
+        assert_eq!(state(&app), paged);
+        assert!(paged.0 > 1, "page step: {paged:?}");
+        assert_eq!(paged.1, 0, "arrows no longer change file");
+        app.handle_key(KeyCode::Up);
+        assert_eq!(state(&app), (0, 0));
+    }
+
+    fn test_app_with_repo_long_diff() -> (tempfile::TempDir, App) {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.txt", b"x\n", "A");
+        let long: String = (0..60).map(|i| format!("line {i}\n")).collect();
+        add_file_commit(&repo, "a.txt", long.as_bytes(), "B");
+        add_file_commit(&repo, "b.txt", b"b\n", "C");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
+        // Select commit B (a.txt) and open its diff.
+        app.handle_key(KeyCode::Char('j'));
+        app.handle_key(KeyCode::Tab);
+        assert!(matches!(app.mode, Mode::Diff(_)));
+        (dir, app)
     }
 
     #[test]

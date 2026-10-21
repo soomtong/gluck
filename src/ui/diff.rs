@@ -122,7 +122,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let mut hints = vec![
         ("[h/l/←/→]", "file"),
         (scroll_keys, "scroll"),
-        ("[J/K]", "page"),
+        ("[J/K/↑/↓]", "page"),
         ("[^P/^N]", "commit"),
         ("[w]", "wrap"),
         ("[s]", "view"),
