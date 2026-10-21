@@ -1,3 +1,4 @@
+pub mod ask_panel;
 pub mod diff;
 pub mod layout;
 pub mod pick;

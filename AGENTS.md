@@ -16,9 +16,11 @@ src/
 ├── cli.rs / config.rs          # clap CLI + ~/.config/gluck/config.toml
 ├── mode.rs                     # Mode enum, key bindings, action dispatch
 ├── theme.rs                    # 6 built-in palettes + highlight-map builder
+├── selection.rs                # line-granular mouse selection + per-frame content row map
 ├── debug.rs                    # tracing-subscriber init
 ├── lang.rs                     # Language enum + Path-based extension detection
 ├── git/                        # repo, commit, store (lazy 200-batch), tree, diff, cache (LRU)
+├── ask/                        # LLM explain: provider (config→preset→env), client (ureq SSE), prompt, context, panel
 ├── highlight/engine.rs         # tree-sitter-highlight for Rust + Markdown
 ├── search/
 │   ├── mod.rs                  # SearchEngine = BM25 + Vector + RRF fusion
@@ -30,7 +32,7 @@ src/
 │   ├── indexer.rs              # build_index(): walks HEAD, chunks, embeds, writes BM25+vectors
 │   ├── modal.rs                # Closed/Typing/Loading/Results state machine
 │   └── silence.rs              # Unix-only stderr redirect (suppress hf-hub progress bars)
-└── ui/                         # pick, view, diff, search_modal, layout
+└── ui/                         # pick, view, diff, search_modal, ask_panel, layout
 ```
 
 ## Commands
@@ -66,6 +68,8 @@ Pick ──Enter──→ View ──Tab──→ Diff
 - **Mouse**: capture enabled in `main.rs`. Wheel moves list selection (Pick, View tree) or scrolls content (View pane, Diff); click selects tree/commit rows (dirs toggle fold, Pick double-click opens View). Hit-testing uses panel `Rect`s + `ListState` offsets captured into `App` fields at render time — `App::render` takes `&mut self` for this.
 - **Ctrl+N/P** crosses commits while preserving selected file path.
 - **Ctrl+T** cycles theme and persists to config.
+- **Ask** (`a` / `A` deep, View/Diff): explains the visible page, or the mouse-dragged line selection, via an OpenAI-compatible `/chat/completions` stream on a worker thread (`ask::spawn_ask`, one channel per request — dropping the receiver cancels). Answer shows in a bottom drawer (`ui/ask_panel.rs`, 60/40 body split); `[`/`]` scroll, `r` retry, `Esc` closes. `Esc` precedence: panel → selection → mode Back. Ctrl+J is avoided (arrives as Enter in legacy terminals).
+- **Selection**: renderers record `App.content_rows` (screen row → logical line). Logical lines are file lines (View), `file.lines` indices (unified), aligned-pair indices (side-by-side; `ui::diff::align_indices` / `aligned_to_file_range` convert). `ContentTarget` pins commit/file/view kind; `App::render` drops a stale selection. A press without drag clears it.
 
 ## Search systems (two separate)
 
@@ -131,6 +135,8 @@ Low-confidence flag: `SearchEngine::search_scored` returns `SearchOutcome { resu
 
 - `~/.config/gluck/config.toml` (`dirs::config_dir()`). Sections: `[theme]`, `[ui]` (scroll_lines, word_wrap), `[search]` (index_dir, batch_size, max_file_bytes, result_limit).
 - Missing file → `Config::default()`; does NOT auto-create. Saved on theme cycle.
+- `[ask]` + `[ask.providers.<name>]`: config values win, empty ones fall back to the preset (`ask/provider.rs::PRESETS`) and its env var; empty `provider` auto-detects the first preset whose env key is set. `save()` chmods 0600 (keys may live there); `ProviderConfig`/`Endpoint` mask keys in `Debug`. App tests resolve with an empty env so they never hit a provider.
+- Diff line `content` keeps its trailing newline — strip it when serializing (`ask/context.rs::strip_eol`).
 
 ### Repo watch
 
@@ -146,6 +152,7 @@ Authoritative list lives in `Cargo.toml`. Non-obvious points:
 - `model2vec-rs` 0.2 with `hf-hub` feature pulls the embedding model at runtime on first index build.
 - `turbovec` 1.0 is pure Rust (no BLAS). Its TQ+ calibration is explicit: `VectorIndex::calibrate()` must run before the first `add` on a full build, or the index silently loses recall. Incremental updates reuse the calibration stored in the file and persist via `sync` (append-only). Warnings go through `turbovec::set_warning_hook` → `tracing` (`main.rs`).
 - `silence.rs` uses `libc::dup2` — porting to Windows requires a no-op fallback.
+- `ureq` 3 (Ask client) is configured with `http_status_as_error(false)` so provider error bodies survive, and no global/body timeout so slow streams aren't cut. `hf-hub` still pulls `ureq` 2 — two versions coexist.
 
 ## Planning artifacts
 

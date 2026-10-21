@@ -109,6 +109,21 @@ pub fn render_footer(
     frame.render_widget(footer, area);
 }
 
+/// Footer hints for the Ask feature (View/Diff).
+pub fn ask_hints(app: &crate::app::App) -> Vec<(&'static str, &'static str)> {
+    let mut hints = Vec::new();
+    if app.ask_panel.is_open() {
+        hints.push(("[[/]]", "answer"));
+        hints.push(("[r]", "retry"));
+    }
+    if app.selection.as_ref().is_some_and(|s| !s.dragging) {
+        hints.push(("[a/A]", "explain selection"));
+    } else {
+        hints.push(("[a/A]", "ask"));
+    }
+    hints
+}
+
 pub fn render_search_bar(frame: &mut ratatui::Frame, area: Rect, palette: &Palette, query: &str) {
     let search = Paragraph::new(format!("/ {}", query))
         .style(Style::new().fg(palette.warning))

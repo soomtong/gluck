@@ -150,8 +150,9 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
             app.drain_engine_messages();
         }
         app.drain_search_results();
+        app.drain_ask_messages();
 
-        let timeout = if app.is_indexing() {
+        let timeout = if app.is_indexing() || app.ask_streaming() {
             Duration::from_millis(80)
         } else if app.pending_view_load.is_some() {
             // Wake up soon enough to run the debounced file load.

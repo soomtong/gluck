@@ -337,6 +337,8 @@ pub enum Action {
     ScrollDown,
     ScrollUp,
     ToggleWrap,
+    Ask,
+    AskDeep,
 }
 
 #[derive(Debug, Clone)]
@@ -370,6 +372,8 @@ impl KeyBindings {
         bindings.insert(KeyCode::Char('s'), Action::SemanticSearch);
         bindings.insert(KeyCode::Char('I'), Action::ForceIndex);
         bindings.insert(KeyCode::Char('w'), Action::ToggleWrap);
+        bindings.insert(KeyCode::Char('a'), Action::Ask);
+        bindings.insert(KeyCode::Char('A'), Action::AskDeep);
         Self { bindings }
     }
 

@@ -1,15 +1,19 @@
 use crate::app::App;
+use crate::ask::context::Side;
 use crate::git::diff::{DiffFile, DiffLine};
 use crate::highlight::engine::expand_tabs;
 use crate::mode::Mode;
-use crate::ui::{layout, wrap};
+use crate::selection::{mark_selected, ContentRows, ContentTarget, Selection};
+use crate::ui::{ask_panel, layout, wrap};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Tabs};
 
-pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
+pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let (header, body, footer) = layout::app_layout(area);
+    let (body, ask_area) = ask_panel::split(body, app.ask_panel.is_open());
+    let mut content_rows = None;
 
     if let Mode::Diff(state) = &app.mode {
         let palette = &app.palette;
@@ -63,13 +67,50 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             if let Some(file) = state.diff_result.files.get(state.selected_file) {
                 frame.render_widget(Clear, diff_area);
                 let word_wrap = app.config.ui.word_wrap;
-                if state.side_by_side {
-                    render_side_by_side(frame, diff_area, file, state.scroll, word_wrap, palette);
+                let target = ContentTarget::Diff {
+                    to: state.to.id,
+                    file: state.selected_file,
+                    side_by_side: state.side_by_side,
+                };
+                let selection = app.selection.as_ref().filter(|s| s.target == target);
+                let inner = diff_area.inner(ratatui::layout::Margin::new(1, 1));
+                let (rows, panes) = if state.side_by_side {
+                    let (rows, panes) = render_side_by_side(
+                        frame,
+                        diff_area,
+                        file,
+                        state.scroll,
+                        word_wrap,
+                        palette,
+                        selection,
+                    );
+                    (rows, Some(panes))
                 } else {
-                    render_unified(frame, diff_area, file, state.scroll, word_wrap, palette);
-                }
+                    let rows = render_unified(
+                        frame,
+                        diff_area,
+                        file,
+                        state.scroll,
+                        word_wrap,
+                        palette,
+                        selection,
+                    );
+                    (rows, None)
+                };
+                content_rows = Some(ContentRows {
+                    target,
+                    inner,
+                    panes,
+                    rows,
+                });
             }
         }
+    }
+    app.content_rows = content_rows;
+    if let Some(area) = ask_area {
+        ask_panel::render(frame, area, app);
+    } else {
+        app.ask_panel_area = None;
     }
 
     let mut hints = vec![
@@ -82,6 +123,7 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         ("[Tab]", "back"),
         ("[Esc]", "pick"),
     ];
+    hints.extend(layout::ask_hints(app));
     if app.repo_changed {
         hints.push(("[!]", "repo changed"));
     }
@@ -248,6 +290,7 @@ fn unified_line_rows(
     diff_line_rows(marker, line_no, content, style, palette, width)
 }
 
+/// Returns the logical line (`file.lines` index) shown on each row.
 fn render_unified(
     frame: &mut ratatui::Frame,
     area: Rect,
@@ -255,24 +298,33 @@ fn render_unified(
     scroll: usize,
     word_wrap: bool,
     palette: &crate::theme::Palette,
-) {
+    selection: Option<&Selection>,
+) -> Vec<Option<usize>> {
     let height = area.height.saturating_sub(2) as usize;
     let width = wrap_width(area, UNIFIED_GUTTER_WIDTH, word_wrap);
 
     // Only the visible window is materialized; `scroll` counts logical
     // diff lines, so a wrapped line scrolls as one unit.
     let mut lines: Vec<Line> = Vec::with_capacity(height);
-    for dl in file.lines.iter().skip(scroll) {
+    let mut row_map = Vec::with_capacity(height);
+    for (i, dl) in file.lines.iter().enumerate().skip(scroll) {
         if lines.len() >= height {
             break;
         }
-        lines.extend(unified_line_rows(dl, palette, width));
+        let mut rows = unified_line_rows(dl, palette, width);
+        if selection.is_some_and(|s| s.contains(i, None)) {
+            mark_selected(&mut rows);
+        }
+        row_map.extend(std::iter::repeat_n(Some(i), rows.len()));
+        lines.extend(rows);
     }
+    row_map.truncate(height);
 
     let paragraph = Paragraph::new(lines)
         .block(Block::bordered().border_style(Style::new().fg(palette.border)));
 
     frame.render_widget(paragraph, area);
+    row_map
 }
 
 #[derive(Debug)]
@@ -290,47 +342,81 @@ enum AlignedLine<'a> {
 }
 
 fn align_diff_lines(lines: &[DiffLine]) -> Vec<AlignedLine<'_>> {
+    align_indices(lines)
+        .into_iter()
+        .map(|pair| match pair {
+            (Some(o), Some(n)) => AlignedLine::Both {
+                old: &lines[o],
+                new: &lines[n],
+            },
+            (Some(o), None) => AlignedLine::OldOnly { old: &lines[o] },
+            (None, Some(n)) => AlignedLine::NewOnly { new: &lines[n] },
+            (None, None) => unreachable!("aligned pair with no side"),
+        })
+        .collect()
+}
+
+/// Side-by-side alignment as `file.lines` indices: (old, new) per row
+/// pair. Context lines pair with themselves; each removed/added run is
+/// zipped, leftovers sit alone on their side.
+pub fn align_indices(lines: &[DiffLine]) -> Vec<(Option<usize>, Option<usize>)> {
     let mut result = Vec::new();
     let mut i = 0;
     while i < lines.len() {
-        match &lines[i] {
-            DiffLine::Context { .. } => {
-                result.push(AlignedLine::Both {
-                    old: &lines[i],
-                    new: &lines[i],
-                });
-                i += 1;
+        if matches!(lines[i], DiffLine::Context { .. }) {
+            result.push((Some(i), Some(i)));
+            i += 1;
+            continue;
+        }
+        let mut removed = Vec::new();
+        let mut added = Vec::new();
+        while i < lines.len() && !matches!(lines[i], DiffLine::Context { .. }) {
+            match &lines[i] {
+                DiffLine::Removed { .. } => removed.push(i),
+                DiffLine::Added { .. } => added.push(i),
+                DiffLine::Context { .. } => {}
             }
-            _ => {
-                let mut removed = Vec::new();
-                let mut added = Vec::new();
-                while i < lines.len() && !matches!(lines[i], DiffLine::Context { .. }) {
-                    match &lines[i] {
-                        DiffLine::Removed { .. } => removed.push(&lines[i]),
-                        DiffLine::Added { .. } => added.push(&lines[i]),
-                        _ => {}
-                    }
-                    i += 1;
-                }
-                let paired = removed.len().min(added.len());
-                for j in 0..paired {
-                    result.push(AlignedLine::Both {
-                        old: removed[j],
-                        new: added[j],
-                    });
-                }
-                for old_line in removed.iter().skip(paired) {
-                    result.push(AlignedLine::OldOnly { old: old_line });
-                }
-                for new_line in added.iter().skip(paired) {
-                    result.push(AlignedLine::NewOnly { new: new_line });
-                }
-            }
+            i += 1;
+        }
+        for j in 0..removed.len().max(added.len()) {
+            result.push((removed.get(j).copied(), added.get(j).copied()));
         }
     }
     result
 }
 
+/// Map an aligned-index range to the `file.lines` range it covers on
+/// `side` (both sides when None). Empty when the side has no lines there.
+pub fn aligned_to_file_range(
+    lines: &[DiffLine],
+    lo: usize,
+    hi: usize,
+    side: Option<Side>,
+) -> std::ops::Range<usize> {
+    let aligned = align_indices(lines);
+    let hi = hi.min(aligned.len().saturating_sub(1));
+    let picked = aligned
+        .get(lo..=hi)
+        .unwrap_or(&[])
+        .iter()
+        .flat_map(|&(o, n)| {
+            let (o, n) = match side {
+                Some(Side::Old) => (o, None),
+                Some(Side::New) => (None, n),
+                None => (o, n),
+            };
+            o.into_iter().chain(n)
+        });
+    let (min, max) = picked.fold((usize::MAX, 0), |(a, b), i| (a.min(i), b.max(i)));
+    if min == usize::MAX {
+        0..0
+    } else {
+        min..max + 1
+    }
+}
+
+/// Returns the aligned-pair index shown on each row and the two panes'
+/// inner rects (old, new).
 fn render_side_by_side(
     frame: &mut ratatui::Frame,
     area: Rect,
@@ -338,7 +424,8 @@ fn render_side_by_side(
     scroll: usize,
     word_wrap: bool,
     palette: &crate::theme::Palette,
-) {
+    selection: Option<&Selection>,
+) -> (Vec<Option<usize>>, (Rect, Rect)) {
     let (left, right) = layout::split_horizontal(area, area.width / 2);
     let height = area.height.saturating_sub(2) as usize;
     let old_width = wrap_width(left, SIDE_GUTTER_WIDTH, word_wrap);
@@ -348,10 +435,12 @@ fn render_side_by_side(
 
     let mut old_lines: Vec<Line> = Vec::with_capacity(height);
     let mut new_lines: Vec<Line> = Vec::with_capacity(height);
+    let mut row_map = Vec::with_capacity(height);
 
     // Each aligned pair must take the same number of rows on both sides
     // so the panes stay in step when one side wraps further than the other.
-    for al in aligned.iter().skip(scroll) {
+    // That also lets one row map serve both panes.
+    for (i, al) in aligned.iter().enumerate().skip(scroll) {
         if old_lines.len() >= height {
             break;
         }
@@ -372,6 +461,15 @@ fn render_side_by_side(
         let rows = old_rows.len().max(new_rows.len());
         old_rows.resize_with(rows, || Line::from(""));
         new_rows.resize_with(rows, || Line::from(""));
+        if let Some(s) = selection {
+            if s.contains(i, Some(Side::Old)) {
+                mark_selected(&mut old_rows);
+            }
+            if s.contains(i, Some(Side::New)) {
+                mark_selected(&mut new_rows);
+            }
+        }
+        row_map.extend(std::iter::repeat_n(Some(i), rows));
         old_lines.extend(old_rows);
         new_lines.extend(new_rows);
     }
@@ -389,6 +487,9 @@ fn render_side_by_side(
 
     frame.render_widget(old_widget, left);
     frame.render_widget(new_widget, right);
+    row_map.truncate(height);
+    let margin = ratatui::layout::Margin::new(1, 1);
+    (row_map, (left.inner(margin), right.inner(margin)))
 }
 
 /// Rows for one side of the side-by-side view; `width` 0 means no wrap.
@@ -562,6 +663,37 @@ mod tests {
             AlignedLine::Both { .. } => {}
             _ => panic!("expected Both for context line"),
         }
+    }
+
+    #[test]
+    fn test_aligned_to_file_range_per_side() {
+        let lines = vec![
+            DiffLine::Context {
+                old_line_no: 1,
+                new_line_no: 1,
+                content: "a".into(),
+            },
+            DiffLine::Removed {
+                line_no: 2,
+                content: "b".into(),
+            },
+            DiffLine::Added {
+                line_no: 2,
+                content: "c".into(),
+            },
+            DiffLine::Added {
+                line_no: 3,
+                content: "d".into(),
+            },
+        ];
+        assert_eq!(
+            align_indices(&lines),
+            vec![(Some(0), Some(0)), (Some(1), Some(2)), (None, Some(3))]
+        );
+        assert_eq!(aligned_to_file_range(&lines, 1, 2, Some(Side::New)), 2..4);
+        assert_eq!(aligned_to_file_range(&lines, 1, 2, Some(Side::Old)), 1..2);
+        assert_eq!(aligned_to_file_range(&lines, 2, 2, Some(Side::Old)), 0..0);
+        assert_eq!(aligned_to_file_range(&lines, 0, 2, None), 0..4);
     }
 
     #[test]

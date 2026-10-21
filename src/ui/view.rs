@@ -1,7 +1,8 @@
 use crate::app::App;
 use crate::git::tree::EntryKind;
 use crate::mode::{FileContent, Mode};
-use crate::ui::{layout, wrap};
+use crate::selection::{mark_selected, ContentRows, ContentTarget};
+use crate::ui::{ask_panel, layout, wrap};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -17,8 +18,10 @@ fn entry_depth(entry: &crate::git::tree::FileEntry) -> usize {
 
 pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let (header, body, footer) = layout::app_layout(area);
+    let (body, ask_area) = ask_panel::split(body, app.ask_panel.is_open());
     let (left, right) = layout::split_horizontal(body, 36);
     let mut tree_offset = 0;
+    let mut content_rows = None;
 
     if let Mode::View(state) = &app.mode {
         let palette = &app.palette;
@@ -110,6 +113,15 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
             .unwrap_or("no file");
 
         let content_height = right.height.saturating_sub(2) as usize;
+        let target = state.selected_entry().map(|e| ContentTarget::View {
+            commit: state.commit.id,
+            path: e.path.clone(),
+        });
+        let selection = app
+            .selection
+            .as_ref()
+            .filter(|s| Some(&s.target) == target.as_ref());
+        let mut row_map: Vec<Option<usize>> = Vec::new();
         let lines: Vec<Line> = match &state.file_content {
             FileContent::NotLoaded => {
                 vec![Line::from(Span::styled(
@@ -148,20 +160,28 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
                         if rows.len() >= content_height {
                             break;
                         }
-                        for (r, row) in wrap::wrap_spans(&line.spans, wrap_width)
-                            .into_iter()
-                            .enumerate()
-                        {
-                            let gutter = if r == 0 {
-                                format!("{:>4} ", i + 1)
-                            } else {
-                                " ".repeat(GUTTER_WIDTH)
-                            };
-                            let mut spans = vec![Span::styled(gutter, gutter_style)];
-                            spans.extend(row);
-                            rows.push(Line::from(spans));
+                        let mut line_rows: Vec<Line<'static>> =
+                            wrap::wrap_spans(&line.spans, wrap_width)
+                                .into_iter()
+                                .enumerate()
+                                .map(|(r, row)| {
+                                    let gutter = if r == 0 {
+                                        format!("{:>4} ", i + 1)
+                                    } else {
+                                        " ".repeat(GUTTER_WIDTH)
+                                    };
+                                    let mut spans = vec![Span::styled(gutter, gutter_style)];
+                                    spans.extend(row);
+                                    Line::from(spans)
+                                })
+                                .collect();
+                        if selection.is_some_and(|s| s.contains(i, None)) {
+                            mark_selected(&mut line_rows);
                         }
+                        row_map.extend(std::iter::repeat_n(Some(i), line_rows.len()));
+                        rows.extend(line_rows);
                     }
+                    row_map.truncate(content_height);
                     rows
                 } else {
                     vec![Line::raw("")]
@@ -176,11 +196,25 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
         );
 
         frame.render_widget(content, right);
+        if let Some(target) = target.filter(|_| !row_map.is_empty()) {
+            content_rows = Some(ContentRows {
+                target,
+                inner: right.inner(ratatui::layout::Margin::new(1, 1)),
+                panes: None,
+                rows: row_map,
+            });
+        }
     }
 
     app.view_tree_area = Some(left);
     app.view_content_area = Some(right);
     app.view_tree_offset = tree_offset;
+    app.content_rows = content_rows;
+    if let Some(area) = ask_area {
+        ask_panel::render(frame, area, app);
+    } else {
+        app.ask_panel_area = None;
+    }
 
     let mut hints = vec![
         ("[j/k]", "move"),
@@ -195,6 +229,7 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
         ("[Tab]", "diff"),
         ("[Esc]", "back"),
     ];
+    hints.extend(layout::ask_hints(app));
     if app.repo_changed {
         hints.push(("[!]", "repo changed"));
     }

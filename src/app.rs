@@ -1,3 +1,8 @@
+use crate::ask::context::{self as ask_context, AskContext};
+use crate::ask::panel::AskPanel;
+use crate::ask::prompt::{self, Detail};
+use crate::ask::provider::{self, Endpoint};
+use crate::ask::ChatRequest;
 use crate::config::Config;
 use crate::git::cache::{DiffCache, TreeCache};
 use crate::git::commit::CommitInfo;
@@ -9,6 +14,7 @@ use crate::mode::{Action, DiffState, KeyBindings, Mode, PickState, SearchState, 
 use crate::search::modal_state::SemanticSearchModal;
 use crate::search::SearchEngine;
 use crate::search::SearchOutcome;
+use crate::selection::{ContentRows, ContentTarget, Selection};
 use crate::theme::Palette;
 use crate::ui;
 use anyhow::Result;
@@ -42,6 +48,7 @@ pub const VIEW_LOAD_DEBOUNCE: Duration = Duration::from_millis(60);
 const MAX_HIGHLIGHT_BYTES: usize = 256 * 1024;
 
 const MOUSE_WHEEL_LINES: usize = 3;
+const ASK_SCROLL_LINES: usize = 3;
 const DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(400);
 
 /// LRU cache of rendered file contents keyed by (commit, path), so moving
@@ -123,6 +130,13 @@ pub struct App {
     pub pick_list_area: Option<Rect>,
     pub pick_list_offset: usize,
     last_click: Option<(Instant, usize)>,
+    // Ask (LLM explain): drawer state, its rect, the content pane's row
+    // map (captured at render time) and the mouse selection over it.
+    pub ask_panel: AskPanel,
+    pub ask_panel_area: Option<Rect>,
+    pub content_rows: Option<ContentRows>,
+    pub selection: Option<Selection>,
+    last_ask: Option<(String, Endpoint, ChatRequest)>,
 }
 
 impl App {
@@ -166,6 +180,11 @@ impl App {
             pick_list_area: None,
             pick_list_offset: 0,
             last_click: None,
+            ask_panel: AskPanel::new(),
+            ask_panel_area: None,
+            content_rows: None,
+            selection: None,
+            last_ask: None,
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
@@ -174,7 +193,15 @@ impl App {
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
+        if self
+            .selection
+            .as_ref()
+            .is_some_and(|s| Some(&s.target) != self.content_target().as_ref())
+        {
+            self.selection = None;
+        }
         if matches!(self.mode, Mode::Pick(_)) {
+            self.content_rows = None;
             ui::pick::render_pick(frame, frame.area(), self);
         } else if matches!(self.mode, Mode::View(_)) {
             ui::view::render_view(frame, frame.area(), self);
@@ -259,6 +286,31 @@ impl App {
             return;
         }
 
+        if self.ask_panel.is_open() {
+            match code {
+                KeyCode::Esc => {
+                    self.ask_panel.close();
+                    return;
+                }
+                KeyCode::Char('[') => {
+                    self.ask_panel.scroll_up(ASK_SCROLL_LINES);
+                    return;
+                }
+                KeyCode::Char(']') => {
+                    self.ask_panel.scroll_down(ASK_SCROLL_LINES);
+                    return;
+                }
+                KeyCode::Char('r') => {
+                    self.retry_ask();
+                    return;
+                }
+                _ => {}
+            }
+        }
+        if code == KeyCode::Esc && self.selection.take().is_some() {
+            return;
+        }
+
         if code == KeyCode::Esc {
             if let Mode::Pick(state) = &mut self.mode {
                 if let SearchState::Idle { query: Some(_) } = &state.search {
@@ -325,6 +377,8 @@ impl App {
             Action::ScrollDown => self.scroll_down(),
             Action::ScrollUp => self.scroll_up(),
             Action::ToggleWrap => self.toggle_wrap(),
+            Action::Ask => self.ask(None),
+            Action::AskDeep => self.ask(Some(Detail::Deep)),
         }
     }
 
@@ -355,11 +409,235 @@ impl App {
         if self.search_modal.is_open() {
             return;
         }
+        let in_panel = rect_contains(self.ask_panel_area, ev.column, ev.row);
         match ev.kind {
+            MouseEventKind::ScrollDown if in_panel => self.ask_panel.scroll_down(MOUSE_WHEEL_LINES),
+            MouseEventKind::ScrollUp if in_panel => self.ask_panel.scroll_up(MOUSE_WHEEL_LINES),
             MouseEventKind::ScrollDown => self.mouse_scroll(ev.column, ev.row, true),
             MouseEventKind::ScrollUp => self.mouse_scroll(ev.column, ev.row, false),
-            MouseEventKind::Down(MouseButton::Left) => self.mouse_click(ev.column, ev.row),
+            MouseEventKind::Down(MouseButton::Left) if in_panel => {}
+            MouseEventKind::Down(MouseButton::Left) => {
+                if !self.selection_press(ev.column, ev.row) {
+                    self.mouse_click(ev.column, ev.row);
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => self.selection_drag(ev.column, ev.row),
+            MouseEventKind::Up(MouseButton::Left) => self.selection_release(),
             _ => {}
+        }
+    }
+
+    /// What the content pane currently shows; a selection is only valid
+    /// while this stays the same.
+    fn content_target(&self) -> Option<ContentTarget> {
+        match &self.mode {
+            Mode::View(s) => s.selected_entry().map(|e| ContentTarget::View {
+                commit: s.commit.id,
+                path: e.path.clone(),
+            }),
+            Mode::Diff(s) => Some(ContentTarget::Diff {
+                to: s.to.id,
+                file: s.selected_file,
+                side_by_side: s.side_by_side,
+            }),
+            Mode::Pick(_) => None,
+        }
+    }
+
+    /// Left press inside the content pane starts a selection. Returns
+    /// false when the press is elsewhere (tree, list) so normal click
+    /// handling runs.
+    fn selection_press(&mut self, col: u16, row: u16) -> bool {
+        let Some(rows) = &self.content_rows else {
+            return false;
+        };
+        if !rows.contains(col, row) || Some(&rows.target) != self.content_target().as_ref() {
+            return false;
+        }
+        self.selection = rows.line_at(row).map(|line| Selection {
+            target: rows.target.clone(),
+            side: rows.side_at(col),
+            anchor: line,
+            head: line,
+            dragging: true,
+            moved: false,
+        });
+        true
+    }
+
+    fn selection_drag(&mut self, _col: u16, row: u16) {
+        let (Some(sel), Some(rows)) = (&mut self.selection, &self.content_rows) else {
+            return;
+        };
+        if !sel.dragging || sel.target != rows.target {
+            return;
+        }
+        if let Some(line) = rows.line_at(row) {
+            sel.head = line;
+            sel.moved = true;
+        }
+    }
+
+    /// A press released without dragging is a plain click: it clears the
+    /// selection instead of selecting one line.
+    fn selection_release(&mut self) {
+        match &mut self.selection {
+            Some(sel) if sel.dragging && !sel.moved => self.selection = None,
+            Some(sel) => sel.dragging = false,
+            None => {}
+        }
+    }
+
+    /// `a`/`A` in View/Diff: explain the selection if there is one, else
+    /// the visible page. `detail` overrides `[ask].detail`.
+    fn ask(&mut self, detail: Option<Detail>) {
+        if !matches!(self.mode, Mode::View(_) | Mode::Diff(_)) {
+            return;
+        }
+        let cfg = &self.config.ask;
+        let detail = detail.unwrap_or(cfg.detail);
+        let ctx = match self.build_ask_context() {
+            Ok(ctx) => ctx,
+            Err(msg) => {
+                self.ask_panel.fail("ask".into(), String::new(), msg);
+                return;
+            }
+        };
+        // Tests must never reach a real provider through the shell env.
+        let endpoint = provider::resolve_with(cfg, |k| {
+            if cfg!(test) {
+                None
+            } else {
+                std::env::var(k).ok()
+            }
+        });
+        let endpoint = match endpoint {
+            Ok(e) => e,
+            Err(e) => {
+                self.ask_panel
+                    .fail(ctx.title(), String::new(), provider::setup_hint(&e));
+                return;
+            }
+        };
+        let request = ChatRequest {
+            messages: prompt::build_messages(&ctx, cfg, detail),
+            max_tokens: prompt::max_tokens(cfg, detail),
+            temperature: (cfg.temperature >= 0.0).then_some(cfg.temperature),
+        };
+        let title = match detail {
+            Detail::Deep => format!("{} · deep", ctx.title()),
+            _ => ctx.title(),
+        };
+        self.start_ask(title, endpoint, request);
+    }
+
+    fn start_ask(&mut self, title: String, endpoint: Endpoint, request: ChatRequest) {
+        tracing::info!(target: "ask", "ask {} via {}", title, endpoint.label());
+        let rx = crate::ask::spawn_ask(endpoint.clone(), request.clone());
+        self.ask_panel.start(title.clone(), endpoint.label(), rx);
+        self.last_ask = Some((title, endpoint, request));
+    }
+
+    fn retry_ask(&mut self) {
+        if let Some((title, endpoint, request)) = self.last_ask.clone() {
+            self.start_ask(title, endpoint, request);
+        }
+    }
+
+    fn build_ask_context(&self) -> Result<AskContext, String> {
+        let cfg = &self.config.ask;
+        let target = self.content_target();
+        let selection = self
+            .selection
+            .as_ref()
+            .filter(|s| Some(&s.target) == target.as_ref())
+            .map(|s| (s.bounds(), s.side));
+        let visible = self
+            .content_rows
+            .as_ref()
+            .filter(|r| Some(&r.target) == target.as_ref())
+            .and_then(|r| r.visible_bounds());
+
+        match &self.mode {
+            Mode::Diff(state) => {
+                let file = state
+                    .diff_result
+                    .files
+                    .get(state.selected_file)
+                    .ok_or("no file in this diff")?;
+                // Logical lines are aligned pairs in side-by-side mode.
+                let to_file_range = |lo: usize, hi: usize, side| {
+                    if state.side_by_side {
+                        ui::diff::aligned_to_file_range(&file.lines, lo, hi, side)
+                    } else {
+                        lo..hi + 1
+                    }
+                };
+                if let Some(((lo, hi), side)) = selection {
+                    let range = to_file_range(lo, hi, side);
+                    if range.is_empty() {
+                        return Err("the selection has no code on this side".into());
+                    }
+                    Ok(ask_context::diff_selection(
+                        &state.to,
+                        file,
+                        range,
+                        side,
+                        cfg.extra_context_lines,
+                        cfg.max_context_chars,
+                    ))
+                } else {
+                    let (lo, hi) = visible.ok_or("nothing visible to explain")?;
+                    Ok(ask_context::diff_page(
+                        &state.to,
+                        file,
+                        to_file_range(lo, hi, None),
+                        cfg.max_context_chars,
+                    ))
+                }
+            }
+            Mode::View(state) => {
+                let crate::mode::FileContent::Text { raw, .. } = &state.file_content else {
+                    return Err("open a text file first".into());
+                };
+                let path = state
+                    .selected_entry()
+                    .map(|e| e.path.clone())
+                    .ok_or("no file selected")?;
+                if let Some(((lo, hi), _)) = selection {
+                    Ok(ask_context::file_selection(
+                        &state.commit,
+                        &path,
+                        raw,
+                        lo..hi + 1,
+                        cfg.extra_context_lines,
+                        cfg.max_context_chars,
+                    ))
+                } else {
+                    let (lo, hi) = visible.ok_or("nothing visible to explain")?;
+                    let changed = state.changed_paths.contains(&path);
+                    Ok(ask_context::file_page(
+                        &state.commit,
+                        &path,
+                        raw,
+                        lo..hi + 1,
+                        changed,
+                        cfg.max_context_chars,
+                    ))
+                }
+            }
+            Mode::Pick(_) => Err("ask works in View and Diff modes".into()),
+        }
+    }
+
+    pub fn ask_streaming(&self) -> bool {
+        self.ask_panel.is_streaming()
+    }
+
+    /// Pull streamed deltas; once done, highlight the answer as Markdown.
+    pub fn drain_ask_messages(&mut self) {
+        if self.ask_panel.drain() {
+            self.ask_panel.rendered = self.highlight.highlight(&self.ask_panel.text, "ask.md");
         }
     }
 
@@ -745,6 +1023,7 @@ impl App {
                 }
 
                 self.mode = Mode::Pick(pick);
+                self.ask_panel.close();
                 self.update_pick_diff();
                 // Returning from Diff: keep the Files-panel cursor where the
                 // user left it (clamped, in case the diff changed size).
@@ -3390,6 +3669,155 @@ mod tests {
             new1.contains("+      "),
             "new continuation keeps marker: {new1:?}"
         );
+    }
+
+    // ── Ask / selection ──
+
+    fn ask_test_app() -> (tempfile::TempDir, App) {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(&repo, "a.rs", b"l1\nl2\nl3\nl4\nl5\n", "A");
+        add_file_commit(&repo, "a.rs", b"l1\nL2\nl3\nl4\nl5\nl6\n", "B: rename l2");
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let app = App::new(git_repo, Config::default()).unwrap();
+        (dir, app)
+    }
+
+    /// Pick → Diff (side-by-side) and render once so the row map exists.
+    /// Body rows start at y=5; panes split at x=40.
+    fn ask_diff_app() -> (tempfile::TempDir, App) {
+        let (dir, mut app) = ask_test_app();
+        app.handle_key(KeyCode::Tab);
+        assert!(matches!(app.mode, Mode::Diff(_)));
+        render_to_lines(&mut app, 80, 20);
+        (dir, app)
+    }
+
+    fn drag(app: &mut App, col: u16, from: u16, to: u16) {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), col, from));
+        app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), col, to));
+        app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), col, to));
+    }
+
+    #[test]
+    fn test_drag_selects_new_side_lines_and_builds_context() {
+        use crate::ask::context::{AskKind, Side};
+        let (_dir, mut app) = ask_diff_app();
+        // Aligned rows: 0 l1 | 1 l2→L2 | 2 l3 | 3 l4 | 4 l5 | 5 –→l6
+        drag(&mut app, 45, 6, 8);
+        let sel = app.selection.clone().expect("selection");
+        assert_eq!(sel.side, Some(Side::New));
+        assert_eq!(sel.bounds(), (1, 3));
+        assert!(!sel.dragging);
+
+        let ctx = app.build_ask_context().unwrap();
+        assert_eq!(ctx.kind, AskKind::Selection);
+        assert_eq!(ctx.code, "   2 | L2\n   3 | l3\n   4 | l4");
+        assert!(ctx.before.contains("l1"));
+        assert!(ctx.commit_message.contains("rename l2"));
+
+        // Selected rows render reversed, on the selected pane only.
+        use ratatui::backend::TestBackend;
+        let mut terminal = ratatui::Terminal::new(TestBackend::new(80, 20)).unwrap();
+        terminal.draw(|f| app.render(f)).unwrap();
+        let buf = terminal.backend().buffer();
+        let reversed = |x, y| {
+            buf[(x, y)]
+                .style()
+                .add_modifier
+                .contains(ratatui::style::Modifier::REVERSED)
+        };
+        assert!(reversed(45, 6));
+        assert!(!reversed(5, 6));
+        assert!(!reversed(45, 9));
+    }
+
+    #[test]
+    fn test_drag_past_pane_edge_clamps_to_last_visible_line() {
+        let (_dir, mut app) = ask_diff_app();
+        drag(&mut app, 45, 5, 19);
+        assert_eq!(app.selection.as_ref().unwrap().bounds(), (0, 5));
+    }
+
+    #[test]
+    fn test_click_without_drag_clears_selection() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let (_dir, mut app) = ask_diff_app();
+        drag(&mut app, 45, 6, 7);
+        assert!(app.selection.is_some());
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 45, 9));
+        app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 45, 9));
+        assert!(app.selection.is_none());
+    }
+
+    #[test]
+    fn test_esc_clears_selection_before_leaving_diff() {
+        let (_dir, mut app) = ask_diff_app();
+        drag(&mut app, 45, 6, 7);
+        app.handle_key(KeyCode::Esc);
+        assert!(app.selection.is_none());
+        assert!(matches!(app.mode, Mode::Diff(_)));
+        app.handle_key(KeyCode::Esc);
+        assert!(matches!(app.mode, Mode::Pick(_)));
+    }
+
+    #[test]
+    fn test_toggle_view_drops_selection() {
+        let (_dir, mut app) = ask_diff_app();
+        drag(&mut app, 45, 6, 7);
+        app.handle_key(KeyCode::Char('v'));
+        render_to_lines(&mut app, 80, 20);
+        assert!(app.selection.is_none());
+    }
+
+    #[test]
+    fn test_ask_without_provider_shows_setup_hint_then_esc_closes() {
+        use crate::ask::panel::PanelStatus;
+        let (_dir, mut app) = ask_diff_app();
+        app.handle_key(KeyCode::Char('a'));
+        assert_eq!(app.ask_panel.status, PanelStatus::Failed);
+        let err = app.ask_panel.error.clone().unwrap();
+        assert!(err.contains("[ask.providers."), "{err}");
+        assert!(app.ask_panel.title.starts_with("page · a.rs"));
+
+        // The drawer takes the lower part of the body.
+        let lines = render_to_lines(&mut app, 80, 30);
+        assert!(lines.iter().any(|l| l.contains(" Ask ")));
+        assert!(app.ask_panel_area.is_some());
+
+        app.handle_key(KeyCode::Esc);
+        assert!(!app.ask_panel.is_open());
+        assert!(matches!(app.mode, Mode::Diff(_)));
+    }
+
+    #[test]
+    fn test_diff_page_context_covers_visible_lines() {
+        let (_dir, mut app) = ask_diff_app();
+        let ctx = app.build_ask_context().unwrap();
+        assert!(ctx.is_diff);
+        assert!(ctx.code.contains("-    2 | l2"));
+        assert!(ctx.code.contains("+    6 | l6"));
+        // Scrolled past the first lines, they drop out of the page.
+        if let Mode::Diff(s) = &mut app.mode {
+            s.scroll = 2;
+        }
+        render_to_lines(&mut app, 80, 20);
+        let ctx = app.build_ask_context().unwrap();
+        assert!(!ctx.code.contains("| l1"), "{}", ctx.code);
+    }
+
+    #[test]
+    fn test_view_selection_context_uses_file_lines() {
+        let (_dir, mut app) = ask_test_app();
+        app.handle_key(KeyCode::Enter);
+        select_view_path(&mut app, "a.rs");
+        app.load_view_file();
+        render_to_lines(&mut app, 80, 20);
+        // View content rows start at y=4 (header 3 + border 1), x past the tree.
+        drag(&mut app, 50, 5, 6);
+        let ctx = app.build_ask_context().unwrap();
+        assert_eq!(ctx.code, "   2 | L2\n   3 | l3");
+        assert!(!ctx.is_diff);
     }
 
     #[test]
