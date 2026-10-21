@@ -113,7 +113,12 @@ pub fn render_footer(
 pub fn ask_hints(app: &crate::app::App) -> Vec<(&'static str, &'static str)> {
     let mut hints = Vec::new();
     if app.ask_panel.is_open() {
-        hints.push(("[[/]]", "answer"));
+        let keys = if matches!(app.mode, crate::mode::Mode::Diff(_)) {
+            "[j/k/[/]]"
+        } else {
+            "[[/]]"
+        };
+        hints.push((keys, "answer"));
         hints.push(("[r]", "retry"));
     }
     if app.selection.as_ref().is_some_and(|s| !s.dragging) {

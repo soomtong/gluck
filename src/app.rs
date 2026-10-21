@@ -287,7 +287,18 @@ impl App {
         }
 
         if self.ask_panel.is_open() {
+            // Diff navigates files with h/l and ←/→ too, so j/k are free to
+            // scroll the answer; View still needs j/k for the tree.
+            let diff = matches!(self.mode, Mode::Diff(_));
             match code {
+                KeyCode::Char('k') if diff => {
+                    self.ask_panel.scroll_up(1);
+                    return;
+                }
+                KeyCode::Char('j') if diff => {
+                    self.ask_panel.scroll_down(1);
+                    return;
+                }
                 KeyCode::Esc => {
                     self.ask_panel.close();
                     return;
@@ -3788,6 +3799,41 @@ mod tests {
         app.handle_key(KeyCode::Esc);
         assert!(!app.ask_panel.is_open());
         assert!(matches!(app.mode, Mode::Diff(_)));
+    }
+
+    #[test]
+    fn test_jk_scroll_answer_in_diff_while_panel_open() {
+        let (_dir, mut app) = ask_diff_app();
+        app.handle_key(KeyCode::Char('a'));
+        assert!(app.ask_panel.is_open());
+        app.ask_panel.follow = false;
+        app.ask_panel.scroll = 5;
+        app.handle_key(KeyCode::Char('k'));
+        assert_eq!(app.ask_panel.scroll, 4);
+        app.handle_key(KeyCode::Char('j'));
+        assert_eq!(app.ask_panel.scroll, 5);
+        // h/l keep navigating files.
+        let Mode::Diff(s) = &app.mode else { panic!() };
+        assert_eq!(s.selected_file, 0);
+
+        // Closed panel: j/k are file navigation again.
+        app.handle_key(KeyCode::Esc);
+        app.handle_key(KeyCode::Char('j'));
+        assert_eq!(app.ask_panel.scroll, 0);
+    }
+
+    #[test]
+    fn test_jk_still_move_tree_in_view_while_panel_open() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        app.ask_panel.fail("t".into(), String::new(), "e".into());
+        let before = match &app.mode {
+            Mode::View(s) => s.selected_file,
+            _ => panic!(),
+        };
+        app.handle_key(KeyCode::Char('j'));
+        let Mode::View(s) = &app.mode else { panic!() };
+        assert_eq!(s.selected_file, before + 1);
     }
 
     #[test]

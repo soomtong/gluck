@@ -156,7 +156,7 @@ Selection explain:
 - 키 (Diff/View 모드):
   - `a`: 선택이 있으면 selection explain, 없으면 page explain. 패널이 열려 있으면 재요청 대신 포커스 이동하지 않고 새 요청으로 교체.
   - `A`: 같은 동작을 `deep` 레벨로.
-  - 패널이 열려 있는 동안: `[`/`]` 또는 마우스 휠(패널 영역)로 패널 스크롤, `r` 재요청, `Esc` 닫기 + 스트림 취소. 그 외 키는 기존 모드로 전달되어 코드 탐색이 계속 가능 (j/k/u/d는 코드 쪽).
+  - 패널이 열려 있는 동안: `[`/`]` 또는 마우스 휠(패널 영역)로 패널 스크롤 (Diff에서는 `j`/`k`도 — 파일 이동은 `h`/`l`·←/→로 중복되어 있으므로. View는 트리 이동에 `j`/`k`가 필요해 제외), `r` 재요청, `Esc` 닫기 + 스트림 취소. 그 외 키는 기존 모드로 전달되어 코드 탐색이 계속 가능 (j/k/u/d는 코드 쪽).
   - `Ctrl+J`는 legacy 터미널에서 `KeyCode::Enter`로 들어오므로 사용하지 않는다.
 - 제목줄: 종류(page/selection L범위/pane) · model · 상태(spinner / done / error).
 - 본문: 스트리밍 중에는 plain text로 wrap(`wrap::wrap_spans`), 완료 시 기존 `HighlightEngine`의 Markdown 하이라이트를 적용. 자동 스크롤은 사용자가 위로 스크롤하지 않은 경우에만 맨 아래 추적.
