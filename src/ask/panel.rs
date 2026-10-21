@@ -28,6 +28,8 @@ pub struct AskPanel {
     pub scroll: usize,
     /// Stick to the bottom while streaming until the user scrolls up.
     pub follow: bool,
+    /// Rows visible at the last render; sizes `[`/`]` page scrolls.
+    viewport: usize,
     pub started: Instant,
     rx: Option<Receiver<AskMessage>>,
 }
@@ -50,6 +52,7 @@ impl AskPanel {
             rendered: Vec::new(),
             scroll: 0,
             follow: true,
+            viewport: 10,
             started: Instant::now(),
             rx: None,
         }
@@ -121,6 +124,11 @@ impl AskPanel {
         finished
     }
 
+    /// Page step: the viewport minus one row of overlap.
+    pub fn page(&self) -> usize {
+        self.viewport.saturating_sub(1).max(1)
+    }
+
     pub fn scroll_down(&mut self, n: usize) {
         self.scroll = self.scroll.saturating_add(n);
     }
@@ -133,6 +141,7 @@ impl AskPanel {
     /// Clamp `scroll` for `rows` rendered rows in a `height`-row viewport;
     /// scrolling back to the bottom re-enables follow.
     pub fn clamp_scroll(&mut self, rows: usize, height: usize) {
+        self.viewport = height;
         let max = rows.saturating_sub(height);
         if self.follow || self.scroll >= max {
             self.scroll = max;
@@ -209,5 +218,6 @@ mod tests {
         p.clamp_scroll(40, 10);
         assert_eq!(p.scroll, 30);
         assert!(p.follow);
+        assert_eq!(p.page(), 9);
     }
 }

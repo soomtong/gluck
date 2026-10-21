@@ -48,7 +48,6 @@ pub const VIEW_LOAD_DEBOUNCE: Duration = Duration::from_millis(60);
 const MAX_HIGHLIGHT_BYTES: usize = 256 * 1024;
 
 const MOUSE_WHEEL_LINES: usize = 3;
-const ASK_SCROLL_LINES: usize = 3;
 const DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(400);
 
 /// LRU cache of rendered file contents keyed by (commit, path), so moving
@@ -287,8 +286,8 @@ impl App {
         }
 
         if self.ask_panel.is_open() {
-            // Diff navigates files with h/l and ←/→ too, so j/k are free to
-            // scroll the answer; View still needs j/k for the tree.
+            // In Diff j/k scroll content, so with the panel open they scroll
+            // the answer instead; View still needs j/k for the tree.
             let diff = matches!(self.mode, Mode::Diff(_));
             match code {
                 KeyCode::Char('k') if diff => {
@@ -304,11 +303,11 @@ impl App {
                     return;
                 }
                 KeyCode::Char('[') => {
-                    self.ask_panel.scroll_up(ASK_SCROLL_LINES);
+                    self.ask_panel.scroll_up(self.ask_panel.page());
                     return;
                 }
                 KeyCode::Char(']') => {
-                    self.ask_panel.scroll_down(ASK_SCROLL_LINES);
+                    self.ask_panel.scroll_down(self.ask_panel.page());
                     return;
                 }
                 KeyCode::Char('r') => {
@@ -334,9 +333,18 @@ impl App {
             }
         }
 
-        // Diff mode: h/l and arrow keys navigate files
+        // Diff mode: h/l and ←/→ navigate files; j/k scroll the diff one
+        // line (J/K page). With the Ask panel open j/k went to it above.
         if matches!(self.mode, Mode::Diff(_)) {
             match code {
+                KeyCode::Char('j') => {
+                    self.scroll_diff(1, true);
+                    return;
+                }
+                KeyCode::Char('k') => {
+                    self.scroll_diff(1, false);
+                    return;
+                }
                 KeyCode::Char('h') | KeyCode::Left => {
                     self.move_up();
                     return;
@@ -1284,6 +1292,23 @@ impl App {
                 state.scroll = (state.scroll + 20).min(max_scroll);
             }
             Mode::Pick(state) => state.next_diff_file(),
+        }
+    }
+
+    fn scroll_diff(&mut self, n: usize, down: bool) {
+        let Mode::Diff(state) = &mut self.mode else {
+            return;
+        };
+        if down {
+            let line_count = state
+                .diff_result
+                .files
+                .get(state.selected_file)
+                .map(|f| f.lines.len())
+                .unwrap_or(0);
+            state.scroll = (state.scroll + n).min(line_count.saturating_sub(1));
+        } else {
+            state.scroll = state.scroll.saturating_sub(n);
         }
     }
 
@@ -3812,14 +3837,44 @@ mod tests {
         assert_eq!(app.ask_panel.scroll, 4);
         app.handle_key(KeyCode::Char('j'));
         assert_eq!(app.ask_panel.scroll, 5);
+        // [/] page by the panel height (default viewport before a render).
+        let page = app.ask_panel.page();
+        assert!(page > 1);
+        app.handle_key(KeyCode::Char('['));
+        assert_eq!(app.ask_panel.scroll, 5 - page.min(5));
+        app.handle_key(KeyCode::Char(']'));
+        assert_eq!(app.ask_panel.scroll, 5 - page.min(5) + page);
         // h/l keep navigating files.
         let Mode::Diff(s) = &app.mode else { panic!() };
         assert_eq!(s.selected_file, 0);
 
-        // Closed panel: j/k are file navigation again.
+        // Closed panel: j/k scroll the diff again.
         app.handle_key(KeyCode::Esc);
         app.handle_key(KeyCode::Char('j'));
-        assert_eq!(app.ask_panel.scroll, 0);
+        let Mode::Diff(s) = &app.mode else { panic!() };
+        assert_eq!(s.scroll, 1);
+    }
+
+    #[test]
+    fn test_jk_scroll_diff_content_by_one_line() {
+        let (_dir, mut app) = ask_diff_app();
+        let scroll = |app: &App| match &app.mode {
+            Mode::Diff(s) => (s.scroll, s.selected_file),
+            _ => panic!(),
+        };
+        app.handle_key(KeyCode::Char('j'));
+        app.handle_key(KeyCode::Char('j'));
+        assert_eq!(scroll(&app), (2, 0));
+        app.handle_key(KeyCode::Char('k'));
+        assert_eq!(scroll(&app), (1, 0));
+        app.handle_key(KeyCode::Char('k'));
+        app.handle_key(KeyCode::Char('k'));
+        assert_eq!(scroll(&app), (0, 0));
+        // Clamped to the last diff line (7 lines here).
+        for _ in 0..20 {
+            app.handle_key(KeyCode::Char('j'));
+        }
+        assert_eq!(scroll(&app), (6, 0));
     }
 
     #[test]

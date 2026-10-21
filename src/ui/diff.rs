@@ -114,14 +114,14 @@ pub fn render_diff(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
     }
 
     // With the answer panel open, j/k scroll it instead (see ask_hints).
-    let file_keys = if app.ask_panel.is_open() {
-        "[h/l/←/→]"
+    let scroll_keys = if app.ask_panel.is_open() {
+        "[u/d]"
     } else {
-        "[j/k/←/→]"
+        "[j/k/u/d]"
     };
     let mut hints = vec![
-        (file_keys, "file"),
-        ("[u/d]", "scroll"),
+        ("[h/l/←/→]", "file"),
+        (scroll_keys, "scroll"),
         ("[J/K]", "page"),
         ("[^P/^N]", "commit"),
         ("[w]", "wrap"),
