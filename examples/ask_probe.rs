@@ -33,8 +33,9 @@ fn main() {
         })
         .expect("no matching file in HEAD diff");
 
-    let cfg = Config::load().unwrap_or_default().ask;
-    let ctx = context::diff_page(&to, file, 0..60, cfg.max_context_chars);
+    let cfg = Config::load_or_default().ask;
+    let first_lines: Vec<usize> = (0..60).collect();
+    let ctx = context::diff_page(&to, file, &first_lines, cfg.max_context_chars);
     let messages = prompt::build_messages(&ctx, &cfg, detail);
     if dry {
         for m in &messages {

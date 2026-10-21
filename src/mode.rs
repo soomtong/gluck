@@ -317,6 +317,16 @@ impl DiffState {
             prev_view_file: 0,
         }
     }
+
+    /// Largest `scroll` for the selected file (its last diff line).
+    pub fn max_scroll(&self) -> usize {
+        self.diff_result
+            .files
+            .get(self.selected_file)
+            .map(|f| f.lines.len())
+            .unwrap_or(0)
+            .saturating_sub(1)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

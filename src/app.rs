@@ -204,6 +204,7 @@ impl App {
         }
         if matches!(self.mode, Mode::Pick(_)) {
             self.content_rows = None;
+            self.ask_panel_area = None;
             ui::pick::render_pick(frame, frame.area(), self);
         } else if matches!(self.mode, Mode::View(_)) {
             ui::view::render_view(frame, frame.area(), self);
@@ -440,7 +441,10 @@ impl App {
         if self.search_modal.is_open() {
             return;
         }
-        let in_panel = rect_contains(self.ask_panel_area, ev.column, ev.row);
+        // The rect is from the last frame that drew the panel; ignore it
+        // once the panel is closed (e.g. after returning to Pick).
+        let in_panel =
+            self.ask_panel.is_open() && rect_contains(self.ask_panel_area, ev.column, ev.row);
         match ev.kind {
             MouseEventKind::ScrollDown if in_panel => self.ask_panel.scroll_down(MOUSE_WHEEL_LINES),
             MouseEventKind::ScrollUp if in_panel => self.ask_panel.scroll_up(MOUSE_WHEEL_LINES),
@@ -525,6 +529,9 @@ impl App {
         if !matches!(self.mode, Mode::View(_) | Mode::Diff(_)) {
             return;
         }
+        // Until a new request starts, `r` would replay the previous one —
+        // possibly for another file — so forget it on any failure below.
+        self.last_ask = None;
         let cfg = &self.config.ask;
         let detail = detail.unwrap_or(cfg.detail);
         let ctx = match self.build_ask_context() {
@@ -545,8 +552,11 @@ impl App {
         let endpoint = match endpoint {
             Ok(e) => e,
             Err(e) => {
-                self.ask_panel
-                    .fail(ctx.title(), String::new(), provider::setup_hint(&e));
+                let mut hint = provider::setup_hint(&e);
+                if let Some(load_err) = &self.config.load_error {
+                    hint = format!("config file not loaded: {load_err}\n\n{hint}");
+                }
+                self.ask_panel.fail(ctx.title(), String::new(), hint);
                 return;
             }
         };
@@ -581,10 +591,13 @@ impl App {
         self.last_ask = Some((title, endpoint, request));
     }
 
-    /// `r`: always re-request, refreshing the cached answer.
+    /// `r`: always re-request, refreshing the cached answer. After a
+    /// failed ask there is no request to replay, so ask about the current
+    /// screen again instead.
     fn retry_ask(&mut self) {
-        if let Some((title, endpoint, request)) = self.last_ask.clone() {
-            self.start_ask(title, endpoint, request, true);
+        match self.last_ask.clone() {
+            Some((title, endpoint, request)) => self.start_ask(title, endpoint, request, true),
+            None => self.ask(None),
         }
     }
 
@@ -610,22 +623,22 @@ impl App {
                     .get(state.selected_file)
                     .ok_or("no file in this diff")?;
                 // Logical lines are aligned pairs in side-by-side mode.
-                let to_file_range = |lo: usize, hi: usize, side| {
+                let to_file_lines = |lo: usize, hi: usize, side| -> Vec<usize> {
                     if state.side_by_side {
-                        ui::diff::aligned_to_file_range(&file.lines, lo, hi, side)
+                        ui::diff::aligned_to_file_indices(&file.lines, lo, hi, side)
                     } else {
-                        lo..hi + 1
+                        (lo..=hi).collect()
                     }
                 };
                 if let Some(((lo, hi), side)) = selection {
-                    let range = to_file_range(lo, hi, side);
-                    if range.is_empty() {
+                    let indices = to_file_lines(lo, hi, side);
+                    if indices.is_empty() {
                         return Err("the selection has no code on this side".into());
                     }
                     Ok(ask_context::diff_selection(
                         &state.to,
                         file,
-                        range,
+                        &indices,
                         side,
                         cfg.extra_context_lines,
                         cfg.max_context_chars,
@@ -635,7 +648,7 @@ impl App {
                     Ok(ask_context::diff_page(
                         &state.to,
                         file,
-                        to_file_range(lo, hi, None),
+                        &to_file_lines(lo, hi, None),
                         cfg.max_context_chars,
                     ))
                 }
@@ -723,14 +736,7 @@ impl App {
             Mode::Diff(_) => {
                 if let Mode::Diff(state) = &mut self.mode {
                     if down {
-                        let line_count = state
-                            .diff_result
-                            .files
-                            .get(state.selected_file)
-                            .map(|f| f.lines.len())
-                            .unwrap_or(0);
-                        state.scroll =
-                            (state.scroll + MOUSE_WHEEL_LINES).min(line_count.saturating_sub(1));
+                        state.scroll = (state.scroll + MOUSE_WHEEL_LINES).min(state.max_scroll());
                     } else {
                         state.scroll = state.scroll.saturating_sub(MOUSE_WHEEL_LINES);
                     }
@@ -1317,14 +1323,7 @@ impl App {
                 state.scroll = (state.scroll + 20).min(max_scroll);
             }
             Mode::Diff(state) => {
-                let line_count = state
-                    .diff_result
-                    .files
-                    .get(state.selected_file)
-                    .map(|f| f.lines.len())
-                    .unwrap_or(0);
-                let max_scroll = line_count.saturating_sub(1);
-                state.scroll = (state.scroll + 20).min(max_scroll);
+                state.scroll = (state.scroll + 20).min(state.max_scroll());
             }
             Mode::Pick(state) => state.next_diff_file(),
         }
@@ -1335,13 +1334,7 @@ impl App {
             return;
         };
         if down {
-            let line_count = state
-                .diff_result
-                .files
-                .get(state.selected_file)
-                .map(|f| f.lines.len())
-                .unwrap_or(0);
-            state.scroll = (state.scroll + n).min(line_count.saturating_sub(1));
+            state.scroll = (state.scroll + n).min(state.max_scroll());
         } else {
             state.scroll = state.scroll.saturating_sub(n);
         }
@@ -1367,14 +1360,7 @@ impl App {
                 state.scroll = (state.scroll + n).min(max_scroll);
             }
             Mode::Diff(state) => {
-                let line_count = state
-                    .diff_result
-                    .files
-                    .get(state.selected_file)
-                    .map(|f| f.lines.len())
-                    .unwrap_or(0);
-                let max_scroll = line_count.saturating_sub(1);
-                state.scroll = (state.scroll + n).min(max_scroll);
+                state.scroll = (state.scroll + n).min(state.max_scroll());
             }
             Mode::Pick(state) => {
                 let max = state.filtered_indices.len().saturating_sub(1);
@@ -4023,6 +4009,52 @@ mod tests {
         app.start_ask("other".into(), endpoint, other, false);
         assert!(app.ask_panel.is_streaming());
         assert!(!app.ask_panel.cached);
+    }
+
+    #[test]
+    fn test_retry_after_failed_ask_does_not_replay_previous_request() {
+        let (_dir, mut app) = ask_diff_app();
+        fake_ask(&mut app, "answer about the page");
+        assert!(app.last_ask.is_some());
+        // Old-pane selection on an added-only row: no code on that side.
+        drag(&mut app, 5, 10, 10);
+        app.handle_key(KeyCode::Char('a'));
+        assert_eq!(
+            app.ask_panel.error.as_deref(),
+            Some("the selection has no code on this side")
+        );
+        assert!(app.last_ask.is_none());
+        app.handle_key(KeyCode::Char('r'));
+        assert!(
+            !app.ask_panel.is_streaming(),
+            "r must not resend the old request"
+        );
+        assert!(app.ask_panel.error.is_some());
+    }
+
+    #[test]
+    fn test_closed_panel_rect_does_not_swallow_pick_mouse() {
+        use crossterm::event::MouseEventKind;
+        let (_dir, mut app) = ask_test_app();
+        app.handle_key(KeyCode::Tab); // Pick → Diff
+        app.handle_key(KeyCode::Tab); // Diff → View, panel can stay open
+        render_to_lines(&mut app, 80, 30);
+        app.handle_key(KeyCode::Char('a'));
+        render_to_lines(&mut app, 80, 30);
+        let panel = app.ask_panel_area.expect("panel drawn");
+        app.back();
+        assert!(matches!(app.mode, Mode::Pick(_)));
+        assert!(!app.ask_panel.is_open());
+        // Even before the next frame, the stale rect must not capture input.
+        let before = match &app.mode {
+            Mode::Pick(s) => s.selected,
+            _ => unreachable!(),
+        };
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, 5, panel.y + 1));
+        let Mode::Pick(s) = &app.mode else { panic!() };
+        assert_eq!(s.selected, before + 1);
+        render_to_lines(&mut app, 80, 30);
+        assert!(app.ask_panel_area.is_none());
     }
 
     #[test]

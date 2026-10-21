@@ -12,6 +12,11 @@ pub struct Config {
     pub search: SearchConfig,
     #[serde(default)]
     pub ask: AskConfig,
+    /// Set when the config file exists but couldn't be read/parsed. The
+    /// app then runs on defaults and `save()` refuses to overwrite the
+    /// file, so a typo never wipes stored providers/keys.
+    #[serde(skip)]
+    pub load_error: Option<String>,
 }
 
 /// `[ask]`: LLM explain settings. Values set here win; anything left empty
@@ -147,29 +152,63 @@ impl Config {
         Ok(config)
     }
 
+    /// `load()`, falling back to defaults on error. The error is kept in
+    /// `load_error` (and logged) so saving stays disabled for the session.
+    pub fn load_or_default() -> Self {
+        match Self::load() {
+            Ok(config) => config,
+            Err(e) => {
+                let msg = format!("{e:#}");
+                tracing::warn!("{msg}; using defaults, config will not be saved");
+                Self {
+                    load_error: Some(msg),
+                    ..Self::default()
+                }
+            }
+        }
+    }
+
     pub fn save(&self) -> Result<()> {
-        let path = config_path();
+        self.save_to(&config_path())
+    }
+
+    fn save_to(&self, path: &std::path::Path) -> Result<()> {
+        if let Some(err) = &self.load_error {
+            anyhow::bail!("not saving: config failed to load ({err})");
+        }
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create config dir: {}", parent.display()))?;
         }
         let content = toml::to_string_pretty(self).context("failed to serialize config")?;
-        std::fs::write(&path, content)
+        write_private(path, content.as_bytes())
             .with_context(|| format!("failed to write config: {}", path.display()))?;
-        restrict_permissions(&path);
         Ok(())
     }
 }
 
-/// The config may hold API keys, so keep it owner-only.
+/// The config may hold API keys, so keep it owner-only — set before any
+/// bytes are written, so there is no window where the keys are readable.
 #[cfg(unix)]
-fn restrict_permissions(path: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+fn write_private(path: &std::path::Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    if path.exists() {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(content)
 }
 
 #[cfg(not(unix))]
-fn restrict_permissions(_path: &std::path::Path) {}
+fn write_private(path: &std::path::Path, content: &[u8]) -> std::io::Result<()> {
+    std::fs::write(path, content)
+}
 
 #[cfg(unix)]
 fn warn_if_readable_by_others(path: &std::path::Path, config: &Config) {
@@ -213,6 +252,7 @@ mod tests {
             ui: UiConfig::default(),
             search: SearchConfig::default(),
             ask: AskConfig::default(),
+            load_error: None,
         };
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
@@ -240,6 +280,41 @@ mod tests {
         let back: Config = toml::from_str(&toml::to_string_pretty(&config).unwrap()).unwrap();
         assert_eq!(back.ask.providers, config.ask.providers);
         assert_eq!(back.ask.provider, "deepseek");
+    }
+
+    #[test]
+    fn test_save_refuses_after_load_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "[ask.providers.x]\napi_key = \"keep\"\n").unwrap();
+        let broken = Config {
+            load_error: Some("bad detail".into()),
+            ..Config::default()
+        };
+        assert!(broken.save_to(&path).is_err());
+        assert!(std::fs::read_to_string(&path).unwrap().contains("keep"));
+    }
+
+    #[test]
+    fn test_bad_ask_value_is_a_load_error() {
+        assert!(toml::from_str::<Config>("[ask]\ndetail = \"Deep\"\n").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_save_writes_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        Config::default().save_to(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        let fresh = dir.path().join("new.toml");
+        Config::default().save_to(&fresh).unwrap();
+        let mode = std::fs::metadata(&fresh).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]

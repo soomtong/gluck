@@ -391,34 +391,30 @@ pub fn align_indices(lines: &[DiffLine]) -> Vec<(Option<usize>, Option<usize>)> 
     result
 }
 
-/// Map an aligned-index range to the `file.lines` range it covers on
-/// `side` (both sides when None). Empty when the side has no lines there.
-pub fn aligned_to_file_range(
+/// The `file.lines` indices shown by aligned pairs `lo..=hi` on `side`
+/// (both sides when None), sorted. Empty when that side has no lines there.
+pub fn aligned_to_file_indices(
     lines: &[DiffLine],
     lo: usize,
     hi: usize,
     side: Option<Side>,
-) -> std::ops::Range<usize> {
+) -> Vec<usize> {
     let aligned = align_indices(lines);
     let hi = hi.min(aligned.len().saturating_sub(1));
-    let picked = aligned
+    let mut picked: Vec<usize> = aligned
         .get(lo..=hi)
         .unwrap_or(&[])
         .iter()
-        .flat_map(|&(o, n)| {
-            let (o, n) = match side {
-                Some(Side::Old) => (o, None),
-                Some(Side::New) => (None, n),
-                None => (o, n),
-            };
-            o.into_iter().chain(n)
-        });
-    let (min, max) = picked.fold((usize::MAX, 0), |(a, b), i| (a.min(i), b.max(i)));
-    if min == usize::MAX {
-        0..0
-    } else {
-        min..max + 1
-    }
+        .flat_map(|&(o, n)| match side {
+            Some(Side::Old) => [o, None],
+            Some(Side::New) => [None, n],
+            None => [o, n],
+        })
+        .flatten()
+        .collect();
+    picked.sort_unstable();
+    picked.dedup();
+    picked
 }
 
 /// Returns the aligned-pair index shown on each row and the two panes'
@@ -672,7 +668,7 @@ mod tests {
     }
 
     #[test]
-    fn test_aligned_to_file_range_per_side() {
+    fn test_aligned_to_file_indices_per_side() {
         let lines = vec![
             DiffLine::Context {
                 old_line_no: 1,
@@ -696,10 +692,40 @@ mod tests {
             align_indices(&lines),
             vec![(Some(0), Some(0)), (Some(1), Some(2)), (None, Some(3))]
         );
-        assert_eq!(aligned_to_file_range(&lines, 1, 2, Some(Side::New)), 2..4);
-        assert_eq!(aligned_to_file_range(&lines, 1, 2, Some(Side::Old)), 1..2);
-        assert_eq!(aligned_to_file_range(&lines, 2, 2, Some(Side::Old)), 0..0);
-        assert_eq!(aligned_to_file_range(&lines, 0, 2, None), 0..4);
+        assert_eq!(
+            aligned_to_file_indices(&lines, 1, 2, Some(Side::New)),
+            vec![2, 3]
+        );
+        assert_eq!(
+            aligned_to_file_indices(&lines, 1, 2, Some(Side::Old)),
+            vec![1]
+        );
+        assert!(aligned_to_file_indices(&lines, 2, 2, Some(Side::Old)).is_empty());
+        assert_eq!(
+            aligned_to_file_indices(&lines, 0, 2, None),
+            vec![0, 1, 2, 3]
+        );
+        // Only the head of a removed/added block on screen: the rest of the
+        // removed run (index 3 here) must not be pulled in.
+        let block = vec![
+            DiffLine::Removed {
+                line_no: 1,
+                content: "r1".into(),
+            },
+            DiffLine::Removed {
+                line_no: 2,
+                content: "r2".into(),
+            },
+            DiffLine::Added {
+                line_no: 1,
+                content: "a1".into(),
+            },
+            DiffLine::Added {
+                line_no: 2,
+                content: "a2".into(),
+            },
+        ];
+        assert_eq!(aligned_to_file_indices(&block, 0, 0, None), vec![0, 2]);
     }
 
     #[test]

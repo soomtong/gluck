@@ -121,7 +121,7 @@ fn main() -> Result<()> {
         None => {}
     }
 
-    let config = Config::load().unwrap_or_default();
+    let config = Config::load_or_default();
     let mut app = App::new(repo, config)?;
     if cli.debug {
         app.debug_overlay = true;

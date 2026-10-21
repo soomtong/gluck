@@ -185,12 +185,13 @@ fn user_prompt(ctx: &AskContext, cfg: &AskConfig, detail: Detail) -> String {
     } else {
         "Format: one line per code line — line number, `|`, code."
     };
-    let fence = if ctx.is_diff { "diff" } else { lang };
+    let info = if ctx.is_diff { "diff" } else { lang };
+    let fence = fence_for(&[&ctx.code, &ctx.before, &ctx.after]);
     let block = |label: &str, body: &str| -> String {
         if body.is_empty() {
             String::new()
         } else {
-            format!("{label}:\n```{fence}\n{body}\n```\n\n")
+            format!("{label}:\n{fence}{info}\n{body}\n{fence}\n\n")
         }
     };
 
@@ -203,7 +204,7 @@ fn user_prompt(ctx: &AskContext, cfg: &AskConfig, detail: Detail) -> String {
     if ctx.truncated {
         code.push_str("\n… (truncated)");
     }
-    out.push_str(&format!("```{fence}\n{code}\n```\n\n"));
+    out.push_str(&format!("{fence}{info}\n{code}\n{fence}\n\n"));
     out.push_str(&block("Context after (not selected)", &ctx.after));
 
     out.push_str(&format!(
@@ -212,6 +213,18 @@ fn user_prompt(ctx: &AskContext, cfg: &AskConfig, detail: Detail) -> String {
         template(ctx, h, detail)
     ));
     out
+}
+
+/// A backtick fence longer than any backtick run in the shown code, so
+/// Markdown files or comments with their own ``` can't close it early.
+fn fence_for(bodies: &[&str]) -> String {
+    let longest = bodies
+        .iter()
+        .flat_map(|b| b.split(|c| c != '`'))
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    "`".repeat(longest.max(2) + 1)
 }
 
 pub fn build_messages(ctx: &AskContext, cfg: &AskConfig, detail: Detail) -> Vec<ChatMessage> {
@@ -257,7 +270,7 @@ mod tests {
                 content: "let x = g()?;".into(),
             }],
         };
-        context::diff_page(&commit(), &file, 0..1, 10_000)
+        context::diff_page(&commit(), &file, &[0], 10_000)
     }
 
     #[test]
@@ -319,6 +332,20 @@ mod tests {
         let msgs = build_messages(&diff_ctx(), &cfg, Detail::Normal);
         assert_eq!(msgs[0].content, "Be terse. Reply in English.");
         assert!(msgs[1].content.contains("## Summary"));
+    }
+
+    #[test]
+    fn test_fence_outgrows_backticks_in_code() {
+        let cfg = AskConfig::default();
+        let raw = "# Doc\n```rust\nfn a() {}\n```\n";
+        let ctx = context::file_page(&commit(), "README.md", raw, 0..4, false, 10_000);
+        let user = &build_messages(&ctx, &cfg, Detail::Normal)[1].content;
+        assert!(
+            user.contains("````markdown\n   1 | # Doc\n   2 | ```rust"),
+            "{user}"
+        );
+        assert!(user.contains("   4 | ```\n````\n"));
+        assert_eq!(fence_for(&["no ticks"]), "```");
     }
 
     #[test]

@@ -9,6 +9,11 @@ use std::time::Duration;
 /// Cap on how much of a streamed answer we accept.
 const MAX_STREAM_BYTES: u64 = 4 * 1024 * 1024;
 const ERROR_BODY_CHARS: usize = 400;
+/// The server must start answering (status + headers) within this.
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
+/// Upper bound for the whole streamed body. ureq has no per-chunk idle
+/// timeout, so this is what frees a worker stuck on a stalled stream.
+const BODY_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Default, PartialEq)]
 pub struct StreamEnd {
@@ -19,7 +24,9 @@ pub struct StreamEnd {
 }
 
 /// POST `request` and feed each content delta to `on_delta`; returning
-/// false from it stops reading.
+/// false from it stops reading. `on_delta` also gets `""` for every stream
+/// line without content (keep-alives, reasoning deltas) so a closed panel
+/// cancels promptly even before the first answer token.
 pub fn stream_chat(
     endpoint: &Endpoint,
     request: &ChatRequest,
@@ -29,8 +36,10 @@ pub fn stream_chat(
         // Keep non-2xx bodies so the provider's error message can be shown.
         .http_status_as_error(false)
         .timeout_connect(Some(Duration::from_secs(10)))
-        .timeout_global(None)
-        .timeout_recv_body(None)
+        .timeout_send_request(Some(Duration::from_secs(30)))
+        .timeout_send_body(Some(Duration::from_secs(30)))
+        .timeout_recv_response(Some(RESPONSE_TIMEOUT))
+        .timeout_recv_body(Some(BODY_TIMEOUT))
         .build()
         .into();
 
@@ -67,50 +76,68 @@ pub fn stream_chat(
 /// various OpenAI-compatible servers: `data:` with or without a space,
 /// `:` keep-alive comments, empty `choices` usage chunks, `null` content,
 /// reasoning deltas (ignored) and in-band `{"error": …}` payloads.
+///
+/// A stream that hits EOF without `[DONE]` or a `finish_reason` was cut
+/// off mid-answer and is an error, so a partial answer is never treated
+/// (and cached) as complete.
 pub fn parse_sse<R: BufRead>(
     reader: R,
     mut on_delta: impl FnMut(&str) -> bool,
 ) -> Result<StreamEnd, String> {
     let mut end = StreamEnd::default();
+    let mut finished = false;
     for line in reader.lines() {
         let line = line.map_err(|e| format!("stream read failed: {e}"))?;
         let line = line.trim_end_matches('\r');
-        let Some(data) = line.strip_prefix("data:") else {
-            continue;
-        };
-        let data = data.trim_start();
-        if data == "[DONE]" {
-            break;
-        }
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
-            continue;
-        };
-        if let Some(err) = value.get("error") {
-            let msg = err
-                .get("message")
-                .and_then(|m| m.as_str())
-                .map(str::to_string)
-                .unwrap_or_else(|| err.to_string());
-            return Err(format!("provider error: {msg}"));
-        }
-        let Some(choices) = value.get("choices").and_then(|c| c.as_array()) else {
-            continue;
-        };
-        for choice in choices {
-            if let Some(text) = choice
-                .get("delta")
-                .and_then(|d| d.get("content"))
-                .and_then(|c| c.as_str())
-            {
-                if !text.is_empty() && !on_delta(text) {
-                    end.cancelled = true;
-                    return Ok(end);
+        let mut had_content = false;
+        let mut stop = false;
+        if let Some(data) = line.strip_prefix("data:") {
+            let data = data.trim_start();
+            if data == "[DONE]" {
+                finished = true;
+                break;
+            }
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
+                if let Some(err) = value.get("error") {
+                    let msg = err
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| err.to_string());
+                    return Err(format!("provider error: {msg}"));
+                }
+                let choices = value.get("choices").and_then(|c| c.as_array());
+                for choice in choices.into_iter().flatten() {
+                    if let Some(text) = choice
+                        .get("delta")
+                        .and_then(|d| d.get("content"))
+                        .and_then(|c| c.as_str())
+                        .filter(|t| !t.is_empty())
+                    {
+                        had_content = true;
+                        stop |= !on_delta(text);
+                    }
+                    match choice.get("finish_reason").and_then(|f| f.as_str()) {
+                        Some("length") => {
+                            end.truncated = true;
+                            finished = true;
+                        }
+                        Some(_) => finished = true,
+                        None => {}
+                    }
                 }
             }
-            if choice.get("finish_reason").and_then(|f| f.as_str()) == Some("length") {
-                end.truncated = true;
-            }
         }
+        if !had_content {
+            stop |= !on_delta("");
+        }
+        if stop {
+            end.cancelled = true;
+            return Ok(end);
+        }
+    }
+    if !finished {
+        return Err("stream ended before the model finished (connection closed early)".into());
     }
     Ok(end)
 }
@@ -154,7 +181,8 @@ mod tests {
                      data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think\",\"content\":null}}]}\n\n\
                      data: {\"choices\":[],\"usage\":{\"total_tokens\":3}}\n\n\
                      data: {not json\n\n\
-                     data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n";
+                     data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n\
+                     data: [DONE]\n";
         let (res, out) = collect(input);
         assert!(res.is_ok());
         assert_eq!(out, "ok");
@@ -175,6 +203,36 @@ mod tests {
         let (res, out) = collect(input);
         assert_eq!(res, Err("provider error: rate limited".into()));
         assert_eq!(out, "a");
+    }
+
+    #[test]
+    fn test_parse_sse_eof_without_finish_is_error() {
+        let input = "data: {\"choices\":[{\"delta\":{\"content\":\"half an ans\"}}]}\n";
+        let (res, out) = collect(input);
+        assert!(res.unwrap_err().contains("ended before"));
+        assert_eq!(out, "half an ans");
+    }
+
+    #[test]
+    fn test_parse_sse_finish_reason_without_done_is_complete() {
+        let input =
+            "data: {\"choices\":[{\"delta\":{\"content\":\"a\"},\"finish_reason\":\"stop\"}]}\n";
+        let (res, _) = collect(input);
+        assert_eq!(res, Ok(StreamEnd::default()));
+    }
+
+    #[test]
+    fn test_parse_sse_cancels_on_keepalive_before_first_token() {
+        let input = ": keep-alive\n\
+                     data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"hmm\"}}]}\n\
+                     data: {\"choices\":[{\"delta\":{\"content\":\"never\"}}]}\n";
+        let mut calls = Vec::new();
+        let res = parse_sse(input.as_bytes(), |d| {
+            calls.push(d.to_string());
+            false
+        });
+        assert!(res.unwrap().cancelled);
+        assert_eq!(calls, vec![String::new()]);
     }
 
     #[test]
