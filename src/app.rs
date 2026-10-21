@@ -373,11 +373,11 @@ impl App {
             match code {
                 KeyCode::Char('h') if self.view_fold_or_parent() => return,
                 KeyCode::Char('l') if self.view_unfold_or_first_child() => return,
-                KeyCode::Char('L') => {
+                KeyCode::Char('L') | KeyCode::Right => {
                     self.view_jump_change(true);
                     return;
                 }
-                KeyCode::Char('H') => {
+                KeyCode::Char('H') | KeyCode::Left => {
                     self.view_jump_change(false);
                     return;
                 }
@@ -3271,6 +3271,19 @@ mod tests {
             panic!("expected view mode")
         };
         state.selected_entry().unwrap().path.clone()
+    }
+
+    #[test]
+    fn test_arrows_left_right_jump_changes_like_shift_hl() {
+        let (_dir, mut app) = test_app_with_dirs();
+        app.handle_key(KeyCode::Enter);
+        app.handle_key(KeyCode::Right);
+        assert_eq!(view_selected_path(&app), "src/lib.rs");
+        app.handle_key(KeyCode::Left);
+        assert_eq!(view_selected_path(&app), "src/lib.rs", "no earlier change");
+        // ↑/↓ still step through the tree one entry at a time.
+        app.handle_key(KeyCode::Down);
+        assert_ne!(view_selected_path(&app), "src/lib.rs");
     }
 
     #[test]

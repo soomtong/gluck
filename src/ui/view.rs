@@ -221,7 +221,7 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
         ("[h/l]", "fold"),
         ("[u/d]", "scroll"),
         ("[J/K]", "page"),
-        ("[H/L]", "change"),
+        ("[H/L/←/→]", "change"),
         ("[^P/^N]", "commit"),
         ("[.]", "ign"),
         ("[w]", "wrap"),
