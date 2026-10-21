@@ -223,7 +223,11 @@ model = "qwen2.5-coder:7b"
 - 사용자 결정 (리뷰 이후): config 파일에 provider/model/키를 명시 저장하는 것이 우선, 셸 env는 fallback.
 - 블로킹: `Ctrl+J/K` → `[`/`]`, `align_diff_lines` 비공개 의존 제거(선택을 `file.lines` 범위로 변환), ureq 3 `http_status_as_error(false)` + timeout 설정, `render_diff`의 `&mut App` 전환.
 - 변경: row_map 모드당 1개 + page 범위 계산에도 사용, cancel flag 대신 channel-per-request, Esc 우선순위 명시, SSE 관용 규칙, 프롬프트 배치/금지 규칙 강화, detail별 `max_tokens`.
-- MVP 제외: 응답 캐시, 드래그 자동 스크롤, Diff page extra context, `ui/selection.rs` 분리.
+- MVP 제외: 드래그 자동 스크롤, Diff page extra context, `ui/selection.rs` 분리.
+
+## 이후 추가 (사용자 결정)
+
+- 응답 캐시: 리뷰에서는 제외했지만, 패널을 닫았다가 같은 화면에서 다시 여는 경우 요청이 완전히 같으므로 도입. 키 = provider + base_url + 요청 JSON 전체(API 키 제외), 메모리 LRU 16개, 정상 종료된 답변만 저장, `r`은 캐시 무시 후 갱신.
 
 ## 후속
 

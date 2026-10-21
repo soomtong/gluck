@@ -29,8 +29,16 @@ pub fn render(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
             let tick = panel.started.elapsed().as_millis() / 100;
             SPINNER[tick as usize % SPINNER.len()].to_string()
         }
-        PanelStatus::Done if panel.truncated => "done (truncated)".to_string(),
-        PanelStatus::Done => "done".to_string(),
+        PanelStatus::Done => {
+            let mut s = "done".to_string();
+            if panel.truncated {
+                s.push_str(" (truncated)");
+            }
+            if panel.cached {
+                s.push_str(" · cached");
+            }
+            s
+        }
         PanelStatus::Failed => "error".to_string(),
         PanelStatus::Closed => String::new(),
     };

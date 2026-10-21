@@ -22,6 +22,11 @@ pub struct AskPanel {
     pub text: String,
     pub error: Option<String>,
     pub truncated: bool,
+    /// Served from the answer cache (no request was made).
+    pub cached: bool,
+    /// Answer-cache key of the in-flight request; the finished answer is
+    /// stored under it.
+    pub cache_key: Option<u64>,
     /// Markdown-highlighted `text`, filled once the stream is done.
     pub rendered: Vec<Line<'static>>,
     /// First visible row; clamped at render time.
@@ -49,6 +54,8 @@ impl AskPanel {
             text: String::new(),
             error: None,
             truncated: false,
+            cached: false,
+            cache_key: None,
             rendered: Vec::new(),
             scroll: 0,
             follow: true,
@@ -79,6 +86,15 @@ impl AskPanel {
         self.reset(title, label);
         self.status = PanelStatus::Streaming;
         self.rx = Some(rx);
+    }
+
+    /// Show a finished answer straight from the cache.
+    pub fn show_cached(&mut self, title: String, label: String, text: String, truncated: bool) {
+        self.reset(title, label);
+        self.status = PanelStatus::Done;
+        self.text = text;
+        self.truncated = truncated;
+        self.cached = true;
     }
 
     pub fn fail(&mut self, title: String, label: String, error: String) {

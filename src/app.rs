@@ -1,3 +1,4 @@
+use crate::ask::cache::{AnswerCache, CachedAnswer};
 use crate::ask::context::{self as ask_context, AskContext};
 use crate::ask::panel::AskPanel;
 use crate::ask::prompt::{self, Detail};
@@ -136,6 +137,7 @@ pub struct App {
     pub content_rows: Option<ContentRows>,
     pub selection: Option<Selection>,
     last_ask: Option<(String, Endpoint, ChatRequest)>,
+    pub ask_cache: AnswerCache,
 }
 
 impl App {
@@ -184,6 +186,7 @@ impl App {
             content_rows: None,
             selection: None,
             last_ask: None,
+            ask_cache: AnswerCache::new(crate::ask::cache::DEFAULT_CAPACITY),
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
@@ -556,19 +559,32 @@ impl App {
             Detail::Deep => format!("{} · deep", ctx.title()),
             _ => ctx.title(),
         };
-        self.start_ask(title, endpoint, request);
+        self.start_ask(title, endpoint, request, false);
     }
 
-    fn start_ask(&mut self, title: String, endpoint: Endpoint, request: ChatRequest) {
-        tracing::info!(target: "ask", "ask {} via {}", title, endpoint.label());
-        let rx = crate::ask::spawn_ask(endpoint.clone(), request.clone());
-        self.ask_panel.start(title.clone(), endpoint.label(), rx);
+    /// Serve an identical earlier request from the answer cache unless
+    /// `force` (retry), else stream a fresh answer.
+    fn start_ask(&mut self, title: String, endpoint: Endpoint, request: ChatRequest, force: bool) {
+        let key = AnswerCache::key(&endpoint, &request);
+        let hit = if force { None } else { self.ask_cache.get(key) };
+        if let Some(hit) = hit {
+            tracing::info!(target: "ask", "ask {} served from cache", title);
+            self.ask_panel
+                .show_cached(title.clone(), endpoint.label(), hit.text, hit.truncated);
+            self.ask_panel.rendered = self.highlight.highlight(&self.ask_panel.text, "ask.md");
+        } else {
+            tracing::info!(target: "ask", "ask {} via {}", title, endpoint.label());
+            let rx = crate::ask::spawn_ask(endpoint.clone(), request.clone());
+            self.ask_panel.start(title.clone(), endpoint.label(), rx);
+            self.ask_panel.cache_key = Some(key);
+        }
         self.last_ask = Some((title, endpoint, request));
     }
 
+    /// `r`: always re-request, refreshing the cached answer.
     fn retry_ask(&mut self) {
         if let Some((title, endpoint, request)) = self.last_ask.clone() {
-            self.start_ask(title, endpoint, request);
+            self.start_ask(title, endpoint, request, true);
         }
     }
 
@@ -662,10 +678,20 @@ impl App {
         self.ask_panel.is_streaming()
     }
 
-    /// Pull streamed deltas; once done, highlight the answer as Markdown.
+    /// Pull streamed deltas; once done, highlight the answer as Markdown
+    /// and cache it. Failed or abandoned streams are never cached.
     pub fn drain_ask_messages(&mut self) {
         if self.ask_panel.drain() {
             self.ask_panel.rendered = self.highlight.highlight(&self.ask_panel.text, "ask.md");
+            if let Some(key) = self.ask_panel.cache_key.take() {
+                self.ask_cache.insert(
+                    key,
+                    CachedAnswer {
+                        text: self.ask_panel.text.clone(),
+                        truncated: self.ask_panel.truncated,
+                    },
+                );
+            }
         }
     }
 
@@ -3944,6 +3970,78 @@ mod tests {
         app.handle_key(KeyCode::Char('j'));
         let Mode::View(s) = &app.mode else { panic!() };
         assert_eq!(s.selected_file, before + 1);
+    }
+
+    /// Stand-in for a provider: a fixed endpoint plus a fake stream.
+    fn fake_ask(app: &mut App, answer: &str) -> (Endpoint, ChatRequest) {
+        use crate::ask::provider::KeySource;
+        use crate::ask::AskMessage;
+        let endpoint = Endpoint {
+            provider: "fake".into(),
+            base_url: "http://127.0.0.1:9".into(),
+            model: "m".into(),
+            api_key: None,
+            key_source: KeySource::None,
+        };
+        let ctx = app.build_ask_context().unwrap();
+        let request = ChatRequest {
+            messages: prompt::build_messages(&ctx, &app.config.ask, Detail::Normal),
+            max_tokens: 10,
+            temperature: None,
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.ask_panel.start(ctx.title(), endpoint.label(), rx);
+        app.ask_panel.cache_key = Some(AnswerCache::key(&endpoint, &request));
+        app.last_ask = Some((ctx.title(), endpoint.clone(), request.clone()));
+        tx.send(AskMessage::Delta(answer.into())).unwrap();
+        tx.send(AskMessage::Done { truncated: false }).unwrap();
+        app.drain_ask_messages();
+        (endpoint, request)
+    }
+
+    #[test]
+    fn test_reopening_same_request_is_served_from_cache() {
+        use crate::ask::panel::PanelStatus;
+        let (_dir, mut app) = ask_diff_app();
+        let (endpoint, request) = fake_ask(&mut app, "## 요약\n- cached answer");
+        assert_eq!(app.ask_cache.len(), 1);
+        assert!(!app.ask_panel.cached);
+
+        app.handle_key(KeyCode::Esc);
+        assert!(!app.ask_panel.is_open());
+        app.start_ask("again".into(), endpoint.clone(), request.clone(), false);
+        assert_eq!(app.ask_panel.status, PanelStatus::Done);
+        assert!(app.ask_panel.cached);
+        assert_eq!(app.ask_panel.text, "## 요약\n- cached answer");
+        assert!(!app.ask_panel.rendered.is_empty());
+        let lines = render_to_lines(&mut app, 80, 30);
+        assert!(lines.iter().any(|l| l.contains("cached")));
+
+        // A different request (here: another detail level) misses.
+        let mut other = request.clone();
+        other.max_tokens = 99;
+        app.start_ask("other".into(), endpoint, other, false);
+        assert!(app.ask_panel.is_streaming());
+        assert!(!app.ask_panel.cached);
+    }
+
+    #[test]
+    fn test_retry_bypasses_cache_and_failed_streams_are_not_cached() {
+        use crate::ask::AskMessage;
+        let (_dir, mut app) = ask_diff_app();
+        fake_ask(&mut app, "first");
+        // r forces a fresh request even though the answer is cached.
+        app.handle_key(KeyCode::Char('r'));
+        assert!(app.ask_panel.is_streaming());
+        assert!(!app.ask_panel.cached);
+
+        // A failed stream leaves the cache untouched.
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.ask_panel.start("t".into(), "l".into(), rx);
+        app.ask_panel.cache_key = Some(42);
+        tx.send(AskMessage::Failed("boom".into())).unwrap();
+        app.drain_ask_messages();
+        assert_eq!(app.ask_cache.len(), 1);
     }
 
     #[test]

@@ -125,6 +125,7 @@ glc ignore          # 기본 제외 목록으로 .glcignore 생성 (--force: 덮
 - 마우스로 줄을 드래그해 선택한 뒤 `a`: 선택 블록을 구문 단위로 설명 (무엇을 하나 · 구문 해설 · 왜 이렇게 썼나 · 관련 개념). side-by-side에서는 드래그한 pane(old/new)의 코드만 보냅니다.
 - `A`: 같은 요청을 더 자세한 수준(`deep`)으로
 - 답변은 하단 패널에 스트리밍됩니다. `[` / `]`로 페이지 스크롤, 휠로 3줄 스크롤 (Diff 모드에서는 `j` / `k`가 평소 diff 1줄 스크롤이고, 패널이 열려 있는 동안은 답변 1줄 스크롤), `r` 재요청, `Esc` 닫기 (선택이 있으면 `Esc`가 먼저 선택을 해제)
+- 같은 화면/선택/수준으로 다시 물으면 최근 답변 16개를 담는 메모리 캐시에서 바로 보여 줍니다 (패널에 `cached` 표시, 추가 과금 없음). `r`은 캐시를 무시하고 새로 요청합니다.
 
 OpenAI 호환 Chat Completions API를 사용합니다 (OpenRouter, DeepSeek, Gemini, Groq, Cerebras, Mistral, OpenAI 프리셋, 로컬 Ollama 등). 설정 파일 `[ask]`의 값이 우선이고, 비어 있는 항목은 프리셋 기본값과 환경변수(`OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `MISTRAL_API_KEY`, `OPENAI_API_KEY`)로 채웁니다. `provider`를 비워 두면 이 순서대로 키가 있는 첫 프로바이더를 고릅니다. 요청할 때만 화면 내용이 전송되며, 패널 제목에 provider/model과 키 출처(config/env)가 표시됩니다.
 

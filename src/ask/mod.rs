@@ -3,6 +3,7 @@
 //! deltas back over a per-request channel; dropping the receiver (panel
 //! closed or replaced) stops the worker at its next chunk.
 
+pub mod cache;
 pub mod client;
 pub mod context;
 pub mod panel;
