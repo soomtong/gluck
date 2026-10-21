@@ -1,7 +1,7 @@
 //! Lisette language support for the tree-sitter parsing library.
 //!
 //! Vendored from <https://github.com/ivov/lisette> `editors/tree-sitter-lisette`
-//! (rev 33edb94a613d0fe9060973c77ebc01a1e6809130). Upstream ships a parser
+//! (rev 0c74a0f, see `UPSTREAM.md` for the sync steps). Upstream ships a parser
 //! generated at tree-sitter ABI 15, which this project's tree-sitter 0.23
 //! runtime cannot load — `src/parser.c` here is regenerated from the upstream
 //! `grammar.json` with tree-sitter CLI 0.23 (ABI 14; the grammar's `reserved`
