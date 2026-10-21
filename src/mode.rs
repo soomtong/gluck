@@ -317,6 +317,16 @@ impl DiffState {
             prev_view_file: 0,
         }
     }
+
+    /// Largest `scroll` for the selected file (its last diff line).
+    pub fn max_scroll(&self) -> usize {
+        self.diff_result
+            .files
+            .get(self.selected_file)
+            .map(|f| f.lines.len())
+            .unwrap_or(0)
+            .saturating_sub(1)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -337,6 +347,8 @@ pub enum Action {
     ScrollDown,
     ScrollUp,
     ToggleWrap,
+    Ask,
+    AskDeep,
 }
 
 #[derive(Debug, Clone)]
@@ -370,6 +382,8 @@ impl KeyBindings {
         bindings.insert(KeyCode::Char('s'), Action::SemanticSearch);
         bindings.insert(KeyCode::Char('I'), Action::ForceIndex);
         bindings.insert(KeyCode::Char('w'), Action::ToggleWrap);
+        bindings.insert(KeyCode::Char('a'), Action::Ask);
+        bindings.insert(KeyCode::Char('A'), Action::AskDeep);
         Self { bindings }
     }
 

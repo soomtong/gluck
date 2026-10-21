@@ -16,9 +16,11 @@ src/
 ├── cli.rs / config.rs          # clap CLI + ~/.config/gluck/config.toml
 ├── mode.rs                     # Mode enum, key bindings, action dispatch
 ├── theme.rs                    # 6 built-in palettes + highlight-map builder
+├── selection.rs                # line-granular mouse selection + per-frame content row map
 ├── debug.rs                    # tracing-subscriber init
 ├── lang.rs                     # Language enum + Path-based extension detection
 ├── git/                        # repo, commit, store (lazy 200-batch), tree, diff, cache (LRU)
+├── ask/                        # LLM explain: provider (config→preset→env), client (ureq SSE), prompt, context, panel
 ├── highlight/engine.rs         # tree-sitter-highlight for Rust + Markdown
 ├── search/
 │   ├── mod.rs                  # SearchEngine = BM25 + Vector + RRF fusion
@@ -30,7 +32,7 @@ src/
 │   ├── indexer.rs              # build_index(): walks HEAD, chunks, embeds, writes BM25+vectors
 │   ├── modal.rs                # Closed/Typing/Loading/Results state machine
 │   └── silence.rs              # Unix-only stderr redirect (suppress hf-hub progress bars)
-└── ui/                         # pick, view, diff, search_modal, layout
+└── ui/                         # pick, view, diff, search_modal, ask_panel, layout
 ```
 
 ## Commands
@@ -60,12 +62,14 @@ Pick ──Enter──→ View ──Tab──→ Diff
 ```
 
 - **Pick**: commit list + inline diff preview. `/` opens prefix search (CommitIndex tree). Lazy-loads 200-batches; prefetches when selection within 50 of end. `J`/`K` move `PickState.selected_diff_file` through the right-lower Files panel (reset on commit change); `Tab` carries that cursor into `DiffState.selected_file`, and `Esc` from Diff brings `DiffState.selected_file` back (clamped via `PickState::set_diff_file`).
-- **View**: file tree + syntax-highlighted content. `.` toggles gitignore filter. On a directory `Enter` toggles fold, `h` collapses (then jumps to parent), `l` expands (then steps into first child); on files `h`/`l` keep their Back/open bindings.
-- **Diff**: side-by-side default. `v` toggles unified. `h`/`l` and ←/→ navigate files.
+- **View**: file tree + syntax-highlighted content. `.` toggles gitignore filter. On a directory `Enter` toggles fold, `h` collapses (then jumps to parent), `l` expands (then steps into first child); on files `h`/`l` keep their Back/open bindings. `H`/`L` and ←/→ jump to the previous/next changed file; ↑/↓ move the tree selection.
+- **Diff**: side-by-side default. `v` toggles unified. `h`/`l` and ←/→ navigate files; `j`/`k` scroll the diff 1 line, `J`/`K` and ↑/↓ page, `u`/`d` `scroll_lines`.
 - **Word wrap**: `w` toggles `config.ui.word_wrap` (default on, persisted like theme) in View/Diff. Wrapping is done in `ui/wrap.rs::wrap_spans` (span-level, whitespace-preferring, unicode-width aware) so continuation rows get a blank gutter; ratatui `Wrap` is not used. `scroll` stays in logical lines. Side-by-side pads each aligned pair to the taller side's row count so panes stay in step. Diff panes now render only the `scroll..` window instead of `Paragraph::scroll`.
 - **Mouse**: capture enabled in `main.rs`. Wheel moves list selection (Pick, View tree) or scrolls content (View pane, Diff); click selects tree/commit rows (dirs toggle fold, Pick double-click opens View). Hit-testing uses panel `Rect`s + `ListState` offsets captured into `App` fields at render time — `App::render` takes `&mut self` for this.
 - **Ctrl+N/P** crosses commits while preserving selected file path.
 - **Ctrl+T** cycles theme and persists to config.
+- Ask (`a` / `A` deep, View/Diff): explains the visible page, or the mouse-dragged line selection, via an OpenAI-compatible `/chat/completions` stream on a worker thread (`ask::spawn_ask`, one channel per request — dropping the receiver cancels). Answer shows in a bottom drawer (`ui/ask_panel.rs`, 60/40 body split); `[`/`]` page-scroll the answer (panel height − 1; in Diff, `j`/`k` scroll it 1 line instead of the diff while the panel is open; View keeps `j`/`k` for the tree), `r` retry (bypasses + refreshes the cache), `Esc` closes. Finished answers go into `ask::cache::AnswerCache` (LRU 16, keyed by provider + base_url + exact request JSON, not the API key); identical re-asks show `cached` with no request. Failed/abandoned streams are never cached. `Esc` precedence: panel → selection → mode Back. Ctrl+J is avoided (arrives as Enter in legacy terminals).
+- Selection: renderers record `App.content_rows` (screen row → logical line). Logical lines are file lines (View), `file.lines` indices (unified), aligned-pair indices (side-by-side; `ui::diff::align_indices` / `aligned_to_file_range` convert). `ContentTarget` pins commit/file/view kind; `App::render` drops a stale selection. A press without drag clears it.
 
 ## Search systems (two separate)
 
@@ -95,8 +99,8 @@ Low-confidence flag: `SearchEngine::search_scored` returns `SearchOutcome { resu
 - One shared `HIGHLIGHT_NAMES` array drives all language configs via `.configure(HIGHLIGHT_NAMES)`. Adding a language: append names here AND add palette entries in `theme.rs::to_highlight_map()`.
 - `tree-sitter-markdown-fork` 0.7.3 doesn't export its highlight query — we embed `MARKDOWN_HIGHLIGHTS_QUERY` inline.
 - Highlighted languages: **Rust, Markdown, JSON, TypeScript, TSX, JavaScript, YAML, Swift, Bash (sh/bash/zsh), Zig, C, Asm (s/S/asm), linker scripts (ld/lds), Go, Lisette (lis)**. Extension detection goes through `lang::Language::from_path`; non-matching files fall back to plain text.
-- `tree-sitter-linkerscript` is vendored at `vendor/tree-sitter-linkerscript/` (crates.io release pins tree-sitter 0.20/cc 1.0 — incompatible); grammar sources are verbatim upstream, only the Rust bindings are modernized.
-- `tree-sitter-lisette` is vendored at `vendor/tree-sitter-lisette/` from ivov/lisette `editors/tree-sitter-lisette` (no crates.io release; upstream parser.c is ABI 15, ours is regenerated at ABI 14 with tree-sitter CLI 0.23 for the 0.23 runtime — regenerate the same way when syncing upstream).
+- `tree-sitter-linkerscript` is vendored at `vendor/tree-sitter-linkerscript/` (crates.io release pins tree-sitter 0.20/cc 1.0 — incompatible); grammar sources are verbatim upstream, only the Rust bindings are modernized. Synced commit + sync steps: `vendor/tree-sitter-linkerscript/UPSTREAM.md`.
+- `tree-sitter-lisette` is vendored at `vendor/tree-sitter-lisette/` from ivov/lisette `editors/tree-sitter-lisette` (no crates.io release; upstream parser.c is ABI 15, ours is regenerated at ABI 14 from the upstream `src/grammar.json` with tree-sitter CLI 0.23 for the 0.23 runtime — regenerate the same way when syncing upstream; it reproduces the vendored files byte for byte). Both vendored `build.rs` use `cc` `warnings(false)` (not per-flag `-Wno-*`, which MSVC drops) and watch `src/tree_sitter/`; lisette adds `-utf-8` on MSVC. Synced commit + sync steps: `vendor/tree-sitter-lisette/UPSTREAM.md`.
 
 ### Chunking
 
@@ -131,6 +135,8 @@ Low-confidence flag: `SearchEngine::search_scored` returns `SearchOutcome { resu
 
 - `~/.config/gluck/config.toml` (`dirs::config_dir()`). Sections: `[theme]`, `[ui]` (scroll_lines, word_wrap), `[search]` (index_dir, batch_size, max_file_bytes, result_limit).
 - Missing file → `Config::default()`; does NOT auto-create. Saved on theme cycle.
+- `[ask]` + `[ask.providers.<name>]`: config values win, empty ones fall back to the preset (`ask/provider.rs::PRESETS`) and its env var; empty `provider` auto-detects the first preset whose env key is set. `save()` writes the file 0600 from creation (keys may live there). `Config::load_or_default()` keeps a parse error in `load_error`; `save()` then refuses, so a typo (e.g. `detail = "Deep"`) can't wipe stored keys on the next theme save; `ProviderConfig`/`Endpoint` mask keys in `Debug`. App tests resolve with an empty env so they never hit a provider.
+- Diff line `content` keeps its trailing newline — strip it when serializing (`ask/context.rs::strip_eol`).
 
 ### Repo watch
 
@@ -146,6 +152,7 @@ Authoritative list lives in `Cargo.toml`. Non-obvious points:
 - `model2vec-rs` 0.2 with `hf-hub` feature pulls the embedding model at runtime on first index build.
 - `turbovec` 1.0 is pure Rust (no BLAS). Its TQ+ calibration is explicit: `VectorIndex::calibrate()` must run before the first `add` on a full build, or the index silently loses recall. Incremental updates reuse the calibration stored in the file and persist via `sync` (append-only). Warnings go through `turbovec::set_warning_hook` → `tracing` (`main.rs`).
 - `silence.rs` uses `libc::dup2` — porting to Windows requires a no-op fallback.
+- `ureq` 3 (Ask client) is configured with `http_status_as_error(false)` so provider error bodies survive. ureq has no per-chunk idle timeout, so the stream is bounded by `timeout_recv_response` (60s) + `timeout_recv_body` (300s); `parse_sse` also calls back with `""` on every non-content line so a closed panel cancels before the first token, and treats EOF without `[DONE]`/`finish_reason` as an error (never cached). `hf-hub` still pulls `ureq` 2 — two versions coexist.
 
 ## Planning artifacts
 

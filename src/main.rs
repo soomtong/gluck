@@ -121,7 +121,7 @@ fn main() -> Result<()> {
         None => {}
     }
 
-    let config = Config::load().unwrap_or_default();
+    let config = Config::load_or_default();
     let mut app = App::new(repo, config)?;
     if cli.debug {
         app.debug_overlay = true;
@@ -150,8 +150,9 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
             app.drain_engine_messages();
         }
         app.drain_search_results();
+        app.drain_ask_messages();
 
-        let timeout = if app.is_indexing() {
+        let timeout = if app.is_indexing() || app.ask_streaming() {
             Duration::from_millis(80)
         } else if app.pending_view_load.is_some() {
             // Wake up soon enough to run the debounced file load.

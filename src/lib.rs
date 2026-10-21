@@ -1,4 +1,5 @@
 pub mod app;
+pub mod ask;
 pub mod cli;
 pub mod config;
 pub mod debug;
@@ -7,5 +8,6 @@ pub mod highlight;
 pub mod lang;
 pub mod mode;
 pub mod search;
+pub mod selection;
 pub mod theme;
 pub mod ui;
