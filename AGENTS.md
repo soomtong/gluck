@@ -99,8 +99,8 @@ Low-confidence flag: `SearchEngine::search_scored` returns `SearchOutcome { resu
 - One shared `HIGHLIGHT_NAMES` array drives all language configs via `.configure(HIGHLIGHT_NAMES)`. Adding a language: append names here AND add palette entries in `theme.rs::to_highlight_map()`.
 - `tree-sitter-markdown-fork` 0.7.3 doesn't export its highlight query — we embed `MARKDOWN_HIGHLIGHTS_QUERY` inline.
 - Highlighted languages: **Rust, Markdown, JSON, TypeScript, TSX, JavaScript, YAML, Swift, Bash (sh/bash/zsh), Zig, C, Asm (s/S/asm), linker scripts (ld/lds), Go, Lisette (lis)**. Extension detection goes through `lang::Language::from_path`; non-matching files fall back to plain text.
-- `tree-sitter-linkerscript` is vendored at `vendor/tree-sitter-linkerscript/` (crates.io release pins tree-sitter 0.20/cc 1.0 — incompatible); grammar sources are verbatim upstream, only the Rust bindings are modernized.
-- `tree-sitter-lisette` is vendored at `vendor/tree-sitter-lisette/` from ivov/lisette `editors/tree-sitter-lisette` (no crates.io release; upstream parser.c is ABI 15, ours is regenerated at ABI 14 with tree-sitter CLI 0.23 for the 0.23 runtime — regenerate the same way when syncing upstream).
+- `tree-sitter-linkerscript` is vendored at `vendor/tree-sitter-linkerscript/` (crates.io release pins tree-sitter 0.20/cc 1.0 — incompatible); grammar sources are verbatim upstream, only the Rust bindings are modernized. Synced commit + sync steps: `vendor/tree-sitter-linkerscript/UPSTREAM.md`.
+- `tree-sitter-lisette` is vendored at `vendor/tree-sitter-lisette/` from ivov/lisette `editors/tree-sitter-lisette` (no crates.io release; upstream parser.c is ABI 15, ours is regenerated at ABI 14 with tree-sitter CLI 0.23 for the 0.23 runtime — regenerate the same way when syncing upstream). Synced commit + sync steps: `vendor/tree-sitter-lisette/UPSTREAM.md`.
 
 ### Chunking
 
