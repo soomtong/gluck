@@ -155,6 +155,16 @@ impl Palette {
         }
     }
 
+    /// Background tint for an added (`added`) or removed diff line, mixed
+    /// from `bg` and the change color; `strong` is the deeper tint for the
+    /// changed words inside a paired line. None when `bg` isn't RGB (plain
+    /// palette), which keeps the fg-colored diff.
+    pub fn diff_bg(&self, added: bool, strong: bool) -> Option<Color> {
+        let tint = if added { self.added } else { self.removed };
+        let ratio = if strong { 0.40 } else { 0.20 };
+        blend(self.bg, tint, ratio)
+    }
+
     pub fn highlight_style(&self) -> Style {
         Style::new().fg(self.accent_fg).bg(self.accent)
     }
@@ -220,6 +230,15 @@ impl Palette {
         m.insert("module".into(), Style::new().fg(self.syn_variable));
         m
     }
+}
+
+/// `base` moved `ratio` of the way toward `tint`; None unless both are RGB.
+fn blend(base: Color, tint: Color, ratio: f32) -> Option<Color> {
+    let (Color::Rgb(br, bg, bb), Color::Rgb(tr, tg, tb)) = (base, tint) else {
+        return None;
+    };
+    let mix = |b: u8, t: u8| (b as f32 + (t as f32 - b as f32) * ratio).round() as u8;
+    Some(Color::Rgb(mix(br, tr), mix(bg, tg), mix(bb, tb)))
 }
 
 pub type ThemeFactory = fn() -> Palette;
@@ -301,6 +320,29 @@ mod tests {
         let s = p.highlight_style();
         assert_eq!(s.fg, Some(Color::Black));
         assert_eq!(s.bg, Some(Color::White));
+    }
+
+    #[test]
+    fn test_diff_bg_tints_rgb_palettes_only() {
+        assert_eq!(Palette::plain().diff_bg(true, false), None);
+        for (name, factory) in THEMES.iter().skip(1) {
+            let p = factory();
+            let line = p.diff_bg(true, false).expect(name);
+            let word = p.diff_bg(true, true).expect(name);
+            assert_ne!(line, p.bg, "{name}: line tint must differ from bg");
+            assert_ne!(word, line, "{name}: word tint must differ from line tint");
+            assert_ne!(p.diff_bg(false, false), Some(line), "{name}");
+        }
+    }
+
+    #[test]
+    fn test_blend_endpoints() {
+        let a = Color::Rgb(0, 100, 200);
+        let b = Color::Rgb(200, 100, 0);
+        assert_eq!(blend(a, b, 0.0), Some(a));
+        assert_eq!(blend(a, b, 1.0), Some(b));
+        assert_eq!(blend(a, b, 0.5), Some(Color::Rgb(100, 100, 100)));
+        assert_eq!(blend(Color::Reset, b, 0.5), None);
     }
 
     #[test]

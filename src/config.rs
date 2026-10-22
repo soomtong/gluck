@@ -127,6 +127,9 @@ pub struct UiConfig {
     pub scroll_lines: usize,
     /// Soft-wrap long lines in the View and Diff panes (toggled with `w`).
     pub word_wrap: bool,
+    /// Diff mode "Advanced diff color": syntax-highlighted lines with a
+    /// tinted background instead of fg-colored plain text (toggled with `c`).
+    pub advanced_diff: bool,
 }
 
 impl Default for UiConfig {
@@ -134,6 +137,7 @@ impl Default for UiConfig {
         Self {
             scroll_lines: 3,
             word_wrap: true,
+            advanced_diff: true,
         }
     }
 }
@@ -265,6 +269,14 @@ mod tests {
         let config: Config = toml::from_str("[ui]\nword_wrap = false\n").unwrap();
         assert!(!config.ui.word_wrap);
         assert_eq!(config.ui.scroll_lines, 3);
+    }
+
+    #[test]
+    fn test_advanced_diff_defaults_on_and_parses() {
+        assert!(Config::default().ui.advanced_diff);
+        let config: Config = toml::from_str("[ui]\nadvanced_diff = false\n").unwrap();
+        assert!(!config.ui.advanced_diff);
+        assert!(config.ui.word_wrap, "other ui keys keep defaults");
     }
 
     #[test]
