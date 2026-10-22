@@ -122,6 +122,9 @@ pub struct App {
     pub repo_changed: bool,
     pub last_head_check: Instant,
     pub content_cache: FileContentCache,
+    /// Old/new blob highlights for the selected Diff file (Advanced diff
+    /// color); see `ensure_diff_highlight`.
+    pub diff_highlight: Option<crate::mode::DiffHighlight>,
     pub pending_view_load: Option<Instant>,
     // Panel geometry captured at render time for mouse hit-testing.
     pub view_tree_area: Option<Rect>,
@@ -174,6 +177,7 @@ impl App {
             repo_changed: false,
             last_head_check: Instant::now(),
             content_cache: FileContentCache::new(32),
+            diff_highlight: None,
             pending_view_load: None,
             view_tree_area: None,
             view_content_area: None,
@@ -409,6 +413,7 @@ impl App {
             Action::ScrollDown => self.scroll_down(),
             Action::ScrollUp => self.scroll_up(),
             Action::ToggleWrap => self.toggle_wrap(),
+            Action::ToggleDiffColor => self.toggle_diff_color(),
             Action::Ask => self.ask(None),
             Action::AskDeep => self.ask(Some(Detail::Deep)),
         }
@@ -1616,37 +1621,88 @@ impl App {
             return;
         };
 
-        let key = (commit.id, path.clone());
-        if let Some(content) = self.content_cache.get(&key) {
-            if let Mode::View(vs) = &mut self.mode {
-                vs.file_content = content;
-            }
-            return;
-        }
-
-        let binary = is_binary_blob(&self.repo, &commit, &path).unwrap_or(false);
-        let content = if binary {
-            crate::mode::FileContent::Binary
-        } else if let Ok(content) = read_blob(&self.repo, &commit, &path) {
-            let highlighted = if content.len() <= MAX_HIGHLIGHT_BYTES {
-                self.highlight.highlight(&content, &path)
-            } else {
-                HighlightEngine::plain_lines(&content)
-            };
-            crate::mode::FileContent::Text {
-                raw: content,
-                highlighted,
-            }
-        } else {
-            if let Mode::View(vs) = &mut self.mode {
-                vs.file_content = crate::mode::FileContent::NotLoaded;
-            }
-            return;
-        };
-
-        self.content_cache.insert(key, content.clone());
+        let content = self
+            .load_file_content(&commit, &path)
+            .unwrap_or(crate::mode::FileContent::NotLoaded);
         if let Mode::View(vs) = &mut self.mode {
             vs.file_content = content;
+        }
+    }
+
+    /// Read and highlight `path` at `commit`, through `content_cache`
+    /// (shared by View and Diff). None when the blob can't be read.
+    fn load_file_content(
+        &mut self,
+        commit: &CommitInfo,
+        path: &str,
+    ) -> Option<crate::mode::FileContent> {
+        let key = (commit.id, path.to_string());
+        if let Some(content) = self.content_cache.get(&key) {
+            return Some(content);
+        }
+        let content = if is_binary_blob(&self.repo, commit, path).unwrap_or(false) {
+            crate::mode::FileContent::Binary
+        } else {
+            let raw = read_blob(&self.repo, commit, path).ok()?;
+            let highlighted = if raw.len() <= MAX_HIGHLIGHT_BYTES {
+                self.highlight.highlight(&raw, path)
+            } else {
+                HighlightEngine::plain_lines(&raw)
+            };
+            crate::mode::FileContent::Text { raw, highlighted }
+        };
+        self.content_cache.insert(key, content.clone());
+        Some(content)
+    }
+
+    /// Whether the Diff view renders with Advanced diff color: the setting
+    /// is on and the palette can tint backgrounds.
+    pub fn advanced_diff(&self) -> bool {
+        self.config.ui.advanced_diff && self.palette.diff_bg(true, false).is_some()
+    }
+
+    /// Fill `diff_highlight` with the selected diff file's old/new blob
+    /// highlights. Called on every Diff render; a no-op while the
+    /// (from, to, file) key is unchanged or Advanced diff color is off.
+    pub fn ensure_diff_highlight(&mut self) {
+        if !self.advanced_diff() {
+            return;
+        }
+        let Mode::Diff(state) = &self.mode else {
+            return;
+        };
+        let key = (state.from.id, state.to.id, state.selected_file);
+        if self.diff_highlight.as_ref().is_some_and(|h| h.key == key) {
+            return;
+        }
+        let change = state
+            .diff_result
+            .files
+            .get(state.selected_file)
+            .and_then(|f| f.change.clone());
+        let (from, to) = (state.from.clone(), state.to.clone());
+        let lines = |content: Option<crate::mode::FileContent>| match content {
+            Some(crate::mode::FileContent::Text { highlighted, .. }) => Some(highlighted),
+            _ => None,
+        };
+        let old = change
+            .as_ref()
+            .and_then(|c| c.old_path())
+            .and_then(|p| lines(self.load_file_content(&from, p)));
+        let new = change
+            .as_ref()
+            .and_then(|c| c.new_path())
+            .and_then(|p| lines(self.load_file_content(&to, p)));
+        self.diff_highlight = Some(crate::mode::DiffHighlight { key, old, new });
+    }
+
+    fn toggle_diff_color(&mut self) {
+        if !matches!(self.mode, Mode::Diff(_)) {
+            return;
+        }
+        self.config.ui.advanced_diff = !self.config.ui.advanced_diff;
+        if !cfg!(test) {
+            let _ = self.config.save();
         }
     }
 
@@ -2100,6 +2156,7 @@ impl App {
         self.highlight.set_theme(self.palette.to_highlight_map());
         // Cached highlights carry the old palette.
         self.content_cache.clear();
+        self.diff_highlight = None;
         if let Mode::View(s) = &self.mode {
             let prev_scroll = s.scroll;
             self.load_view_file();
@@ -2108,7 +2165,9 @@ impl App {
             }
         }
         self.config.theme.name = self.theme_name.clone();
-        let _ = self.config.save();
+        if !cfg!(test) {
+            let _ = self.config.save();
+        }
     }
 }
 
@@ -2855,6 +2914,76 @@ mod tests {
         assert!(matches!(app.mode, Mode::Diff(_)));
         app.handle_key(KeyCode::Char('w'));
         assert!(app.config.ui.word_wrap);
+    }
+
+    fn advanced_diff_app() -> (tempfile::TempDir, App) {
+        let (dir, repo) = init_test_repo();
+        add_file_commit(
+            &repo,
+            "lib.rs",
+            b"/* start\n   inside\n*/\nfn a() {}\n",
+            "First",
+        );
+        add_file_commit(
+            &repo,
+            "lib.rs",
+            b"/* start\n   inside2\n*/\nfn b() {}\n",
+            "Second",
+        );
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut config = Config::default();
+        config.theme.name = "catppuccin".into();
+        let app = App::new(git_repo, config).unwrap();
+        (dir, app)
+    }
+
+    #[test]
+    fn test_ensure_diff_highlight_uses_full_blob_context() {
+        let (_dir, mut app) = advanced_diff_app();
+        app.handle_key(KeyCode::Enter);
+        app.handle_key(KeyCode::Tab);
+        assert!(matches!(app.mode, Mode::Diff(_)));
+        assert!(app.advanced_diff());
+        app.ensure_diff_highlight();
+        let hl = app.diff_highlight.as_ref().expect("highlight filled");
+        let (old, new) = (hl.old.as_ref().unwrap(), hl.new.as_ref().unwrap());
+        assert_eq!(old.len(), 4);
+        // Line 2 sits inside a block comment; only whole-file highlighting
+        // knows that.
+        let comment = Some(app.palette.syn_comment);
+        assert!(new[1].spans.iter().all(|s| s.style.fg == comment));
+        assert!(old[1].spans.iter().all(|s| s.style.fg == comment));
+    }
+
+    #[test]
+    fn test_toggle_diff_color_only_in_diff_mode() {
+        let (_dir, mut app) = advanced_diff_app();
+        app.handle_key(KeyCode::Char('c'));
+        assert!(app.config.ui.advanced_diff, "pick mode ignores c");
+        app.handle_key(KeyCode::Enter);
+        app.handle_key(KeyCode::Tab);
+        app.handle_key(KeyCode::Char('c'));
+        assert!(!app.config.ui.advanced_diff);
+        assert!(!app.advanced_diff());
+        app.ensure_diff_highlight();
+        assert!(app.diff_highlight.is_none(), "off skips highlighting");
+        app.handle_key(KeyCode::Char('c'));
+        app.ensure_diff_highlight();
+        assert!(app.diff_highlight.is_some());
+    }
+
+    #[test]
+    fn test_advanced_diff_off_for_plain_palette_and_reset_on_theme() {
+        let (_dir, mut app) = advanced_diff_app();
+        app.handle_key(KeyCode::Enter);
+        app.handle_key(KeyCode::Tab);
+        app.ensure_diff_highlight();
+        assert!(app.diff_highlight.is_some());
+        app.handle_ctrl_key(KeyCode::Char('t'));
+        assert!(app.diff_highlight.is_none(), "theme cycle drops old colors");
+        app.palette = crate::theme::Palette::plain();
+        assert!(app.config.ui.advanced_diff);
+        assert!(!app.advanced_diff());
     }
 
     #[test]

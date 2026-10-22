@@ -329,6 +329,17 @@ impl DiffState {
     }
 }
 
+/// Full-file highlights for both sides of one diff file, indexed by
+/// `line_no - 1`. A side is None when the file doesn't exist there or its
+/// blob is binary/unreadable.
+#[derive(Debug, Clone)]
+pub struct DiffHighlight {
+    /// (from commit, to commit, `diff_result.files` index)
+    pub key: (git2::Oid, git2::Oid, usize),
+    pub old: Option<Vec<Line<'static>>>,
+    pub new: Option<Vec<Line<'static>>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Action {
     MoveDown,
@@ -347,6 +358,7 @@ pub enum Action {
     ScrollDown,
     ScrollUp,
     ToggleWrap,
+    ToggleDiffColor,
     Ask,
     AskDeep,
 }
@@ -382,6 +394,7 @@ impl KeyBindings {
         bindings.insert(KeyCode::Char('s'), Action::SemanticSearch);
         bindings.insert(KeyCode::Char('I'), Action::ForceIndex);
         bindings.insert(KeyCode::Char('w'), Action::ToggleWrap);
+        bindings.insert(KeyCode::Char('c'), Action::ToggleDiffColor);
         bindings.insert(KeyCode::Char('a'), Action::Ask);
         bindings.insert(KeyCode::Char('A'), Action::AskDeep);
         Self { bindings }
@@ -419,6 +432,10 @@ mod tests {
         assert_eq!(kb.resolve(KeyCode::Enter), Some(Action::Enter));
         assert_eq!(kb.resolve(KeyCode::Esc), Some(Action::Back));
         assert_eq!(kb.resolve(KeyCode::Char('w')), Some(Action::ToggleWrap));
+        assert_eq!(
+            kb.resolve(KeyCode::Char('c')),
+            Some(Action::ToggleDiffColor)
+        );
         assert_eq!(kb.resolve(KeyCode::Char('x')), None);
     }
 
