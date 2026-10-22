@@ -119,6 +119,7 @@ Low-confidence flag: `SearchEngine::search_scored` returns `SearchOutcome { resu
 - j/k navigation defers loading: `request_view_file_load()` shows `FileContent::Loading` and arms `pending_view_load`; the main loop's `tick_pending_view_load()` loads after `VIEW_LOAD_DEBOUNCE` (60ms) of quiet, so held keys skip intermediate files. `Enter`/commit-switch paths still call `load_view_file()` directly.
 - Loaded content is LRU-cached in `App.content_cache` keyed `(commit oid, path)` — cleared on theme cycle. Files over `MAX_HIGHLIGHT_BYTES` (256KB) skip tree-sitter and render via `HighlightEngine::plain_lines`.
 - The content pane renders only the `scroll..scroll+height` window (no `Paragraph::scroll`) — cloning every line per frame stalls large files.
+- Wide (CJK) graphemes: ratatui keeps the trailing cell blank and its diff skips it while it stays blank, but terminals erase that half themselves (keeping the old bg) when the lead cell is overwritten → one-cell ghosts. `main.rs` keeps the previous frame and `ui/repaint.rs::force_wide_trails` marks those trailing cells `CellDiffOption::AlwaysUpdate`.
 - Search modal is a 70%×60% centered overlay using `Clear` widget. Debug overlay (`Ctrl+D`) renders top-right.
 
 ### CommitStore batching

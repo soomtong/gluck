@@ -136,12 +136,21 @@ fn main() -> Result<()> {
 }
 
 fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
+    // Last frame, to repaint cells wide graphemes leave behind.
+    let mut prev_frame: Option<ratatui::buffer::Buffer> = None;
     loop {
         if app.needs_clear {
             terminal.clear()?;
             app.needs_clear = false;
+            prev_frame = None;
         }
-        terminal.draw(|f| app.render(f))?;
+        terminal.draw(|f| {
+            app.render(f);
+            if let Some(prev) = &prev_frame {
+                gluck::ui::repaint::force_wide_trails(prev, f.buffer_mut());
+            }
+            prev_frame = Some(f.buffer_mut().clone());
+        })?;
 
         app.poll_repo_watch();
 
