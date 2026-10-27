@@ -290,8 +290,30 @@ gluck은 git history를 타임라인으로 삼아, 각 시점의 파일을 읽�
 
 ### Syntax Highlight
 
-- 주요 언어 syntax highlight
-- 터미널 색상 테마 지원
+- tree-sitter 기반 syntax highlight, 터미널 색상 테마 지원
+- 지원 언어
+  - 시스템: C, C++, Zig, Rust, Odin, Go, Assembly, GNU linker script, LLVM IR
+  - 스크립트: Python, Ruby, Lua, JavaScript, TypeScript/TSX (node, bun), Bash/Zsh, PHP
+  - JVM: Java, Kotlin, Scala, Clojure
+  - BEAM: Erlang, Elixir, Gleam
+  - 기타: Janet, Swift, Lisette, Markdown, JSON, YAML
+- 지원하지 않는 확장자는 plain text로 표시
+
+#### grammar를 정적 링크하는 이유
+
+모든 grammar는 `glc` 바이너리 하나에 정적으로 링크된다. 그래서 grammar가 늘수록 바이너리가 커진다. 위 언어 목록 기준 release 빌드는 약 52MB이고, 그중 Kotlin, Scala, C++, Ruby, Odin, PHP, Elixir, LLVM IR이 약 24MB를 차지한다.
+
+크기의 대부분은 tree-sitter parse table이다. grammar마다 `parser.c` 안에 거대한 상수 배열로 생성되므로, strip으로 디버그 심볼을 없애도 3MB 정도만 줄어든다.
+
+Helix도 tree-sitter를 쓰지만 `hx` 바이너리(약 27MB)에는 parser가 들어 있지 않다. grammar는 `runtime/grammars/*.so`로 따로 빌드되고(25.07.1 기준 245개, 195MB), 필요한 언어만 실행 중에 동적 로딩한다. 같은 grammar는 Helix의 `.so`와 gluck에 링크된 결과물이 거의 같은 크기다(예: Kotlin 약 5.5MB). 크기를 바이너리에서 runtime 디렉터리로 옮긴 차이일 뿐이다.
+
+gluck은 아래 이유로 정적 링크를 유지한다.
+
+- 파일 하나로 배포된다. Homebrew tap, Windows 빌드, `cargo install`에 grammar 빌드나 배포 단계가 필요 없다.
+- 설치 크기 전체로 보면 오히려 작다. 52MB이고, Helix는 바이너리와 runtime을 합쳐 약 220MB다.
+- 동적 로딩으로 바꾸려면 grammar별 `.dylib`/`.dll` 빌드, 설치 경로 관리, `libloading`, release workflow와 Homebrew formula 변경이 함께 필요하다.
+
+크기가 문제가 되면 먼저 큰 grammar를 cargo feature로 분리하는 방안을 검토하고, 동적 로딩은 그다음에 별도 설계로 다룬다.
 
 ## 사용 시나리오
 
