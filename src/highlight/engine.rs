@@ -37,7 +37,7 @@ impl HighlightEngine {
         };
 
         let mut highlighter = Highlighter::new();
-        let events = match highlighter.highlight(config, source.as_bytes(), None, |_| None) {
+        let events = match highlighter.highlight(config, source.as_bytes(), None, None, |_| None) {
             Ok(e) => e,
             Err(_) => return Self::plain_lines(source),
         };
