@@ -1,6 +1,6 @@
 [package]
 name = "gluck"
-version = "0.17.0"
+version = "0.18.0"
 edition = "2021"
 
 [[bin]]
@@ -16,8 +16,9 @@ clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
-tree-sitter = "0.23"
-tree-sitter-highlight = "0.23"
+tree-sitter = "0.27"
+tree-sitter-highlight = "0.27"
+streaming-iterator = "0.1"
 tree-sitter-rust = "0.23"
 tree-sitter-python = "0.23"
 tree-sitter-javascript = "0.23"
@@ -45,6 +46,7 @@ tree-sitter-c = "0.23"
 tree-sitter-asm = "0.24"
 tree-sitter-linkerscript = { path = "vendor/tree-sitter-linkerscript" }
 tree-sitter-lisette = { path = "vendor/tree-sitter-lisette" }
+tree-sitter-gleam = { git = "https://github.com/gleam-lang/tree-sitter-gleam", rev = "fa6d0d94" }
 ignore = "0.4"
 strsim = "0.11"
 ureq = "3"

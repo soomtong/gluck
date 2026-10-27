@@ -37,7 +37,7 @@ impl HighlightEngine {
         };
 
         let mut highlighter = Highlighter::new();
-        let events = match highlighter.highlight(config, source.as_bytes(), None, |_| None) {
+        let events = match highlighter.highlight(config, source.as_bytes(), None, None, |_| None) {
             Ok(e) => e,
             Err(_) => return Self::plain_lines(source),
         };
@@ -170,6 +170,9 @@ impl HighlightEngine {
         }
         if let Ok(config) = Self::make_lisette_config() {
             self.configs.insert("lisette".to_string(), config);
+        }
+        if let Ok(config) = Self::make_gleam_config() {
+            self.configs.insert("gleam".to_string(), config);
         }
     }
 
@@ -344,6 +347,21 @@ impl HighlightEngine {
             tree_sitter_lisette::HIGHLIGHTS_QUERY,
             "",
             "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    // Locals drive the query's `#is-not? local` predicates and parameter
+    // tracking; the doc-comment markdown injection is skipped since we never
+    // resolve injected languages.
+    fn make_gleam_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_gleam::LANGUAGE.into(),
+            "gleam",
+            tree_sitter_gleam::HIGHLIGHTS_QUERY,
+            "",
+            tree_sitter_gleam::LOCALS_QUERY,
         )?;
         config.configure(HIGHLIGHT_NAMES);
         Ok(config)
@@ -1072,6 +1090,52 @@ mod tests {
             "expected `fn`/`let`/`mut`/`match` to be keyword-colored in lisette, got spans: {:#?}",
             lines
         );
+    }
+
+    const GLEAM_SAMPLE: &str = "import gleam/io\n\nconst limit = 10\n\npub fn main() -> Nil {\n  let pets = [Dog(\"rex\", 3)]\n  case pets {\n    [] -> todo\n    _ -> io.println(\"hi\")\n  }\n}\n";
+
+    fn gleam_span_fg(lines: &[Line<'static>], text: &str) -> Option<ratatui::style::Color> {
+        lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .find(|s| s.content.as_ref() == text)
+            .and_then(|s| s.style.fg)
+    }
+
+    #[test]
+    fn test_gleam_keywords_are_colored() {
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(crate::theme::Palette::plain().to_highlight_map());
+        let lines = engine.highlight(GLEAM_SAMPLE, "src/app.gleam");
+        let keyword_spans: Vec<_> = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| {
+                ["import", "const", "pub", "fn", "let", "case", "todo"]
+                    .contains(&s.content.as_ref())
+                    && s.style.fg.is_some()
+            })
+            .collect();
+        assert!(
+            keyword_spans.len() >= 7,
+            "expected gleam keywords to be colored, got spans: {:#?}",
+            lines
+        );
+    }
+
+    #[test]
+    fn test_gleam_names_beat_variable_catch_all() {
+        // The query starts with an `(identifier) @variable` catch-all; later,
+        // more specific patterns must win for definitions and module calls.
+        let palette = crate::theme::Palette::plain();
+        let mut engine = HighlightEngine::new();
+        engine.set_theme(palette.to_highlight_map());
+        let lines = engine.highlight(GLEAM_SAMPLE, "src/app.gleam");
+        assert_eq!(gleam_span_fg(&lines, "main"), Some(palette.syn_function));
+        assert_eq!(gleam_span_fg(&lines, "println"), Some(palette.syn_function));
+        assert_eq!(gleam_span_fg(&lines, "limit"), Some(palette.syn_constant));
+        assert_eq!(gleam_span_fg(&lines, "Dog"), Some(palette.syn_type));
+        assert_eq!(gleam_span_fg(&lines, "\"rex\""), Some(palette.syn_string));
     }
 
     #[test]

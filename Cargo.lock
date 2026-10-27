@@ -1018,7 +1018,7 @@ dependencies = [
 
 [[package]]
 name = "gluck"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1034,6 +1034,7 @@ dependencies = [
  "ratatui",
  "serde",
  "serde_json",
+ "streaming-iterator",
  "strsim",
  "tantivy",
  "tempfile",
@@ -1045,6 +1046,7 @@ dependencies = [
  "tree-sitter-asm",
  "tree-sitter-bash",
  "tree-sitter-c",
+ "tree-sitter-gleam",
  "tree-sitter-go",
  "tree-sitter-highlight",
  "tree-sitter-javascript",
@@ -2598,6 +2600,7 @@ version = "1.0.150"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -2763,6 +2766,12 @@ dependencies = [
  "num-traits",
  "rand 0.8.6",
 ]
+
+[[package]]
+name = "streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
 
 [[package]]
 name = "strsim"
@@ -3282,13 +3291,14 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter"
-version = "0.23.2"
+version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0203df02a3b6dd63575cc1d6e609edc2181c9a11867a271b25cfd2abff3ec5ca"
+checksum = "a5129de2ccc97808c4583d48f1fb44576d015cf241e432800572bda11ef30c3b"
 dependencies = [
  "cc",
  "regex",
- "regex-syntax",
+ "serde_json",
+ "streaming-iterator",
  "tree-sitter-language",
 ]
 
@@ -3323,6 +3333,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-gleam"
+version = "1.0.0"
+source = "git+https://github.com/gleam-lang/tree-sitter-gleam?rev=fa6d0d94#fa6d0d94804f1b342e175865a3dbeb316ee5115e"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-go"
 version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3334,13 +3353,13 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-highlight"
-version = "0.23.2"
+version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "380a7706376fa6c52ba7bf71d1e7a93856ee8ab08a7680631dfa664fdd237d66"
+checksum = "0ce02900ff89b5a17054d4be0f4cb9a9ba3fbb6c02c72cc76fb86bf14a6e6f6a"
 dependencies = [
- "lazy_static",
  "regex",
- "thiserror 1.0.69",
+ "streaming-iterator",
+ "thiserror 2.0.18",
  "tree-sitter",
 ]
 
@@ -3366,9 +3385,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-language"
-version = "0.1.7"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+checksum = "d0af592be68c579aa78a16846bd19422978c3c52e438523d45ff5d1bff1f9d4a"
 
 [[package]]
 name = "tree-sitter-linkerscript"

@@ -1,4 +1,5 @@
 use std::sync::OnceLock;
+use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language as TsLanguage, Parser, Query, QueryCursor};
 
 use super::ChunkError;
@@ -46,10 +47,10 @@ pub fn extract_symbols(source: &str, language: Language) -> Result<Vec<SymbolSpa
         })?;
 
     let mut cursor = QueryCursor::new();
-    let matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+    let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
     let mut spans = Vec::new();
-    for m in matches {
-        if let Some(s) = build_symbol_span(&m, query, source) {
+    while let Some(m) = matches.next() {
+        if let Some(s) = build_symbol_span(m, query, source) {
             spans.push(s);
         }
     }
@@ -64,7 +65,7 @@ fn build_symbol_span(
     let mut symbol_node = None;
     let mut name_node = None;
     let mut kind = SymbolKind::Other;
-    for cap in m.captures {
+    for cap in m.captures() {
         let cap_name = query.capture_names()[cap.index as usize];
         match cap_name {
             "symbol.function" => {
