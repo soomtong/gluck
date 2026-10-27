@@ -158,8 +158,8 @@ OpenAI 호환 Chat Completions API를 사용합니다 (OpenRouter, DeepSeek, Gem
 `glc index`는 커밋 메시지와 HEAD의 파일을 대상으로 인덱스를 빌드합니다.
 
 - **커밋 메시지**: 제목과 본문을 인덱싱. 임베딩에는 그 커밋이 바꾼 파일 경로(최대 20개)를 덧붙여 "어느 파일을 고친 커밋인지"도 의미 검색에 반영
-- **파일**: 8KB 이하는 전체 파일(`WholeFile`), 그보다 크면 tree-sitter로 심볼(함수, 메서드, 타입) 단위로 분할하여 인덱싱
-- 심볼 추출 지원 언어: Rust, Python, JavaScript, TypeScript, TSX, Go. 그 외 파일은 크기 기준으로만 분할
+- **파일**: 16KB 미만은 전체 파일(`WholeFile`), 그보다 크면 tree-sitter로 심볼(함수, 메서드, 타입) 단위로 분할하여 인덱싱
+- 심볼 추출 지원 언어: Rust, Python, JavaScript, TypeScript, TSX, Go, Swift. 그 외 파일은 크기 기준으로만 분할
 
 ### 인덱싱 제외 (`.glcignore`)
 

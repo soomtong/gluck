@@ -108,7 +108,6 @@ cargo run --bin glc -- report [--out FILE.md]    # search quality regression che
 - Design specs → `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
 - Implementation plans → `docs/superpowers/plans/YYYY-MM-DD-<feature>.md`
 - Current-cycle plans → `docs/plans/`; search reports → `docs/reports/`
-- Never save to `.opencode/plans/`.
 
 ## CI
 
