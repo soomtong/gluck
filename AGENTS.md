@@ -44,7 +44,7 @@ cargo run --bin glc -- ignore [--force]          # write default .glcignore (glc
 cargo run --bin glc -- report [--out FILE.md]    # search quality + perf report
 cargo test [name]
 cargo clippy                                     # CI: --all-targets -D warnings
-rustfmt src/<changed>.rs                         # repo has formatting debt; format only what you touch
+cargo fmt --all                                  # CI: cargo fmt --all -- --check
 ```
 
 ## Test conventions
@@ -177,5 +177,5 @@ Authoritative list lives in `Cargo.toml`. Non-obvious points:
 ## Conventions
 
 - Commit messages in Korean, code identifiers/comments in English.
-- `cargo fmt --check` fails on legacy files — format only files you touch.
+- The whole repo is rustfmt-clean and CI enforces it (`cargo fmt --all -- --check`) — run `cargo fmt --all` before committing.
 - `.gitignore` covers `target/`, `*.log`, `.DS_Store`, `.glc-index/`.
