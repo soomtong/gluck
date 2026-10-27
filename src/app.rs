@@ -456,11 +456,7 @@ impl App {
             MouseEventKind::ScrollDown => self.mouse_scroll(ev.column, ev.row, true),
             MouseEventKind::ScrollUp => self.mouse_scroll(ev.column, ev.row, false),
             MouseEventKind::Down(MouseButton::Left) if in_panel => {}
-            MouseEventKind::Down(MouseButton::Left) => {
-                if !self.selection_press(ev.column, ev.row) {
-                    self.mouse_click(ev.column, ev.row);
-                }
-            }
+            MouseEventKind::Down(MouseButton::Left) => self.mouse_press(ev.column, ev.row),
             MouseEventKind::Drag(MouseButton::Left) => self.selection_drag(ev.column, ev.row),
             MouseEventKind::Up(MouseButton::Left) => self.selection_release(),
             _ => {}
@@ -481,6 +477,14 @@ impl App {
                 side_by_side: s.side_by_side,
             }),
             Mode::Pick(_) => None,
+        }
+    }
+
+    /// Left press: starts a selection in the content pane, otherwise a
+    /// regular click (tree/list row).
+    fn mouse_press(&mut self, col: u16, row: u16) {
+        if !self.selection_press(col, row) {
+            self.mouse_click(col, row);
         }
     }
 
