@@ -24,20 +24,40 @@ pub enum Language {
     LinkerScript,
     Lisette,
     Gleam,
+    Ruby,
+    Lua,
+    Kotlin,
+    Scala,
+    Elixir,
+    Erlang,
+    Odin,
+    Php,
+    LlvmIr,
+    Clojure,
+    Janet,
 }
 
 impl Language {
     pub fn from_path(path: &str) -> Option<Self> {
-        let ext = Path::new(path).extension().and_then(|e| e.to_str())?;
+        let path = Path::new(path);
+        if let Some(lang) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(Self::from_file_name)
+        {
+            return Some(lang);
+        }
+        let ext = path.extension().and_then(|e| e.to_str())?;
         match ext {
             "rs" => Some(Self::Rust),
-            "py" => Some(Self::Python),
+            "py" | "pyi" => Some(Self::Python),
             "js" | "mjs" => Some(Self::JavaScript),
             "ts" => Some(Self::TypeScript),
             "tsx" => Some(Self::Tsx),
             "go" => Some(Self::Go),
             "c" | "h" => Some(Self::C),
-            "cpp" | "cc" | "cxx" | "hpp" => Some(Self::Cpp),
+            "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" | "ipp" | "tpp"
+            | "cppm" | "ixx" => Some(Self::Cpp),
             "java" => Some(Self::Java),
             "sh" | "bash" | "zsh" => Some(Self::Bash),
             "zig" => Some(Self::Zig),
@@ -45,6 +65,17 @@ impl Language {
             "ld" | "lds" => Some(Self::LinkerScript),
             "lis" => Some(Self::Lisette),
             "gleam" => Some(Self::Gleam),
+            "rb" | "rake" | "gemspec" | "ru" => Some(Self::Ruby),
+            "lua" => Some(Self::Lua),
+            "kt" | "kts" => Some(Self::Kotlin),
+            "scala" | "sc" | "sbt" => Some(Self::Scala),
+            "ex" | "exs" => Some(Self::Elixir),
+            "erl" | "hrl" | "escript" => Some(Self::Erlang),
+            "odin" => Some(Self::Odin),
+            "php" | "phtml" => Some(Self::Php),
+            "ll" => Some(Self::LlvmIr),
+            "clj" | "cljs" | "cljc" | "edn" | "bb" => Some(Self::Clojure),
+            "janet" | "jdn" => Some(Self::Janet),
             "toml" => Some(Self::Toml),
             "json" | "jsonc" => Some(Self::Json),
             "yaml" | "yml" => Some(Self::Yaml),
@@ -80,6 +111,26 @@ impl Language {
             Self::LinkerScript => "linkerscript",
             Self::Lisette => "lisette",
             Self::Gleam => "gleam",
+            Self::Ruby => "ruby",
+            Self::Lua => "lua",
+            Self::Kotlin => "kotlin",
+            Self::Scala => "scala",
+            Self::Elixir => "elixir",
+            Self::Erlang => "erlang",
+            Self::Odin => "odin",
+            Self::Php => "php",
+            Self::LlvmIr => "llvm",
+            Self::Clojure => "clojure",
+            Self::Janet => "janet",
+        }
+    }
+
+    /// Extension-less files whose name alone identifies the language.
+    fn from_file_name(name: &str) -> Option<Self> {
+        match name {
+            "Rakefile" | "Gemfile" => Some(Self::Ruby),
+            "rebar.config" => Some(Self::Erlang),
+            _ => None,
         }
     }
 
@@ -176,5 +227,50 @@ mod tests {
     fn detects_gleam() {
         assert_eq!(Language::from_path("src/app.gleam"), Some(Language::Gleam));
         assert!(!Language::Gleam.supports_symbol_chunking());
+    }
+
+    #[test]
+    fn detects_batch_one_languages() {
+        assert_eq!(Language::from_path("stubs.pyi"), Some(Language::Python));
+        assert_eq!(Language::from_path("vec.hh"), Some(Language::Cpp));
+        assert_eq!(Language::from_path("mod.cppm"), Some(Language::Cpp));
+        assert_eq!(Language::from_path("Main.java"), Some(Language::Java));
+        assert_eq!(Language::from_path("app.rb"), Some(Language::Ruby));
+        assert_eq!(Language::from_path("gluck.gemspec"), Some(Language::Ruby));
+        assert_eq!(Language::from_path("Rakefile"), Some(Language::Ruby));
+        assert_eq!(Language::from_path("sub/Gemfile"), Some(Language::Ruby));
+        assert_eq!(Language::from_path("init.lua"), Some(Language::Lua));
+        assert!(!Language::Ruby.supports_symbol_chunking());
+        assert!(!Language::Lua.supports_symbol_chunking());
+    }
+
+    #[test]
+    fn detects_batch_two_languages() {
+        assert_eq!(Language::from_path("Main.kt"), Some(Language::Kotlin));
+        assert_eq!(
+            Language::from_path("build.gradle.kts"),
+            Some(Language::Kotlin)
+        );
+        assert_eq!(Language::from_path("App.scala"), Some(Language::Scala));
+        assert_eq!(Language::from_path("build.sbt"), Some(Language::Scala));
+        assert_eq!(Language::from_path("lib/app.ex"), Some(Language::Elixir));
+        assert_eq!(Language::from_path("mix.exs"), Some(Language::Elixir));
+        assert_eq!(Language::from_path("src/app.erl"), Some(Language::Erlang));
+        assert_eq!(Language::from_path("rebar.config"), Some(Language::Erlang));
+        assert_eq!(Language::from_path("main.odin"), Some(Language::Odin));
+        assert_eq!(Language::from_path("index.php"), Some(Language::Php));
+        assert_eq!(Language::from_path("add.ll"), Some(Language::LlvmIr));
+    }
+
+    #[test]
+    fn detects_lisps() {
+        assert_eq!(
+            Language::from_path("src/app/core.clj"),
+            Some(Language::Clojure)
+        );
+        assert_eq!(Language::from_path("ui.cljs"), Some(Language::Clojure));
+        assert_eq!(Language::from_path("deps.edn"), Some(Language::Clojure));
+        assert_eq!(Language::from_path("main.janet"), Some(Language::Janet));
+        assert_eq!(Language::from_path("project.jdn"), Some(Language::Janet));
     }
 }

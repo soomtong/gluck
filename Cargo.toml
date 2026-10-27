@@ -46,10 +46,23 @@ tree-sitter-c = "0.23"
 tree-sitter-asm = "0.24"
 tree-sitter-linkerscript = { path = "vendor/tree-sitter-linkerscript" }
 tree-sitter-lisette = { path = "vendor/tree-sitter-lisette" }
+tree-sitter-clojure = { path = "vendor/tree-sitter-clojure" }
+tree-sitter-janet-simple = { path = "vendor/tree-sitter-janet-simple" }
 tree-sitter-gleam = { git = "https://github.com/gleam-lang/tree-sitter-gleam", rev = "fa6d0d94" }
 ignore = "0.4"
 strsim = "0.11"
 ureq = "3"
+tree-sitter-cpp = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-lua = "0.5"
+tree-sitter-scala = "0.26"
+tree-sitter-elixir = "0.3"
+tree-sitter-erlang = "0.21"
+tree-sitter-odin = "1.3"
+tree-sitter-php = "0.25"
+tree-sitter-llvm = "1.1"
+tree-sitter-kotlin = { git = "https://github.com/fwcd/tree-sitter-kotlin", rev = "1852ea17" }
 
 [dev-dependencies]
 tempfile = "3"

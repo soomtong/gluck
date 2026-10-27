@@ -1,6 +1,24 @@
 use ratatui::style::{Color, Modifier, Style};
 use std::collections::HashMap;
 
+/// Capture names some grammars use (mostly older nvim-style queries) that
+/// would otherwise resolve to the wrong style or none at all.
+const HIGHLIGHT_ALIASES: &[(&str, &str)] = &[
+    ("keyword.function", "keyword"),
+    ("conditional", "keyword"),
+    ("repeat", "keyword"),
+    ("include", "keyword"),
+    ("storageclass", "keyword"),
+    ("exception", "keyword"),
+    ("preproc", "keyword"),
+    ("namespace", "module"),
+    ("parameter", "variable.parameter"),
+    ("method", "function"),
+    ("float", "number"),
+    ("field", "property"),
+    ("character", "string"),
+];
+
 #[derive(Debug, Clone)]
 pub struct Palette {
     pub fg: Color,
@@ -228,6 +246,9 @@ impl Palette {
         m.insert("label".into(), Style::new().fg(self.syn_type));
         m.insert("constructor".into(), Style::new().fg(self.syn_type));
         m.insert("module".into(), Style::new().fg(self.syn_variable));
+        for (alias, target) in HIGHLIGHT_ALIASES {
+            m.insert((*alias).into(), m[*target]);
+        }
         m
     }
 }
@@ -353,5 +374,15 @@ mod tests {
         assert!(map.contains_key("boolean"));
         assert!(map.contains_key("constant.builtin"));
         assert!(map.contains_key("label"));
+    }
+
+    #[test]
+    fn test_every_highlight_name_has_a_style() {
+        let map = Palette::plain().to_highlight_map();
+        for name in crate::highlight::engine::HIGHLIGHT_NAMES {
+            if *name != "none" {
+                assert!(map.contains_key(*name), "no style for `{name}`");
+            }
+        }
     }
 }
