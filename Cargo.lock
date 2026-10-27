@@ -1046,6 +1046,7 @@ dependencies = [
  "tree-sitter-asm",
  "tree-sitter-bash",
  "tree-sitter-c",
+ "tree-sitter-gleam",
  "tree-sitter-go",
  "tree-sitter-highlight",
  "tree-sitter-javascript",
@@ -3326,6 +3327,15 @@ name = "tree-sitter-c"
 version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "afd2b1bf1585dc2ef6d69e87d01db8adb059006649dd5f96f31aa789ee6e9c71"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-gleam"
+version = "1.0.0"
+source = "git+https://github.com/gleam-lang/tree-sitter-gleam?rev=fa6d0d94#fa6d0d94804f1b342e175865a3dbeb316ee5115e"
 dependencies = [
  "cc",
  "tree-sitter-language",

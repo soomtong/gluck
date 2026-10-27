@@ -96,12 +96,13 @@ Low-confidence flag: `SearchEngine::search_scored` returns `SearchOutcome { resu
 
 ### Syntax highlighting
 
-- `HighlightConfiguration::new()` signature in `tree-sitter-highlight` 0.22 is `(language, name, highlights, injections, locals)`. A past bug passed query strings into the `name` slot.
+- `HighlightConfiguration::new()` signature in `tree-sitter-highlight` 0.27 is `(language, name, highlights, injections, locals)`. A past bug passed query strings into the `name` slot.
 - One shared `HIGHLIGHT_NAMES` array drives all language configs via `.configure(HIGHLIGHT_NAMES)`. Adding a language: append names here AND add palette entries in `theme.rs::to_highlight_map()`.
 - `tree-sitter-markdown-fork` 0.7.3 doesn't export its highlight query — we embed `MARKDOWN_HIGHLIGHTS_QUERY` inline.
-- Highlighted languages: **Rust, Markdown, JSON, TypeScript, TSX, JavaScript, YAML, Swift, Bash (sh/bash/zsh), Zig, C, Asm (s/S/asm), linker scripts (ld/lds), Go, Lisette (lis)**. Extension detection goes through `lang::Language::from_path`; non-matching files fall back to plain text.
+- Highlighted languages: **Rust, Markdown, JSON, TypeScript, TSX, JavaScript, YAML, Swift, Bash (sh/bash/zsh), Zig, C, Asm (s/S/asm), linker scripts (ld/lds), Go, Lisette (lis), Gleam (gleam)**. Extension detection goes through `lang::Language::from_path`; non-matching files fall back to plain text.
 - `tree-sitter-linkerscript` is vendored at `vendor/tree-sitter-linkerscript/` (crates.io release pins tree-sitter 0.20/cc 1.0 — incompatible); grammar sources are verbatim upstream, only the Rust bindings are modernized. Synced commit + sync steps: `vendor/tree-sitter-linkerscript/UPSTREAM.md`.
-- `tree-sitter-lisette` is vendored at `vendor/tree-sitter-lisette/` from ivov/lisette `editors/tree-sitter-lisette` (no crates.io release; upstream parser.c is ABI 15, ours is regenerated at ABI 14 from the upstream `src/grammar.json` with tree-sitter CLI 0.23 for the 0.23 runtime — regenerate the same way when syncing upstream; it reproduces the vendored files byte for byte). Both vendored `build.rs` use `cc` `warnings(false)` (not per-flag `-Wno-*`, which MSVC drops) and watch `src/tree_sitter/`; lisette adds `-utf-8` on MSVC. Synced commit + sync steps: `vendor/tree-sitter-lisette/UPSTREAM.md`.
+- `tree-sitter-lisette` is vendored at `vendor/tree-sitter-lisette/` from ivov/lisette `editors/tree-sitter-lisette` (no crates.io release; upstream parser.c is ABI 15, ours was regenerated at ABI 14 with tree-sitter CLI 0.23 back when the runtime was 0.23 — the 0.27 runtime loads ABI 15, so the next sync can copy upstream parser.c verbatim and drop the regeneration step). Both vendored `build.rs` use `cc` `warnings(false)` (not per-flag `-Wno-*`, which MSVC drops) and watch `src/tree_sitter/`; lisette adds `-utf-8` on MSVC. Synced commit + sync steps: `vendor/tree-sitter-lisette/UPSTREAM.md`.
+- `tree-sitter-gleam` is a git dependency pinned by `rev` on gleam-lang/tree-sitter-gleam (crates.io 1.0.0 is stale and its bundled query ends with an `(identifier) @variable` catch-all that overrides fn/const/module captures under tree-sitter-highlight). Config passes `LOCALS_QUERY` (needed by the `#is-not? local` predicates) and skips the doc-comment markdown injection. gluck is not published to crates.io, so git deps are fine.
 
 ### Chunking
 
@@ -150,7 +151,7 @@ Low-confidence flag: `SearchEngine::search_scored` returns `SearchOutcome { resu
 
 Authoritative list lives in `Cargo.toml`. Non-obvious points:
 
-- `tree-sitter` 0.22 paired with language crates at 0.23 — bridged via `LANGUAGE.into_raw()` + `Language::from_raw(ptr as *const _)`.
+- `tree-sitter` / `tree-sitter-highlight` 0.27 (runtime ABI 13–15). Language crates connect through `tree-sitter-language`, so their versions are independent of the runtime. `Highlighter::highlight` takes `(config, source, encoding, cancellation_flag, injection_cb)`; `QueryCursor::matches` returns a `StreamingIterator` (`while let Some(m) = matches.next()`, `m.captures()`).
 - `model2vec-rs` 0.2 with `hf-hub` feature pulls the embedding model at runtime on first index build.
 - `turbovec` 1.0 is pure Rust (no BLAS). Its TQ+ calibration is explicit: `VectorIndex::calibrate()` must run before the first `add` on a full build, or the index silently loses recall. Incremental updates reuse the calibration stored in the file and persist via `sync` (append-only). Warnings go through `turbovec::set_warning_hook` → `tracing` (`main.rs`).
 - `silence.rs` uses `libc::dup2` — porting to Windows requires a no-op fallback.

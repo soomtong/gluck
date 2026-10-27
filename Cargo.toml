@@ -46,6 +46,7 @@ tree-sitter-c = "0.23"
 tree-sitter-asm = "0.24"
 tree-sitter-linkerscript = { path = "vendor/tree-sitter-linkerscript" }
 tree-sitter-lisette = { path = "vendor/tree-sitter-lisette" }
+tree-sitter-gleam = { git = "https://github.com/gleam-lang/tree-sitter-gleam", rev = "fa6d0d94" }
 ignore = "0.4"
 strsim = "0.11"
 ureq = "3"

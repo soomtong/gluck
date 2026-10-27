@@ -23,6 +23,7 @@ pub enum Language {
     Asm,
     LinkerScript,
     Lisette,
+    Gleam,
 }
 
 impl Language {
@@ -43,6 +44,7 @@ impl Language {
             "s" | "S" | "asm" => Some(Self::Asm),
             "ld" | "lds" => Some(Self::LinkerScript),
             "lis" => Some(Self::Lisette),
+            "gleam" => Some(Self::Gleam),
             "toml" => Some(Self::Toml),
             "json" | "jsonc" => Some(Self::Json),
             "yaml" | "yml" => Some(Self::Yaml),
@@ -77,6 +79,7 @@ impl Language {
             Self::Asm => "asm",
             Self::LinkerScript => "linkerscript",
             Self::Lisette => "lisette",
+            Self::Gleam => "gleam",
         }
     }
 
@@ -167,5 +170,11 @@ mod tests {
             Some(Language::Lisette)
         );
         assert!(!Language::Lisette.supports_symbol_chunking());
+    }
+
+    #[test]
+    fn detects_gleam() {
+        assert_eq!(Language::from_path("src/app.gleam"), Some(Language::Gleam));
+        assert!(!Language::Gleam.supports_symbol_chunking());
     }
 }
