@@ -1073,6 +1073,7 @@ dependencies = [
  "tree-sitter-typescript",
  "tree-sitter-yaml",
  "tree-sitter-zig",
+ "ts-parser-perl",
  "turbovec",
  "unicode-width",
  "ureq 3.4.2",
@@ -3608,6 +3609,16 @@ name = "tree-sitter-zig"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab11fc124851b0db4dd5e55983bbd9631192e93238389dcd44521715e5d53e28"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "ts-parser-perl"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "668b3649f53eeb75113d9a758eaf7c0b92c949a3753ca16a68033933bd228792"
 dependencies = [
  "cc",
  "tree-sitter-language",

@@ -293,7 +293,7 @@ gluck은 git history를 타임라인으로 삼아, 각 시점의 파일을 읽�
 - tree-sitter 기반 syntax highlight, 터미널 색상 테마 지원
 - 지원 언어
   - 시스템: C, C++, Zig, Rust, Odin, Go, Assembly, GNU linker script, LLVM IR
-  - 스크립트: Python, Ruby, Lua, JavaScript, TypeScript/TSX (node, bun), Bash/Zsh, PHP
+  - 스크립트: Python, Ruby, Lua, JavaScript, TypeScript/TSX (node, bun), Bash/Zsh, PHP, Perl
   - JVM: Java, Kotlin, Scala, Clojure
   - BEAM: Erlang, Elixir, Gleam
   - 기타: Janet, Swift, Lisette, Markdown, JSON, YAML

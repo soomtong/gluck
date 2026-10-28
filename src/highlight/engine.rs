@@ -220,6 +220,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_janet_config() {
             self.configs.insert("janet".to_string(), config);
         }
+        if let Ok(config) = Self::make_perl_config() {
+            self.configs.insert("perl".to_string(), config);
+        }
     }
 
     fn make_rust_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
@@ -583,6 +586,18 @@ impl HighlightEngine {
         config.configure(HIGHLIGHT_NAMES);
         Ok(config)
     }
+
+    fn make_perl_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            ts_parser_perl::LANGUAGE.into(),
+            "perl",
+            perl_highlights(),
+            "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
 }
 
 /// Joins query parts once. When two patterns capture the same node the later
@@ -660,6 +675,12 @@ fn janet_highlights() -> &'static str {
             JANET_EXTRA_HIGHLIGHTS,
         ],
     )
+}
+
+/// Upstream captures POD as `@text`, which matches no highlight name.
+fn perl_highlights() -> &'static str {
+    static Q: OnceLock<String> = OnceLock::new();
+    layered(&Q, &[ts_parser_perl::HIGHLIGHTS_QUERY, "(pod) @comment"])
 }
 
 // Order matters: the generic call-head pattern comes first so the special
@@ -1833,6 +1854,29 @@ mod tests {
                 ("print", p.syn_function),
                 ("\"hi\"", p.syn_string),
                 (":k", p.syn_constant),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_perl_highlight_colors() {
+        let p = crate::theme::Palette::plain();
+        assert_span_colors(
+            "script.pl",
+            "use strict;\n# note\nsub greet {\n    my ($name) = @_;\n    if ($name) { return \"hi\"; }\n    print 42;\n}\n\n=pod\n\nDocs\n\n=cut\n",
+            &[
+                ("use", p.syn_keyword),
+                ("strict", p.syn_type),
+                ("# note", p.syn_comment),
+                ("sub", p.syn_keyword),
+                ("greet", p.syn_function),
+                ("my", p.syn_keyword),
+                ("if", p.syn_keyword),
+                ("return", p.syn_keyword),
+                ("\"hi\"", p.syn_string),
+                ("print", p.syn_type),
+                ("42", p.syn_constant),
+                ("Docs", p.syn_comment),
             ],
         );
     }

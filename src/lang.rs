@@ -35,6 +35,7 @@ pub enum Language {
     LlvmIr,
     Clojure,
     Janet,
+    Perl,
 }
 
 impl Language {
@@ -76,6 +77,7 @@ impl Language {
             "ll" => Some(Self::LlvmIr),
             "clj" | "cljs" | "cljc" | "edn" | "bb" => Some(Self::Clojure),
             "janet" | "jdn" => Some(Self::Janet),
+            "pl" | "pm" => Some(Self::Perl),
             "toml" => Some(Self::Toml),
             "json" | "jsonc" => Some(Self::Json),
             "yaml" | "yml" => Some(Self::Yaml),
@@ -122,6 +124,7 @@ impl Language {
             Self::LlvmIr => "llvm",
             Self::Clojure => "clojure",
             Self::Janet => "janet",
+            Self::Perl => "perl",
         }
     }
 
@@ -260,6 +263,10 @@ mod tests {
         assert_eq!(Language::from_path("main.odin"), Some(Language::Odin));
         assert_eq!(Language::from_path("index.php"), Some(Language::Php));
         assert_eq!(Language::from_path("add.ll"), Some(Language::LlvmIr));
+        assert_eq!(Language::from_path("script.pl"), Some(Language::Perl));
+        assert_eq!(Language::from_path("lib/Foo/Bar.pm"), Some(Language::Perl));
+        // `.t` is left out: too generic to claim for Perl tests.
+        assert_eq!(Language::from_path("basic.t"), None);
     }
 
     #[test]
