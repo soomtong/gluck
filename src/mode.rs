@@ -418,6 +418,7 @@ mod tests {
             author: "Test".into(),
             date: std::time::UNIX_EPOCH,
             message: msg.into(),
+            tags: vec![],
         }
     }
 

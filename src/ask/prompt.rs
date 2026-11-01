@@ -257,6 +257,7 @@ mod tests {
             author: "T".into(),
             date: std::time::UNIX_EPOCH,
             message: "Propagate errors".into(),
+            tags: vec![],
         }
     }
 

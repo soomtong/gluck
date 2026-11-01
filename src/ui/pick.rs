@@ -12,9 +12,24 @@ fn format_date(time: std::time::SystemTime) -> String {
     layout::format_header_date(time)
 }
 
+fn tag_style(palette: &Palette) -> Style {
+    Style::new().fg(palette.accent).add_modifier(Modifier::BOLD)
+}
+
+/// One `[tag]` badge per tag, each followed by a space, so tags read as
+/// labels rather than as part of the commit title.
+fn tag_spans(tags: &[String], palette: &Palette) -> Vec<Span<'static>> {
+    let mut spans = Vec::with_capacity(tags.len() * 2);
+    for tag in tags {
+        spans.push(Span::styled(format!("[{}]", tag), tag_style(palette)));
+        spans.push(Span::raw(" "));
+    }
+    spans
+}
+
 fn format_commit_line(commit: &crate::git::commit::CommitInfo, palette: &Palette) -> Line<'static> {
     let date_str = format_date(commit.date);
-    Line::from(vec![
+    let mut spans = vec![
         Span::styled(
             format!(" {} ", commit.short_id),
             Style::new()
@@ -22,8 +37,12 @@ fn format_commit_line(commit: &crate::git::commit::CommitInfo, palette: &Palette
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!("{:<12} ", date_str), Style::new().fg(palette.dim)),
-        Span::raw(commit.message.lines().next().unwrap_or("").to_string()),
-    ])
+    ];
+    spans.extend(tag_spans(&commit.tags, palette));
+    spans.push(Span::raw(
+        commit.message.lines().next().unwrap_or("").to_string(),
+    ));
+    Line::from(spans)
 }
 
 fn split_message(msg: &str) -> (&str, &str) {
@@ -60,12 +79,14 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         let (subject, body) = split_message(&commit.message);
 
         let desc_height = {
-            let h =
-                2 + if body.is_empty() {
+            let h = 2
+                + usize::from(!commit.tags.is_empty())
+                + if body.is_empty() {
                     0
                 } else {
                     body.lines().count() + 1
-                } + 3;
+                }
+                + 3;
             (h as u16).clamp(3, area.height / 2)
         };
 
@@ -82,6 +103,11 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                 Style::new().fg(palette.dim),
             )),
         ];
+        if !commit.tags.is_empty() {
+            let mut spans = vec![Span::raw(" ")];
+            spans.extend(tag_spans(&commit.tags, palette));
+            desc_lines.push(Line::from(spans));
+        }
         if !body.is_empty() {
             desc_lines.push(Line::from(""));
             for line in body.lines() {
