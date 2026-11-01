@@ -1,5 +1,6 @@
 use crate::git::repo::{GitError, GitRepo};
 use git2::Oid;
+use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -9,6 +10,9 @@ pub struct CommitInfo {
     pub author: String,
     pub date: SystemTime,
     pub message: String,
+    /// Tag names (without `refs/tags/`) pointing at this commit, sorted.
+    /// Only `CommitStore` fills this; other constructors leave it empty.
+    pub tags: Vec<String>,
 }
 
 impl CommitInfo {
@@ -24,8 +28,30 @@ impl CommitInfo {
             author,
             date,
             message,
+            tags: Vec::new(),
         }
     }
+}
+
+/// Map every tagged commit to its tag names (annotated tags are peeled to
+/// the commit they point at). Unreadable or non-commit tags are skipped.
+pub fn tag_map(repository: &git2::Repository) -> HashMap<Oid, Vec<String>> {
+    let mut map: HashMap<Oid, Vec<String>> = HashMap::new();
+    let Ok(refs) = repository.references_glob("refs/tags/*") else {
+        return map;
+    };
+    for reference in refs.flatten() {
+        let Ok(name) = reference.shorthand() else {
+            continue;
+        };
+        if let Ok(commit) = reference.peel_to_commit() {
+            map.entry(commit.id()).or_default().push(name.to_string());
+        }
+    }
+    for tags in map.values_mut() {
+        tags.sort();
+    }
+    map
 }
 
 pub fn list_commits(repo: &GitRepo) -> Result<Vec<CommitInfo>, GitError> {
@@ -74,5 +100,22 @@ mod tests {
         assert!(c.short_id.len() <= 7);
         assert!(c.author.contains("Test"));
         assert_eq!(c.message, "Test message");
+        assert!(c.tags.is_empty());
+    }
+
+    #[test]
+    fn test_tag_map_lightweight_and_annotated() {
+        let (dir, repo) = init_test_repo();
+        let first = add_file_commit(&repo, "a.txt", b"a", "first");
+        let second = add_file_commit(&repo, "b.txt", b"b", "second");
+        let obj = repo.find_object(second, None).unwrap();
+        repo.tag_lightweight("v0.2.0", &obj, false).unwrap();
+        let sig = repo.signature().unwrap();
+        repo.tag("release", &obj, &sig, "annotated", false).unwrap();
+
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let map = tag_map(git_repo.repository());
+        assert_eq!(map.get(&second).unwrap(), &["release", "v0.2.0"]);
+        assert!(!map.contains_key(&first));
     }
 }

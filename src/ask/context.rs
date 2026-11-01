@@ -375,6 +375,7 @@ mod tests {
             author: "T".into(),
             date: std::time::UNIX_EPOCH,
             message: "Use ? operator\n\nPropagate errors instead of unwrap.".into(),
+            tags: vec![],
         }
     }
 

@@ -39,6 +39,9 @@ impl CommitIndex {
         self.index_tokens(idx, &commit.message.to_lowercase());
         self.index_tokens(idx, &commit.author.to_lowercase());
         self.index_tokens(idx, &commit.short_id.to_lowercase());
+        for tag in &commit.tags {
+            self.index_tokens(idx, &tag.to_lowercase());
+        }
     }
 
     fn index_tokens(&mut self, idx: usize, text: &str) {
@@ -108,11 +111,15 @@ impl CommitStore {
 
         let start_idx = self.inner.len();
         let mut count = 0;
+        let mut tags = crate::git::commit::tag_map(repository);
         for _ in 0..self.batch_size {
             match revwalk.next() {
                 Some(Ok(oid)) => {
-                    self.inner
-                        .push(CommitInfo::from_git_commit(&repository.find_commit(oid)?));
+                    let mut info = CommitInfo::from_git_commit(&repository.find_commit(oid)?);
+                    if let Some(names) = tags.remove(&oid) {
+                        info.tags = names;
+                    }
+                    self.inner.push(info);
                     count += 1;
                 }
                 _ => {
@@ -153,6 +160,7 @@ mod tests {
             author: author.into(),
             date: std::time::UNIX_EPOCH,
             message: msg.into(),
+            tags: vec![],
         }
     }
 
@@ -187,6 +195,14 @@ mod tests {
         c.short_id = "1a2b3c4".into();
         let index = CommitIndex::build(&[c]);
         assert_eq!(index.search("1a2b"), vec![0]);
+    }
+
+    #[test]
+    fn test_index_by_tag() {
+        let mut c = make_commit("msg", "A");
+        c.tags = vec!["v1.2.0".into()];
+        let index = CommitIndex::build(&[c, make_commit("other", "B")]);
+        assert_eq!(index.search("v1.2"), vec![0]);
     }
 
     #[test]
@@ -250,6 +266,20 @@ mod tests {
         let mut store = CommitStore::new(&git_repo, 5).unwrap();
         assert!(store.exhausted);
         assert_eq!(store.load_batch(&git_repo).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_store_attaches_tags() {
+        let (dir, repo) = init_test_repo();
+        let tagged = add_file_commit(&repo, "a.txt", b"a", "release");
+        add_file_commit(&repo, "b.txt", b"b", "after");
+        let obj = repo.find_object(tagged, None).unwrap();
+        repo.tag_lightweight("v1.0.0", &obj, false).unwrap();
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let store = CommitStore::new(&git_repo, 5).unwrap();
+        assert!(store.loaded[0].tags.is_empty());
+        assert_eq!(store.loaded[1].tags, vec!["v1.0.0".to_string()]);
+        assert_eq!(store.search("v1.0"), vec![1]);
     }
 
     #[test]
