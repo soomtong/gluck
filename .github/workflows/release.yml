@@ -52,7 +52,7 @@ jobs:
       - name: Create archive (Unix)
         if: runner.os != 'Windows'
         run: |
-          VERSION="${TAG_NAME#v}"
+          VERSION="${TAG_NAME#v}"; VERSION="${VERSION//\//-}"  # branch names (dry run) may contain "/"
           mkdir -p dist
           cp "target/${CARGO_TARGET}/release/glc" dist/
           tar -czf "glc-${VERSION}-${OS_NAME}.tar.gz" -C dist glc
@@ -60,7 +60,7 @@ jobs:
       - name: Create archive (Windows)
         if: runner.os == 'Windows'
         run: |
-          VERSION="${TAG_NAME#v}"
+          VERSION="${TAG_NAME#v}"; VERSION="${VERSION//\//-}"  # branch names (dry run) may contain "/"
           mkdir -p dist
           cp "target/${CARGO_TARGET}/release/glc.exe" dist/
           7z a "glc-${VERSION}-${OS_NAME}.zip" ./dist/glc.exe
