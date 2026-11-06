@@ -34,9 +34,22 @@ brew tap soomtong/tap
 brew install glc
 ```
 
+### Linux (x86_64 바이너리)
+
+[Releases](https://github.com/soomtong/gluck/releases)에서 `glc-<버전>-linux-x86_64.tar.gz`를 받아 PATH에 둡니다.
+
+```bash
+tar -xzf glc-<버전>-linux-x86_64.tar.gz
+install -m 755 glc ~/.local/bin/glc
+```
+
+- glibc 2.35 이상이 필요합니다 (Ubuntu 22.04+, Debian 12+). 그보다 오래된 배포판(RHEL/Rocky 9 등)은 아래 소스 빌드를 이용해 주세요.
+- 런타임에 `libstdc++`와 `libz`가 필요합니다. 일반 배포판에는 기본 설치되어 있습니다.
+- Linux aarch64용 바이너리는 제공하지 않습니다.
+
 ### Linux (직접 빌드)
 
-Linux용 바이너리는 별도로 제공되지 않습니다. Rust 툴체인이 설치되어 있다면 직접 빌드할 수 있습니다.
+Rust 툴체인이 설치되어 있다면 직접 빌드할 수 있습니다.
 
 ```bash
 cargo install --git https://github.com/soomtong/gluck
