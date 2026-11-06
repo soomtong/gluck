@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+  # Build-only dry run: verifies the matrix and archives without publishing.
+  workflow_dispatch:
 
 jobs:
   build:
@@ -16,6 +18,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # ubuntu-22.04 pins the glibc floor to 2.35; building on a newer
+          # runner would make the binary require that newer glibc.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            os_name: linux-x86_64
           - target: aarch64-apple-darwin
             os: macos-latest
             os_name: darwin-aarch64
@@ -69,6 +76,7 @@ jobs:
   release:
     name: Release
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
