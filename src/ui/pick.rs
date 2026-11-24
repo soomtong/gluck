@@ -69,12 +69,12 @@ fn file_stats(file: &DiffFile) -> (usize, usize) {
     (added, removed)
 }
 
-fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
+/// Returns the Files list offset so the caller can seed the next frame.
+fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) -> Option<usize> {
     let palette = &app.palette;
+    let mut files_offset = None;
     if let Mode::Pick(state) = &app.mode {
-        let Some(&idx) = state.filtered_indices.get(state.selected) else {
-            return;
-        };
+        let &idx = state.filtered_indices.get(state.selected)?;
         let commit = &state.commits[idx];
         let (subject, body) = split_message(&commit.message);
 
@@ -158,11 +158,12 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
                 .highlight_style(palette.highlight_style())
                 .scroll_padding(1);
 
-            let mut files_state = ListState::default();
+            let mut files_state = ListState::default().with_offset(app.pick_files_offset);
             if !diff.files.is_empty() {
                 files_state.select(Some(state.selected_diff_file.min(diff.files.len() - 1)));
             }
             frame.render_stateful_widget(files_list, files_area, &mut files_state);
+            files_offset = Some(files_state.offset());
         } else {
             let no_diff = Paragraph::new(" (root commit) ")
                 .block(
@@ -174,11 +175,13 @@ fn render_commit_detail(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             frame.render_widget(no_diff, files_area);
         }
     }
+    files_offset
 }
 
 pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let (header, body, footer) = layout::app_layout(area);
     let mut list_geometry = None;
+    let mut files_offset = None;
 
     if let Mode::Pick(state) = &app.mode {
         let palette = &app.palette;
@@ -217,19 +220,25 @@ pub fn render_pick(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
             .highlight_style(palette.highlight_style())
             .scroll_padding(3);
 
-        let mut list_state = ListState::default();
-        list_state.select(Some(state.selected));
+        // Seed with last frame's offset so moving up moves the cursor, not
+        // the list; a fresh offset pins the selection to the bottom padding.
+        let mut list_state = ListState::default()
+            .with_offset(app.pick_list_offset)
+            .with_selected(Some(state.selected));
 
         frame.render_stateful_widget(list, commit_area, &mut list_state);
         list_geometry = Some((commit_area, list_state.offset()));
         if let Some(area) = detail_area {
-            render_commit_detail(frame, area, app);
+            files_offset = render_commit_detail(frame, area, app);
         }
     }
 
     if let Some((area, offset)) = list_geometry {
         app.pick_list_area = Some(area);
         app.pick_list_offset = offset;
+    }
+    if let Some(offset) = files_offset {
+        app.pick_files_offset = offset;
     }
 
     let hints = [

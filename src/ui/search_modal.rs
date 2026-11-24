@@ -10,42 +10,43 @@ use crate::app::App;
 use crate::search::modal_state::ModalState;
 use crate::search::DocKind;
 
-pub fn render_search_modal(frame: &mut Frame, app: &App) {
+/// Returns the results list offset so the caller can seed the next frame.
+pub fn render_search_modal(frame: &mut Frame, app: &App) -> Option<usize> {
     let modal = &app.search_modal;
     if !modal.is_open() {
-        return;
+        return None;
     }
 
     let area = centered_rect(70, 60, frame.area());
     frame.render_widget(Clear, area);
 
     match &modal.state {
-        ModalState::Closed => {}
+        ModalState::Closed => None,
         ModalState::Loading { input, message } => {
             if input.is_empty() {
                 render_loading(frame, area, message.as_str(), app);
             } else {
                 render_input(frame, area, input.as_str(), app);
             }
+            None
         }
         ModalState::Typing { input } => {
             render_input(frame, area, input.as_str(), app);
+            None
         }
         ModalState::Results {
             input,
             results,
             weak,
-        } => {
-            render_results(
-                frame,
-                area,
-                input.as_str(),
-                results,
-                *weak,
-                modal.selected,
-                app,
-            );
-        }
+        } => Some(render_results(
+            frame,
+            area,
+            input.as_str(),
+            results,
+            *weak,
+            modal.selected,
+            app,
+        )),
     }
 }
 
@@ -113,7 +114,7 @@ fn render_results(
     weak: bool,
     selected: usize,
     app: &App,
-) {
+) -> usize {
     let body = draw_input_bar(frame, area, input, app);
 
     let items: Vec<ListItem> = results
@@ -145,9 +146,11 @@ fn render_results(
         .block(results_block)
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
-    let mut state = ListState::default();
-    state.select(Some(selected));
+    let mut state = ListState::default()
+        .with_offset(app.search_modal.list_offset)
+        .with_selected(Some(selected));
     frame.render_stateful_widget(list, body, &mut state);
+    state.offset()
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

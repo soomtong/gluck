@@ -102,8 +102,11 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
             .highlight_style(palette.highlight_style())
             .scroll_padding(3);
 
-        let mut list_state = ListState::default();
-        list_state.select(Some(state.selected_file));
+        // Seed with last frame's offset so moving up moves the cursor, not
+        // the list; a fresh offset pins the selection to the bottom padding.
+        let mut list_state = ListState::default()
+            .with_offset(app.view_tree_offset)
+            .with_selected(Some(state.selected_file));
         frame.render_stateful_widget(tree_list, left, &mut list_state);
         tree_offset = list_state.offset();
 

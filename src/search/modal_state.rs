@@ -33,6 +33,8 @@ impl ModalState {
 pub struct SemanticSearchModal {
     pub state: ModalState,
     pub selected: usize,
+    /// Results list offset from the last frame, seeded into the next render.
+    pub list_offset: usize,
     last_input: String,
 }
 
@@ -41,6 +43,7 @@ impl SemanticSearchModal {
         Self {
             state: ModalState::Closed,
             selected: 0,
+            list_offset: 0,
             last_input: String::new(),
         }
     }

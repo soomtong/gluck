@@ -71,7 +71,7 @@ cargo run --bin glc -- report [--out FILE.md]    # search quality regression che
 ### Pick
 
 - `PickState.selected_diff_file` is carried into `DiffState.selected_file` on `Tab` and back on `Esc` (clamped via `PickState::set_diff_file`).
-- Scroll uses ratatui `List::scroll_padding(3)`, which is symmetric only. A custom asymmetric margin was rolled back on 2026-05-24 (interaction with d/u and Ctrl+F/B batch moves). If retrying: hold `PickState.scroll`, render with `skip().take()`, recompute via `normalize_pick_scroll(prev_selected)` after every move, handle `Event::Resize`.
+- Scroll uses ratatui `List::scroll_padding(3)`. Every scrolling `List` (commit list, Pick Files, View tree, search modal) seeds `ListState` with last frame's offset (`App.pick_list_offset` / `pick_files_offset` / `view_tree_offset`, `SemanticSearchModal.list_offset`); a fresh `ListState::default()` recomputes from 0 and pins the cursor to the bottom padding, so moving up scrolls the list instead of the cursor. Reset the offset when entering a new list (Pick → View does).
 - `CommitStore` loads 200-commit batches; after a batch the active filter re-runs `update_filter()` and `selected` is remapped to keep the cursor.
 
 ### Search

@@ -132,6 +132,7 @@ pub struct App {
     pub view_tree_offset: usize,
     pub pick_list_area: Option<Rect>,
     pub pick_list_offset: usize,
+    pub pick_files_offset: usize,
     last_click: Option<(Instant, usize)>,
     // Ask (LLM explain): drawer state, its rect, the content pane's row
     // map (captured at render time) and the mouse selection over it.
@@ -184,6 +185,7 @@ impl App {
             view_tree_offset: 0,
             pick_list_area: None,
             pick_list_offset: 0,
+            pick_files_offset: 0,
             last_click: None,
             ask_panel: AskPanel::new(),
             ask_panel_area: None,
@@ -217,7 +219,9 @@ impl App {
         }
 
         if self.search_modal.is_open() {
-            ui::search_modal::render_search_modal(frame, self);
+            if let Some(offset) = ui::search_modal::render_search_modal(frame, self) {
+                self.search_modal.list_offset = offset;
+            }
         }
 
         if self.debug_overlay {
@@ -953,6 +957,7 @@ impl App {
                 if let Some(&idx) = state.filtered_indices.get(state.selected) {
                     let commit = state.commits[idx].clone();
                     self.mode = Mode::View(self.make_view_state(commit));
+                    self.view_tree_offset = 0;
                     self.load_view_file();
                 }
             }
@@ -2765,6 +2770,45 @@ mod tests {
     }
 
     #[test]
+    fn test_search_modal_scroll_up_moves_cursor_not_list() {
+        use crate::search::modal_state::ModalState;
+        use crate::search::{DocKind, DocMeta, SearchResult};
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let (_dir, mut app) = test_app();
+        let results: Vec<SearchResult> = (0..40)
+            .map(|i| SearchResult {
+                score: 0.0,
+                meta: DocMeta {
+                    doc_id: i,
+                    kind: DocKind::File,
+                    title: format!("file{}.rs", i),
+                    commit_oid: String::new(),
+                    path: None,
+                    line_start: None,
+                    line_end: None,
+                },
+            })
+            .collect();
+        app.search_modal.state = ModalState::Results {
+            input: "test".into(),
+            results,
+            weak: false,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+        for _ in 0..30 {
+            app.handle_ctrl_key(KeyCode::Char('n'));
+            terminal.draw(|f| app.render(f)).unwrap();
+        }
+        let bottom_offset = app.search_modal.list_offset;
+        assert!(bottom_offset > 0, "results should have scrolled down");
+
+        app.handle_ctrl_key(KeyCode::Char('p'));
+        terminal.draw(|f| app.render(f)).unwrap();
+        assert_eq!(app.search_modal.list_offset, bottom_offset);
+    }
+
+    #[test]
     fn test_ctrl_p_in_modal_moves_up() {
         use crate::search::modal_state::ModalState;
         use crate::search::{DocKind, DocMeta, SearchResult};
@@ -3780,6 +3824,33 @@ mod tests {
 
         app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, 2));
         assert!(matches!(app.mode, Mode::View(_)));
+    }
+
+    #[test]
+    fn test_pick_scroll_up_moves_cursor_not_list() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let (dir, repo) = init_test_repo();
+        for i in 0..30 {
+            add_file_commit(&repo, "a.txt", format!("v{i}").as_bytes(), &format!("c{i}"));
+        }
+        let git_repo = GitRepo::open(dir.path()).unwrap();
+        let mut app = App::new(git_repo, Config::default()).unwrap();
+        // Narrow width keeps the commit list full-width (no detail pane).
+        let mut terminal = Terminal::new(TestBackend::new(60, 16)).unwrap();
+        for _ in 0..20 {
+            app.handle_key(KeyCode::Char('j'));
+            terminal.draw(|f| app.render(f)).unwrap();
+        }
+        let bottom_offset = app.pick_list_offset;
+        assert!(bottom_offset > 0, "list should have scrolled down");
+
+        app.handle_key(KeyCode::Char('k'));
+        terminal.draw(|f| app.render(f)).unwrap();
+        assert_eq!(
+            app.pick_list_offset, bottom_offset,
+            "moving up away from the top padding must not scroll the list"
+        );
     }
 
     // ── Word wrap render tests ──
