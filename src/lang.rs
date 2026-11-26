@@ -23,6 +23,7 @@ pub enum Language {
     Asm,
     LinkerScript,
     Lisette,
+    Cyber,
     Gleam,
     Ruby,
     Lua,
@@ -65,6 +66,7 @@ impl Language {
             "s" | "S" | "asm" => Some(Self::Asm),
             "ld" | "lds" => Some(Self::LinkerScript),
             "lis" => Some(Self::Lisette),
+            "cy" => Some(Self::Cyber),
             "gleam" => Some(Self::Gleam),
             "rb" | "rake" | "gemspec" | "ru" => Some(Self::Ruby),
             "lua" => Some(Self::Lua),
@@ -112,6 +114,7 @@ impl Language {
             Self::Asm => "asm",
             Self::LinkerScript => "linkerscript",
             Self::Lisette => "lisette",
+            Self::Cyber => "cyber",
             Self::Gleam => "gleam",
             Self::Ruby => "ruby",
             Self::Lua => "lua",
@@ -224,6 +227,15 @@ mod tests {
             Some(Language::Lisette)
         );
         assert!(!Language::Lisette.supports_symbol_chunking());
+    }
+
+    #[test]
+    fn detects_cyber() {
+        assert_eq!(
+            Language::from_path("examples/calculator.cy"),
+            Some(Language::Cyber)
+        );
+        assert!(!Language::Cyber.supports_symbol_chunking());
     }
 
     #[test]

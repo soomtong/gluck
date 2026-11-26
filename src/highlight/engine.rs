@@ -175,6 +175,9 @@ impl HighlightEngine {
         if let Ok(config) = Self::make_lisette_config() {
             self.configs.insert("lisette".to_string(), config);
         }
+        if let Ok(config) = Self::make_cyber_config() {
+            self.configs.insert("cyber".to_string(), config);
+        }
         if let Ok(config) = Self::make_gleam_config() {
             self.configs.insert("gleam".to_string(), config);
         }
@@ -382,6 +385,18 @@ impl HighlightEngine {
             tree_sitter_go::LANGUAGE.into(),
             "go",
             tree_sitter_go::HIGHLIGHTS_QUERY,
+            "",
+            "",
+        )?;
+        config.configure(HIGHLIGHT_NAMES);
+        Ok(config)
+    }
+
+    fn make_cyber_config() -> Result<HighlightConfiguration, Box<dyn std::error::Error>> {
+        let mut config = HighlightConfiguration::new(
+            tree_sitter_cyber::LANGUAGE.into(),
+            "cyber",
+            tree_sitter_cyber::HIGHLIGHTS_QUERY,
             "",
             "",
         )?;
@@ -1565,6 +1580,28 @@ mod tests {
                 "{path}: `{text}` has the wrong color, spans: {lines:#?}"
             );
         }
+    }
+
+    #[test]
+    fn test_cyber_highlight_colors() {
+        let p = crate::theme::Palette::plain();
+        assert_span_colors(
+            "calc.cy",
+            "-- calculator\ntype Add:\n    with Operation\n\nfn apply(a float) -> int:\n    var n = 42\n    return 'x'\n",
+            &[
+                ("-- calculator", p.syn_comment),
+                ("type", p.syn_keyword),
+                ("with", p.syn_keyword),
+                ("Add", p.syn_type),
+                ("fn", p.syn_keyword),
+                ("apply", p.syn_function),
+                ("float", p.syn_type),
+                ("var", p.syn_keyword),
+                ("42", p.syn_constant),
+                ("return", p.syn_keyword),
+                ("'x'", p.syn_string),
+            ],
+        );
     }
 
     #[test]

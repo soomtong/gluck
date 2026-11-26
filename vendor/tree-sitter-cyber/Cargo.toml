@@ -1,0 +1,15 @@
+[package]
+name = "tree-sitter-cyber"
+version = "0.4.2"
+description = "Cyber grammar for tree-sitter, vendored from soomtong/cyber (exts/tree-sitter)"
+license = "MIT"
+edition = "2021"
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cc = "1"

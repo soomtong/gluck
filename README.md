@@ -310,7 +310,7 @@ gluck은 git history를 타임라인으로 삼아, 각 시점의 파일을 읽�
   - 스크립트: Python, Ruby, Lua, JavaScript, TypeScript/TSX (node, bun), Bash/Zsh, PHP, Perl
   - JVM: Java, Kotlin, Scala, Clojure
   - BEAM: Erlang, Elixir, Gleam
-  - 기타: Janet, Swift, Lisette, Markdown, JSON, YAML
+  - 기타: Janet, Swift, Lisette, Cyber, Markdown, JSON, YAML
 - 지원하지 않는 확장자는 plain text로 표시
 
 #### grammar를 정적 링크하는 이유
