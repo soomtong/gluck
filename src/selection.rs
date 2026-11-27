@@ -7,6 +7,7 @@
 //! space a selection lives in, so a stale one is dropped on any change.
 
 use crate::ask::context::Side;
+use crate::git::diff::DiffLine;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
@@ -109,6 +110,43 @@ pub fn mark_selected(rows: &mut [Line<'static>]) {
     }
 }
 
+/// File lines `lo..=hi` (0-based) of `raw`, joined with `\n`.
+pub fn file_lines_text(raw: &str, lo: usize, hi: usize) -> String {
+    raw.lines()
+        .skip(lo)
+        .take(hi.saturating_sub(lo) + 1)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Diff lines at `indices` as copyable text. A side-by-side pane (`side`
+/// set) copies that side's code as-is; unified copies patch-style lines
+/// with a `+`/`-`/` ` marker so mixed old/new lines stay distinguishable.
+pub fn diff_lines_text(lines: &[DiffLine], indices: &[usize], side: Option<Side>) -> String {
+    indices
+        .iter()
+        .filter_map(|&i| lines.get(i))
+        .filter_map(|dl| {
+            let (marker, content) = match dl {
+                DiffLine::Context { content, .. } => (' ', content),
+                DiffLine::Added { content, .. } => ('+', content),
+                DiffLine::Removed { content, .. } => ('-', content),
+            };
+            let on_side = match (side, marker) {
+                (None, _) | (_, ' ') => true,
+                (Some(Side::New), m) => m == '+',
+                (Some(Side::Old), m) => m == '-',
+            };
+            let content = content.trim_end_matches(['\n', '\r']);
+            on_side.then(|| match side {
+                Some(_) => content.to_string(),
+                None => format!("{marker}{content}"),
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +189,59 @@ mod tests {
         assert!(s.contains(5, Some(Side::New)));
         assert!(!s.contains(5, Some(Side::Old)));
         assert!(!s.contains(10, Some(Side::New)));
+    }
+
+    fn diff() -> Vec<DiffLine> {
+        vec![
+            DiffLine::Context {
+                old_line_no: 1,
+                new_line_no: 1,
+                content: "fn main() {\n".into(),
+            },
+            DiffLine::Removed {
+                line_no: 2,
+                content: "    old();\n".into(),
+            },
+            DiffLine::Added {
+                line_no: 2,
+                content: "    new();\r\n".into(),
+            },
+            DiffLine::Context {
+                old_line_no: 3,
+                new_line_no: 3,
+                content: "}".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn test_file_lines_text_inclusive_and_clamped() {
+        let raw = "a\nb\nc\nd\n";
+        assert_eq!(file_lines_text(raw, 1, 2), "b\nc");
+        assert_eq!(file_lines_text(raw, 3, 3), "d");
+        assert_eq!(file_lines_text(raw, 2, 99), "c\nd");
+        assert_eq!(file_lines_text(raw, 9, 12), "");
+    }
+
+    #[test]
+    fn test_diff_lines_text_unified_keeps_markers() {
+        assert_eq!(
+            diff_lines_text(&diff(), &[0, 1, 2, 3], None),
+            " fn main() {\n-    old();\n+    new();\n }"
+        );
+    }
+
+    #[test]
+    fn test_diff_lines_text_side_copies_plain_code() {
+        let all = [0, 1, 2, 3];
+        assert_eq!(
+            diff_lines_text(&diff(), &all, Some(Side::New)),
+            "fn main() {\n    new();\n}"
+        );
+        assert_eq!(
+            diff_lines_text(&diff(), &all, Some(Side::Old)),
+            "fn main() {\n    old();\n}"
+        );
+        assert_eq!(diff_lines_text(&diff(), &[9], None), "");
     }
 }

@@ -163,6 +163,9 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
 
         let timeout = if app.is_indexing() || app.ask_streaming() {
             Duration::from_millis(80)
+        } else if app.notice_pending() {
+            // Wake up to clear the footer notice once it expires.
+            Duration::from_millis(250)
         } else if app.pending_view_load.is_some() {
             // Wake up soon enough to run the debounced file load.
             Duration::from_millis(30)
@@ -173,12 +176,27 @@ fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()>
             read_and_dispatch(app)?;
         }
         app.tick_pending_view_load();
+        flush_clipboard(app);
+        // The next iteration redraws without the expired notice.
+        app.expire_notice();
 
         if app.should_quit {
             break;
         }
     }
     Ok(())
+}
+
+/// Write queued selection text to the terminal clipboard via OSC 52. The
+/// terminal gives no acknowledgement, so failures are only logged.
+fn flush_clipboard(app: &mut App) {
+    let Some(text) = app.pending_clipboard.take() else {
+        return;
+    };
+    let copy = crossterm::clipboard::CopyToClipboard::to_clipboard_from(text);
+    if let Err(e) = crossterm::execute!(std::io::stdout(), copy) {
+        tracing::warn!("clipboard copy failed: {e}");
+    }
 }
 
 fn read_and_dispatch(app: &mut App) -> Result<()> {

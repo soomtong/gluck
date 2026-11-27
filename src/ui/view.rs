@@ -236,5 +236,6 @@ pub fn render_view(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
     if app.repo_changed {
         hints.push(("[!]", "repo changed"));
     }
+    let hints = layout::with_notice(app, hints);
     layout::render_footer(frame, footer, &app.palette, &hints);
 }

@@ -361,6 +361,7 @@ pub enum Action {
     ToggleDiffColor,
     Ask,
     AskDeep,
+    CopySelection,
 }
 
 #[derive(Debug, Clone)]
@@ -397,6 +398,7 @@ impl KeyBindings {
         bindings.insert(KeyCode::Char('c'), Action::ToggleDiffColor);
         bindings.insert(KeyCode::Char('a'), Action::Ask);
         bindings.insert(KeyCode::Char('A'), Action::AskDeep);
+        bindings.insert(KeyCode::Char('y'), Action::CopySelection);
         Self { bindings }
     }
 

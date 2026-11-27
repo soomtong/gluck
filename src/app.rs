@@ -142,7 +142,16 @@ pub struct App {
     pub selection: Option<Selection>,
     last_ask: Option<(String, Endpoint, ChatRequest)>,
     pub ask_cache: AnswerCache,
+    /// Text waiting to be written to the terminal clipboard (OSC 52). The
+    /// main loop flushes it outside `draw` so the sequence never lands in
+    /// the middle of a frame.
+    pub pending_clipboard: Option<String>,
+    /// Short-lived footer message (e.g. "copied 3 lines").
+    notice: Option<(String, Instant)>,
 }
+
+/// How long a footer notice stays visible.
+pub const NOTICE_TTL: Duration = Duration::from_secs(2);
 
 impl App {
     pub fn new(repo: GitRepo, config: Config) -> Result<Self> {
@@ -193,6 +202,8 @@ impl App {
             selection: None,
             last_ask: None,
             ask_cache: AnswerCache::new(crate::ask::cache::DEFAULT_CAPACITY),
+            pending_clipboard: None,
+            notice: None,
         };
         app.highlight.set_theme(app.palette.to_highlight_map());
         app.update_pick_diff();
@@ -420,6 +431,7 @@ impl App {
             Action::ToggleDiffColor => self.toggle_diff_color(),
             Action::Ask => self.ask(None),
             Action::AskDeep => self.ask(Some(Detail::Deep)),
+            Action::CopySelection => self.copy_selection(),
         }
     }
 
@@ -531,8 +543,99 @@ impl App {
     fn selection_release(&mut self) {
         match &mut self.selection {
             Some(sel) if sel.dragging && !sel.moved => self.selection = None,
+            Some(sel) if sel.dragging => {
+                sel.dragging = false;
+                if self.config.ui.copy_on_select {
+                    self.copy_selection();
+                }
+            }
             Some(sel) => sel.dragging = false,
             None => {}
+        }
+    }
+
+    /// `y` / drag release: queue the selected lines for the clipboard.
+    fn copy_selection(&mut self) {
+        if !matches!(self.mode, Mode::View(_) | Mode::Diff(_)) {
+            return;
+        }
+        match self.selected_text() {
+            Some((text, n)) if !text.is_empty() => {
+                let unit = if n == 1 { "line" } else { "lines" };
+                self.set_notice(format!("copied {n} {unit}"));
+                self.pending_clipboard = Some(text);
+            }
+            Some(_) => self.set_notice("nothing to copy on this side".into()),
+            None => self.set_notice("drag over lines to select, then y".into()),
+        }
+    }
+
+    /// Selected content as plain text plus its line count; None without a
+    /// current selection.
+    pub fn selected_text(&self) -> Option<(String, usize)> {
+        let target = self.content_target();
+        let sel = self
+            .selection
+            .as_ref()
+            .filter(|s| Some(&s.target) == target.as_ref())?;
+        let (lo, hi) = sel.bounds();
+        match &self.mode {
+            Mode::View(state) => {
+                let crate::mode::FileContent::Text { raw, .. } = &state.file_content else {
+                    return None;
+                };
+                let text = crate::selection::file_lines_text(raw, lo, hi);
+                let n = if text.is_empty() {
+                    0
+                } else {
+                    text.lines().count()
+                };
+                Some((text, n))
+            }
+            Mode::Diff(state) => {
+                let file = state.diff_result.files.get(state.selected_file)?;
+                let indices = if state.side_by_side {
+                    ui::diff::aligned_to_file_indices(&file.lines, lo, hi, sel.side)
+                } else {
+                    (lo..=hi.min(file.lines.len().saturating_sub(1))).collect()
+                };
+                let text = crate::selection::diff_lines_text(&file.lines, &indices, sel.side);
+                let n = if text.is_empty() {
+                    0
+                } else {
+                    text.lines().count()
+                };
+                Some((text, n))
+            }
+            Mode::Pick(_) => None,
+        }
+    }
+
+    pub fn set_notice(&mut self, msg: String) {
+        self.notice = Some((msg, Instant::now()));
+    }
+
+    /// The footer notice while it is fresh.
+    pub fn notice(&self) -> Option<&str> {
+        self.notice
+            .as_ref()
+            .filter(|(_, at)| at.elapsed() < NOTICE_TTL)
+            .map(|(m, _)| m.as_str())
+    }
+
+    /// Whether a notice is still showing, so the loop wakes to clear it.
+    pub fn notice_pending(&self) -> bool {
+        self.notice.is_some()
+    }
+
+    /// Drop the notice once it has expired.
+    pub fn expire_notice(&mut self) {
+        if self
+            .notice
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() >= NOTICE_TTL)
+        {
+            self.notice = None;
         }
     }
 
@@ -4042,6 +4145,86 @@ mod tests {
         app.handle_key(KeyCode::Char('v'));
         render_to_lines(&mut app, 80, 20);
         assert!(app.selection.is_none());
+    }
+
+    // ── Selection copy ──
+
+    /// Drag over logical rows `from..=to` of a single (non-split) pane,
+    /// using the row map captured by the last render.
+    fn drag_rows(app: &mut App, from: u16, to: u16) {
+        let inner = app.content_rows.as_ref().expect("row map").inner;
+        drag(app, inner.x + 2, inner.y + from, inner.y + to);
+    }
+
+    #[test]
+    fn test_drag_copies_selected_side_and_shows_notice() {
+        let (_dir, mut app) = ask_diff_app();
+        drag(&mut app, 45, 6, 8);
+        assert_eq!(app.pending_clipboard.as_deref(), Some("L2\nl3\nl4"));
+        assert_eq!(app.notice(), Some("copied 3 lines"));
+        let lines = render_to_lines(&mut app, 80, 20);
+        assert!(lines.iter().any(|l| l.contains("[✓] copied 3 lines")));
+    }
+
+    #[test]
+    fn test_drag_copies_unified_diff_with_markers() {
+        let (_dir, mut app) = ask_diff_app();
+        app.handle_key(KeyCode::Char('v'));
+        render_to_lines(&mut app, 80, 20);
+        // Unified rows: 0 l1 | 1 -l2 | 2 +L2 | 3 l3 ...
+        drag_rows(&mut app, 1, 3);
+        assert_eq!(app.pending_clipboard.as_deref(), Some("-l2\n+L2\n l3"));
+    }
+
+    #[test]
+    fn test_drag_copies_view_file_lines() {
+        let (_dir, mut app) = ask_test_app();
+        app.handle_key(KeyCode::Enter);
+        assert!(matches!(app.mode, Mode::View(_)));
+        render_to_lines(&mut app, 80, 20);
+        drag_rows(&mut app, 1, 2);
+        assert_eq!(app.pending_clipboard.as_deref(), Some("L2\nl3"));
+        assert_eq!(app.notice(), Some("copied 2 lines"));
+    }
+
+    #[test]
+    fn test_copy_on_select_off_waits_for_y() {
+        let (_dir, mut app) = ask_diff_app();
+        app.config.ui.copy_on_select = false;
+        drag(&mut app, 45, 6, 6);
+        assert!(app.pending_clipboard.is_none());
+        assert!(app.notice().is_none());
+        // Wide enough that the trailing hints aren't truncated.
+        let lines = render_to_lines(&mut app, 220, 20);
+        assert!(lines.iter().any(|l| l.contains("[y] copy")));
+        render_to_lines(&mut app, 80, 20);
+
+        app.handle_key(KeyCode::Char('y'));
+        assert_eq!(app.pending_clipboard.as_deref(), Some("L2"));
+        assert_eq!(app.notice(), Some("copied 1 line"));
+    }
+
+    #[test]
+    fn test_y_without_selection_hints_and_click_does_not_copy() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let (_dir, mut app) = ask_diff_app();
+        app.handle_key(KeyCode::Char('y'));
+        assert!(app.pending_clipboard.is_none());
+        assert!(app.notice().unwrap().contains("drag"));
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 45, 6));
+        app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 45, 6));
+        assert!(app.pending_clipboard.is_none());
+    }
+
+    #[test]
+    fn test_notice_expires() {
+        let (_dir, mut app) = ask_diff_app();
+        app.notice = Some(("old".into(), Instant::now() - NOTICE_TTL));
+        assert!(app.notice().is_none());
+        assert!(app.notice_pending());
+        app.expire_notice();
+        assert!(!app.notice_pending());
     }
 
     #[test]

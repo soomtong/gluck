@@ -109,7 +109,7 @@ pub fn render_footer(
     frame.render_widget(footer, area);
 }
 
-/// Footer hints for the Ask feature (View/Diff).
+/// Footer hints for the Ask feature and selection copy (View/Diff).
 pub fn ask_hints(app: &crate::app::App) -> Vec<(&'static str, &'static str)> {
     let mut hints = Vec::new();
     if app.ask_panel.is_open() {
@@ -121,12 +121,28 @@ pub fn ask_hints(app: &crate::app::App) -> Vec<(&'static str, &'static str)> {
         hints.push((keys, "answer"));
         hints.push(("[r]", "retry"));
     }
-    if app.selection.as_ref().is_some_and(|s| !s.dragging) {
+    let selected = app.selection.as_ref().is_some_and(|s| !s.dragging);
+    if selected {
         hints.push(("[a/A]", "explain selection"));
     } else {
         hints.push(("[a/A]", "ask"));
     }
+    if selected {
+        hints.push(("[y]", "copy"));
+    }
     hints
+}
+
+/// Put a fresh notice (e.g. "copied 3 lines") first, so a long footer
+/// truncated at the right edge never hides it.
+pub fn with_notice<'a>(
+    app: &'a crate::app::App,
+    hints: Vec<(&'a str, &'a str)>,
+) -> Vec<(&'a str, &'a str)> {
+    match app.notice() {
+        Some(msg) => std::iter::once(("[✓]", msg)).chain(hints).collect(),
+        None => hints,
+    }
 }
 
 pub fn render_search_bar(frame: &mut ratatui::Frame, area: Rect, palette: &Palette, query: &str) {

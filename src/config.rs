@@ -130,6 +130,9 @@ pub struct UiConfig {
     /// Diff mode "Advanced diff color": syntax-highlighted lines with a
     /// tinted background instead of fg-colored plain text (toggled with `c`).
     pub advanced_diff: bool,
+    /// Copy a mouse drag selection to the clipboard on release (OSC 52).
+    /// `y` copies the selection regardless.
+    pub copy_on_select: bool,
 }
 
 impl Default for UiConfig {
@@ -138,6 +141,7 @@ impl Default for UiConfig {
             scroll_lines: 3,
             word_wrap: true,
             advanced_diff: true,
+            copy_on_select: true,
         }
     }
 }

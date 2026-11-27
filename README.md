@@ -102,6 +102,7 @@ glc ignore          # 기본 제외 목록으로 .glcignore 생성 (--force: 덮
 | `^N` / `^P` | 이전(older)/다음(newer) 커밋 이동 |
 | `s` | 시맨틱 검색 모달 열기 |
 | `a` / `A` | 화면(또는 선택 영역)을 LLM에게 설명 요청 / 자세히 |
+| `y` | 드래그로 선택한 줄을 클립보드에 복사 |
 
 ### Diff 모드 — 변경 비교
 
@@ -118,6 +119,7 @@ glc ignore          # 기본 제외 목록으로 .glcignore 생성 (--force: 덮
 | `^N` / `^P` | 이전(older)/다음(newer) 커밋 쌍 이동 |
 | `s` | 시맨틱 검색 모달 열기 |
 | `a` / `A` | 화면(또는 선택 영역)을 LLM에게 설명 요청 / 자세히 |
+| `y` | 드래그로 선택한 줄을 클립보드에 복사 |
 
 ### 시맨틱 검색 모달
 
@@ -129,6 +131,22 @@ glc ignore          # 기본 제외 목록으로 .glcignore 생성 (--force: 덮
 - 인덱스가 없으면 `I` 키로 빌드 가능: force rebuild index
 
 사용 전 `glc index`로 인덱스를 먼저 빌드할 수 있습니다.
+
+### 선택 영역 복사
+
+View/Diff 본문을 마우스로 드래그하면 손을 떼는 순간 선택한 줄이 시스템 클립보드에 복사되고, footer에 `[✓] copied N lines`가 잠깐 표시됩니다. `y`로 다시 복사할 수 있습니다.
+
+- View: 파일 내용 그대로
+- Diff unified: `+` / `-` / ` ` 표시를 붙인 patch 형태
+- Diff side-by-side: 드래그한 pane(old/new)의 코드만, 표시 없이
+
+복사는 OSC 52 터미널 시퀀스로 하므로 SSH 원격에서도 로컬 클립보드로 들어갑니다. 터미널이 OSC 52를 지원해야 합니다.
+
+- 바로 동작: Ghostty, WezTerm, kitty, Alacritty, foot, Windows Terminal
+- 설정 필요: iTerm2 (Settings → General → Selection → "Applications in terminal may access clipboard"), tmux (`set -g set-clipboard on`)
+- 미지원: macOS Terminal.app
+
+자동 복사를 끄려면 `[ui] copy_on_select = false`로 두고, 필요할 때 `y`로 복사합니다.
 
 ### Ask — LLM 설명
 
@@ -242,6 +260,8 @@ name = "plain"
 scroll_lines = 3
 # View/Diff 긴 줄 word wrap (기본: true, `w` 키로 토글 시 저장됨)
 word_wrap = true
+# 드래그를 놓으면 선택 줄을 클립보드에 복사 (OSC 52, 기본: true). false면 `y`로만 복사
+copy_on_select = true
 
 [ask]
 # 활성 프로바이더. 비우면 환경변수 키가 있는 첫 프리셋 자동 선택
